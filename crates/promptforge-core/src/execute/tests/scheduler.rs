@@ -14,12 +14,16 @@
 //! while suspended in an arm).
 
 use std::num::NonZeroUsize;
+use std::sync::Condvar;
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use super::*;
 use crate::execute::protocol::Answer;
 use crate::execute::scheduler::Scheduler;
 use crate::model::{ModelBinding, ModelId};
 use promptforge_model_client::model::ModelInvocation;
+use shared_vfs::{Entry, ExecId, MemoryBackend, Stat, Vfs, VfsAccess, VfsError, VfsPath};
 
 /// The model set the live H1 pass would leave behind: one `writer` binding
 /// as the prompt-wide default. The scheduler's tests bypass H1, so they
@@ -2515,14 +2519,168 @@ async fn two_live_arms_appending_one_path_terminate_with_a_determinism_violation
     }
 }
 
+/// A one-shot gate for the winning arm's backend append: the first
+/// `append` the backend serves parks with its write claim held until the
+/// losing arm's conflict observation opens the gate, so the cross-arm
+/// conflict fires no matter how late the second op's blocking-pool thread
+/// starts. The parked wait is bounded: a claims model that stopped
+/// conflicting would otherwise strand the run-end drain on the parked op,
+/// and the test must fail, never hang.
+#[derive(Default)]
+struct AppendGate {
+    released: Mutex<bool>,
+    release: Condvar,
+    taken: AtomicBool,
+}
+
+impl AppendGate {
+    /// Parks the first caller until the gate opens; later callers pass.
+    fn block_first(&self) {
+        if self.taken.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let mut released = self
+            .released
+            .lock()
+            .expect("the gate mutex is not poisoned");
+        while !*released {
+            let (guard, elapsed) = self
+                .release
+                .wait_timeout(released, Duration::from_secs(10))
+                .expect("the gate mutex is not poisoned");
+            released = guard;
+            if elapsed.timed_out() {
+                // Backstop only: a working claims model opens the gate
+                // from the conflict observation long before this.
+                break;
+            }
+        }
+    }
+
+    /// Releases the parked append.
+    fn open(&self) {
+        let mut released = self
+            .released
+            .lock()
+            .expect("the gate mutex is not poisoned");
+        *released = true;
+        self.release.notify_all();
+    }
+}
+
+/// Opens the gate when the losing arm's append fails: the conflict's
+/// failed observation fires before the answer posts, so the winner's
+/// parked op completes ahead of the run-end drain that awaits it.
+struct GateObserver {
+    gate: Arc<AppendGate>,
+}
+
+impl Observer for GateObserver {
+    fn observe(&self, _execution: &str, _section: &str, event: Observation) {
+        if event == Observation::StoreAppendFailed {
+            self.gate.open();
+        }
+    }
+}
+
+/// A memory backend whose first `append` parks on the gate, so the first
+/// arm to reach the backend holds its write claim until the sibling's
+/// claim check has met it.
+struct GatedStore {
+    inner: MemoryBackend,
+    gate: Arc<AppendGate>,
+}
+
+impl Vfs for GatedStore {
+    fn acquire(&mut self, id: ExecId) -> std::result::Result<Box<dyn VfsAccess>, VfsError> {
+        Ok(Box::new(GatedAccess {
+            inner: self.inner.acquire(id)?,
+            gate: Arc::clone(&self.gate),
+        }))
+    }
+
+    fn release(&mut self, id: ExecId) -> std::result::Result<(), VfsError> {
+        self.inner.release(id)
+    }
+}
+
+struct GatedAccess {
+    inner: Box<dyn VfsAccess>,
+    gate: Arc<AppendGate>,
+}
+
+impl VfsAccess for GatedAccess {
+    fn read(&self, path: &VfsPath) -> std::result::Result<Vec<u8>, VfsError> {
+        self.inner.read(path)
+    }
+
+    fn write(&mut self, path: &VfsPath, contents: &[u8]) -> std::result::Result<(), VfsError> {
+        self.inner.write(path, contents)
+    }
+
+    fn append(&mut self, path: &VfsPath, contents: &[u8]) -> std::result::Result<(), VfsError> {
+        self.gate.block_first();
+        self.inner.append(path, contents)
+    }
+
+    fn remove(&mut self, path: &VfsPath, recursive: bool) -> std::result::Result<(), VfsError> {
+        self.inner.remove(path, recursive)
+    }
+
+    fn exists(&self, path: &VfsPath) -> std::result::Result<bool, VfsError> {
+        self.inner.exists(path)
+    }
+
+    fn glob(&self, pattern: &str) -> std::result::Result<Vec<String>, VfsError> {
+        self.inner.glob(pattern)
+    }
+
+    fn list(&self, path: &VfsPath) -> std::result::Result<Vec<Entry>, VfsError> {
+        self.inner.list(path)
+    }
+
+    fn stat(&self, path: &VfsPath) -> std::result::Result<Stat, VfsError> {
+        self.inner.stat(path)
+    }
+
+    fn mkdir(&mut self, path: &VfsPath, recursive: bool) -> std::result::Result<(), VfsError> {
+        self.inner.mkdir(path, recursive)
+    }
+
+    fn rename(&mut self, from: &VfsPath, to: &VfsPath) -> std::result::Result<(), VfsError> {
+        self.inner.rename(from, to)
+    }
+
+    fn copy(&mut self, from: &VfsPath, to: &VfsPath) -> std::result::Result<(), VfsError> {
+        self.inner.copy(from, to)
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn two_arms_appending_one_path_boom_without_any_other_suspension() {
     // The store operation alone is the interleaving point now: every store
     // op is a leaf yield, so the arms park live on their appends and the
-    // second op to execute in the blocking pool meets the first arm's
-    // standing claim. The old premise - arms that never suspend at I/O run
-    // one at a time - is gone, and the cross-arm append booms.
-    let store = TestStore::new();
+    // cross-arm append booms. Which arm's op executes first is the
+    // blocking pool's choice, and an op that runs to completion lets its
+    // arm finish and release its claims - so the test cannot rely on the
+    // second op starting while the first is still in flight. The gate
+    // parks the first op to reach the backend with its write claim held,
+    // and the second op's claim check meets that standing claim no matter
+    // how late its thread starts; the conflict's failed observation then
+    // opens the gate, so the winner's op completes ahead of the run-end
+    // drain that awaits it.
+    let gate = Arc::new(AppendGate::default());
+    let store = TestStore::from_vfs(
+        VfsRef::builder()
+            .mount(
+                promptforge_vfs::STORE_MOUNT,
+                GatedStore {
+                    inner: MemoryBackend::new(),
+                    gate: Arc::clone(&gate),
+                },
+            )
+            .build(),
+    );
     let md = "---\nname: t\ndescription: d\npromptforge: 0\n---\n\n\
         # Fanout\n\n\
         ## Parent\n\n\
@@ -2536,7 +2694,13 @@ async fn two_arms_appending_one_path_boom_without_any_other_suspension() {
         return item\n\
         ```\n";
     let prompt = parse(md);
-    let ctx = scheduler_context_on(&prompt, &store, Arc::new(NullObserver::default()));
+    let ctx = scheduler_context_on(
+        &prompt,
+        &store,
+        Arc::new(GateObserver {
+            gate: Arc::clone(&gate),
+        }),
+    );
     let error = Scheduler::new(&ctx, None)
         .drive()
         .await

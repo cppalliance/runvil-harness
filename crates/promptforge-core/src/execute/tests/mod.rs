@@ -225,6 +225,12 @@ impl TestStore {
         TestStore(promptforge_vfs::empty())
     }
 
+    /// Wraps a caller-built handle - a gated backend, say - in the test
+    /// store's seeding and post-run assertion helpers.
+    fn from_vfs(vfs: VfsRef) -> TestStore {
+        TestStore(vfs)
+    }
+
     /// The handle the run and the context builders take.
     fn vfs(&self) -> &VfsRef {
         &self.0
