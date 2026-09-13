@@ -3,8 +3,8 @@
 use promptforge_tool_picker::{CandidateGroup, ToolPicker};
 
 use super::{
-    ModelBindOpts, ModelCatalog, ModelInvocation, ModelResolver, ResolvedModel,
-    model_from_picker_id, picker_catalog_from,
+    ModelBindOpts, ModelCatalog, ModelCatalogFiltered, ModelInvocation, ModelResolver,
+    ResolvedModel, model_from_picker_id, picker_catalog_from,
 };
 use crate::{Error, Result};
 

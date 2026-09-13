@@ -1,12 +1,11 @@
-//! Model value types: validated temperature, thinking mode, descriptor,
-//! bind/invocation options, prompt-local bindings, and completion options.
+//! Model value types: validated temperature, bind/invocation options,
+//! prompt-local bindings, and completion options.
 
 use std::num::NonZeroU32;
 use std::sync::Mutex;
 
-use serde::Deserialize;
+use shared_promptforge_api::models::ModelId;
 
-use super::ModelId;
 use crate::{Error, Result};
 
 /// The largest sampling temperature the backend accepts.
@@ -65,106 +64,6 @@ pub enum TemperatureError {
         /// The rejected value.
         value: f64,
     },
-}
-
-/// Whether a catalogued model can emit thinking tokens.
-///
-/// # Examples
-///
-/// ```
-/// use promptforge_model_client::model::ThinkingMode;
-///
-/// // Deserialized from the lowercase gateway wire form.
-/// let mode: ThinkingMode = serde_json::from_str("\"switchable\"")?;
-/// assert_eq!(mode, ThinkingMode::Switchable);
-/// # Ok::<(), serde_json::Error>(())
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum ThinkingMode {
-    /// The backend never emits thinking tokens.
-    Never,
-    /// The backend always emits thinking tokens.
-    Always,
-    /// The client may turn thinking on or off per request.
-    Switchable,
-}
-
-/// One catalogued model with live-resolution metadata.
-///
-/// `#[non_exhaustive]` so the descriptor is only ever built through
-/// [`ModelDescriptor::new`] and its validated context window is preserved.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct ModelDescriptor {
-    id: ModelId,
-    description: String,
-    context: NonZeroU32,
-    thinking: ThinkingMode,
-}
-
-impl ModelDescriptor {
-    /// Builds a descriptor from its identity and catalog fields.
-    ///
-    /// The context window is a [`NonZeroU32`], so a zero-token window is
-    /// unrepresentable.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::num::NonZeroU32;
-    /// use promptforge_model_client::model::{ModelDescriptor, ModelId, ThinkingMode};
-    ///
-    /// let context = NonZeroU32::new(131_072).ok_or("context is non-zero")?;
-    /// let model = ModelDescriptor::new(
-    ///     ModelId::gateway("analyst")?,
-    ///     "A careful analysis model",
-    ///     context,
-    ///     ThinkingMode::Switchable,
-    /// );
-    /// assert_eq!(model.context(), context);
-    /// assert_eq!(model.thinking(), ThinkingMode::Switchable);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[must_use]
-    pub fn new(
-        id: ModelId,
-        description: impl Into<String>,
-        context: NonZeroU32,
-        thinking: ThinkingMode,
-    ) -> Self {
-        Self {
-            id,
-            description: description.into(),
-            context,
-            thinking,
-        }
-    }
-
-    /// Returns the stable identity.
-    #[must_use]
-    pub fn id(&self) -> &ModelId {
-        &self.id
-    }
-
-    /// Returns the prose used for semantic resolve.
-    #[must_use]
-    pub fn description(&self) -> &str {
-        &self.description
-    }
-
-    /// Returns the context window size in tokens (always non-zero).
-    #[must_use]
-    pub fn context(&self) -> NonZeroU32 {
-        self.context
-    }
-
-    /// Returns the thinking capability.
-    #[must_use]
-    pub fn thinking(&self) -> ThinkingMode {
-        self.thinking
-    }
 }
 
 /// Optional hard constraints and invocation parameters from `models.bind`.

@@ -16,9 +16,9 @@
 //! canonical `shared-promptforge-api` vocabulary. Metadata never fails a
 //! completion: a malformed section degrades to `None` with a warning.
 
-use shared_promptforge_api::events::{LlamaTimings, Usage, VllmMetrics};
 use serde::Deserialize;
 use serde_json::Value;
+use shared_promptforge_api::events::{LlamaTimings, Usage, VllmMetrics};
 
 use crate::client::{CompletionResult, ToolCall};
 use crate::{Error, Result};

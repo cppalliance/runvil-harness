@@ -17,14 +17,14 @@
 use std::num::NonZeroU32;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use shared_promptforge_api::observe::NullObserver;
-use shared_promptforge_api::untrusted::GuardNonce;
 use promptforge_lua::{
     LuaProgram, MessageContent, MessageRecord, MessageRole, SectionVm, ToolCallRecord, ToolSet,
     project_messages,
 };
 use promptforge_model_client::model::ModelSet;
 use serde_json::json;
+use shared_promptforge_api::observe::NullObserver;
+use shared_promptforge_api::untrusted::GuardNonce;
 
 const EXECUTION: &str = "bench";
 const SECTION: &str = "Bench";

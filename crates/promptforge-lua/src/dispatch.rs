@@ -7,10 +7,10 @@
 //! here - the crate every executor already depends on - is what stops
 //! dispatch semantics from forking.
 
+use promptforge_tools::OutputTrust;
 use shared_promptforge_api::cancel;
 use shared_promptforge_api::observe::{Observer, detail};
 use shared_promptforge_api::untrusted::GuardNonce;
-use promptforge_tools::OutputTrust;
 
 use crate::error::{Error, Result};
 use crate::{ToolBinding, ToolCallCounts};
@@ -151,10 +151,10 @@ pub async fn dispatch_tool(
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use shared_promptforge_api::cancel::CancelHandle;
-    use shared_promptforge_api::observe::{NullObserver, Observation};
     use promptforge_tools::{Tool, ToolError, ToolErrorKind, ToolId, ToolOutput};
     use serde_json::json;
+    use shared_promptforge_api::cancel::CancelHandle;
+    use shared_promptforge_api::observe::{NullObserver, Observation};
 
     use super::*;
 

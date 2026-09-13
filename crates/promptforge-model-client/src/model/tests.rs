@@ -95,25 +95,6 @@ fn same_weights_different_invocation_compare_unequal() {
 }
 
 #[test]
-fn model_id_rejects_empty_and_control_characters() {
-    assert!(ModelId::gateway("").is_err());
-    assert!(ModelId::new("", "name").is_err());
-    assert!(ModelId::new("server", "").is_err());
-    assert!(ModelId::new("server", "na\nme").is_err());
-    assert!(ModelId::gateway("valid-alias").is_ok());
-}
-
-#[test]
-fn model_catalog_rejects_duplicate_ids() {
-    let descriptor =
-        |name: &str| ModelDescriptor::new(gateway_id(name), "d", ctx(8_192), ThinkingMode::Never);
-    let err = ModelCatalog::new([descriptor("dup"), descriptor("dup")])
-        .expect_err("a catalog with duplicate ids must be rejected");
-    assert!(matches!(err, ModelCatalogError::DuplicateId { .. }));
-    assert!(ModelCatalog::new([descriptor("a"), descriptor("b")]).is_ok());
-}
-
-#[test]
 fn binding_construction_is_atomic_with_context() {
     let binding = ModelBinding::new(
         "remote",

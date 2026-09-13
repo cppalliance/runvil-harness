@@ -13,8 +13,8 @@
 
 use mlua::{Lua, LuaSerdeExt, MultiValue, Value};
 
-use shared_promptforge_api::events::{CallMetrics, ToolCallEvent};
 use promptforge_model_client::model::ModelBinding;
+use shared_promptforge_api::events::{CallMetrics, ToolCallEvent};
 
 use crate::tools::tool_alias;
 use crate::{

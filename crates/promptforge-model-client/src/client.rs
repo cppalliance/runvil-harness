@@ -19,12 +19,13 @@ mod transport;
 mod wire;
 
 pub use config::{GatewayEndpoint, SecretError, SecretString};
+// Canonical in `shared-promptforge-api`; re-exported so the
+// `promptforge_model_client::client::StreamDelta` path keeps resolving.
+pub use shared_promptforge_api::wire::StreamDelta;
 pub use transport::GatewayClient;
 #[doc(hidden)]
 pub use wire::ToolSchemaError;
-pub use wire::{
-    Completion, CompletionResult, Message, StreamDelta, ToolArguments, ToolCall, ToolSchema,
-};
+pub use wire::{Completion, CompletionResult, Message, ToolArguments, ToolCall, ToolSchema};
 
 #[cfg(test)]
 mod tests;

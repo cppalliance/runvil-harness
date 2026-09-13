@@ -5,8 +5,8 @@ use std::fmt;
 use std::num::NonZeroU64;
 use std::time::{Duration, Instant};
 
-use shared_promptforge_api::events::ClientTiming;
 use serde_json::Value;
+use shared_promptforge_api::events::ClientTiming;
 
 use super::stream::{Applied, SseScanner, StreamAccumulator};
 use super::{Completion, GatewayEndpoint, Message, SecretString, StreamDelta, ToolSchema};

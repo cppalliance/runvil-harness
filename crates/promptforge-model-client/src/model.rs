@@ -17,121 +17,44 @@ use serde_json::Value;
 use crate::Result;
 
 mod error;
-mod ids;
 mod options;
 mod resolver;
 mod transport;
 
 pub use error::{CompletionError, CompletionErrorKind};
-pub use ids::{ModelCatalogError, ModelId, ModelIdError};
 pub use options::{
-    CompletionOptions, ModelBindOpts, ModelBinding, ModelDescriptor, ModelInvocation, ModelSet,
-    ModelView, Temperature, TemperatureError, ThinkingMode,
+    CompletionOptions, ModelBindOpts, ModelBinding, ModelInvocation, ModelSet, ModelView,
+    Temperature, TemperatureError,
 };
+// The model identity/catalog vocabulary is canonical in
+// `shared-promptforge-api` and re-exported here so existing
+// `promptforge_model_client::model::` paths keep resolving.
 pub use resolver::PickerModelResolver;
+pub use shared_promptforge_api::models::{
+    ModelCatalog, ModelCatalogError, ModelDescriptor, ModelId, ModelIdError, ThinkingMode,
+};
 pub use transport::{fetch_model_catalog, subscribe_progress};
 
-/// Complete live model set for one bind pass.
+/// Returns the descriptors satisfying `opts` as borrowed references.
 ///
-/// `#[non_exhaustive]` so the collision-free catalog invariant is only ever
-/// established through [`ModelCatalog::new`]/[`ModelCatalog::empty`].
-// No `Eq`: bindings carry `f64` temperatures transitively.
-#[derive(Debug, Clone, Default, PartialEq)]
-#[non_exhaustive]
-pub struct ModelCatalog {
-    models: Vec<ModelDescriptor>,
+/// This clones nothing (MODEL-017): the semantic resolver builds its picker
+/// directly from these borrowed matches and selects the resolved descriptor
+/// back out of the same borrowed slice.
+///
+/// `#[doc(hidden)]`: a cross-crate seam for the resolver and its test
+/// doubles in `promptforge-core`, not host API. An extension trait because
+/// [`ModelCatalog`] is canonical in `shared-promptforge-api` while
+/// [`ModelBindOpts`] binding machinery stays here.
+#[doc(hidden)]
+pub trait ModelCatalogFiltered {
+    /// Returns the descriptors satisfying `opts` as borrowed references.
+    #[must_use]
+    fn filtered(&self, opts: &ModelBindOpts) -> Vec<&ModelDescriptor>;
 }
 
-impl ModelCatalog {
-    /// Builds a catalog from descriptors in host order.
-    ///
-    /// # Errors
-    /// Returns [`ModelCatalogError::DuplicateId`] when two descriptors share one
-    /// stable [`ModelId`], so an ambiguous catalog is unrepresentable.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::num::NonZeroU32;
-    /// use promptforge_model_client::model::{ModelCatalog, ModelDescriptor, ModelId, ThinkingMode};
-    ///
-    /// let ctx = NonZeroU32::new(8_192).ok_or("context is non-zero")?;
-    /// let id = ModelId::gateway("small")?;
-    /// let catalog = ModelCatalog::new([ModelDescriptor::new(
-    ///     id.clone(),
-    ///     "A tiny model",
-    ///     ctx,
-    ///     ThinkingMode::Never,
-    /// )])?;
-    /// assert!(catalog.contains(&id));
-    /// assert_eq!(catalog.models().len(), 1);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn new(
-        models: impl IntoIterator<Item = ModelDescriptor>,
-    ) -> std::result::Result<ModelCatalog, ModelCatalogError> {
-        let models: Vec<ModelDescriptor> = models.into_iter().collect();
-        for (index, model) in models.iter().enumerate() {
-            if models[..index].iter().any(|prior| prior.id() == model.id()) {
-                return Err(ModelCatalogError::DuplicateId {
-                    server: model.id().server().to_owned(),
-                    name: model.id().name().to_owned(),
-                });
-            }
-        }
-        Ok(Self { models })
-    }
-
-    /// Builds a catalog from descriptors already known to be collision-free.
-    ///
-    /// Used by internal callers whose inputs are already validated, where
-    /// duplicate checking is redundant.
-    pub(crate) fn from_validated(models: Vec<ModelDescriptor>) -> ModelCatalog {
-        Self { models }
-    }
-
-    /// An empty catalog; every `models.bind` resolves as absent.
-    #[must_use]
-    pub fn empty() -> Self {
-        Self::from_validated(Vec::new())
-    }
-
-    /// Returns every descriptor.
-    #[must_use]
-    pub fn models(&self) -> &[ModelDescriptor] {
-        &self.models
-    }
-
-    /// Returns whether the catalog has no entries.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.models.is_empty()
-    }
-
-    /// Looks up a descriptor by stable identity.
-    #[must_use]
-    pub fn get(&self, id: &ModelId) -> Option<&ModelDescriptor> {
-        self.models.iter().find(|model| model.id() == id)
-    }
-
-    /// Returns whether the catalog contains a descriptor with `id`.
-    #[must_use]
-    pub fn contains(&self, id: &ModelId) -> bool {
-        self.get(id).is_some()
-    }
-
-    /// Returns the descriptors satisfying `opts` as borrowed references.
-    ///
-    /// This clones nothing (MODEL-017): the semantic resolver builds its picker
-    /// directly from these borrowed matches and selects the resolved descriptor
-    /// back out of the same borrowed slice.
-    ///
-    /// `#[doc(hidden)]`: a cross-crate seam for the resolver and its test
-    /// doubles in `promptforge-core`, not host API.
-    #[doc(hidden)]
-    #[must_use]
-    pub fn filtered(&self, opts: &ModelBindOpts) -> Vec<&ModelDescriptor> {
-        self.models
+impl ModelCatalogFiltered for ModelCatalog {
+    fn filtered(&self, opts: &ModelBindOpts) -> Vec<&ModelDescriptor> {
+        self.models()
             .iter()
             .filter(|model| satisfies_constraints(model, opts))
             .collect()

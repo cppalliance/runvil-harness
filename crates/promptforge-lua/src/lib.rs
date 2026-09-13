@@ -42,13 +42,13 @@ pub(crate) use mlua::{
 };
 pub(crate) use serde_json::Value as Json;
 
-pub(crate) use shared_promptforge_api::observe::{Observation, Observer, detail};
-pub(crate) use shared_promptforge_api::untrusted::GuardNonce;
 pub(crate) use promptforge_model_client::model::{
     ModelBinding, ModelResolver, ModelSet, ModelView,
 };
 pub(crate) use promptforge_store::{Access, Store};
 pub(crate) use promptforge_tools::{Tool, ToolCatalog, ToolId};
+pub(crate) use shared_promptforge_api::observe::{Observation, Observer, detail};
+pub(crate) use shared_promptforge_api::untrusted::GuardNonce;
 
 pub(crate) use crate::compactors::install_compactors;
 pub(crate) use crate::error::Result;

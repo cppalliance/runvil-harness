@@ -15,7 +15,10 @@
 //! [`ClientTiming`], [`CallMetrics`]) is canonical in
 //! `shared-promptforge-api` and re-exported here: the client parses each
 //! response body's call metadata into it, and [`client::Completion`] carries
-//! the result.
+//! the result. The model identity/catalog vocabulary ([`model::ModelId`],
+//! [`model::ModelCatalog`], [`model::ModelDescriptor`],
+//! [`model::ThinkingMode`]) and the streaming [`client::StreamDelta`] are
+//! canonical there too and re-exported through their historical paths.
 //!
 //! The crate contains no prompt parser, no Lua runtime, and no executor; it is
 //! the gateway's model client only, never a universal client.

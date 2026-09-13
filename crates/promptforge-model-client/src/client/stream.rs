@@ -18,8 +18,8 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
+use super::StreamDelta;
 use super::transport::escape_controls;
-use super::wire::StreamDelta;
 use crate::{Error, Result};
 
 /// Splits a raw SSE byte stream into `data:` payloads.

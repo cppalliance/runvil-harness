@@ -1,7 +1,7 @@
 use mlua::{Lua, LuaSerdeExt, Value};
+use serde_json::json;
 use shared_promptforge_api::observe::NullObserver;
 use shared_promptforge_api::untrusted::GuardNonce;
-use serde_json::json;
 
 use super::install_messages;
 use crate::protocol::{Answer, MessageRecord, Request, ToolCallRecord, YieldParse};

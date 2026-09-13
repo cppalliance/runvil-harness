@@ -21,8 +21,8 @@ use crate::model::{ModelBinding, ModelId, ModelSet};
 use crate::observe::{NullObserver, Observer};
 use crate::tools::{Tool, ToolError, ToolId, ToolOutput};
 use crate::untrusted::GuardNonce;
-use shared_promptforge_api::cancel::scope;
 use promptforge_model_client::model::ModelInvocation;
+use shared_promptforge_api::cancel::scope;
 
 fn test_models() -> ModelSet {
     ModelSet {

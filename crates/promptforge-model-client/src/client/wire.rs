@@ -1,8 +1,8 @@
 //! Wire types for the chat-completions protocol: messages, tool schemas,
 //! tool calls, and completion results.
 
-use shared_promptforge_api::events::{ClientTiming, LlamaTimings, Usage, VllmMetrics};
 use serde_json::Value;
+use shared_promptforge_api::events::{ClientTiming, LlamaTimings, Usage, VllmMetrics};
 
 /// A single chat message.
 ///
@@ -357,22 +357,6 @@ impl ToolArguments<'_> {
             .into_iter()
             .flat_map(|map| map.keys().map(String::as_str))
     }
-}
-
-/// One live increment from a streaming completion.
-///
-/// [`GatewayClient::complete`](crate::client::GatewayClient::complete) invokes
-/// its delta callback with these as the stream arrives: answer text and the
-/// reasoning side channel stay separated so a consumer can render them
-/// differently. Tool-call fragments are never surfaced as deltas; they buffer
-/// inside the client until the batch is complete and validated.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum StreamDelta {
-    /// A fragment of the assistant's answer text.
-    Text(String),
-    /// A fragment of the reasoning side channel, never part of the answer.
-    Reasoning(String),
 }
 
 /// The outcome of a completion round trip.
