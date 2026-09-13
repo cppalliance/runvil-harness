@@ -6,14 +6,13 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-description = "PromptForge integrator facade: pipeline::run for document prompts, agent::run for agent programs"
+description = "PromptForge integrator facade: pipeline::run for document prompts"
 readme = "README.md"
 keywords = ["promptforge", "prompt", "llm", "agent", "ai"]
 categories = ["development-tools"]
 documentation = "https://cppalliance.github.io/promptforge/"
 
 [dependencies]
-promptforge-agent.workspace = true
 promptforge-core.workspace = true
 
 [lints]

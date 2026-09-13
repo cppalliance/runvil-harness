@@ -483,11 +483,12 @@ pub(crate) struct Scheduler<'a> {
     answers: mpsc::UnboundedReceiver<(RequestId, Answer<Error>)>,
     /// Join handles of the in-flight leaf I/O tasks, keyed by request so
     /// a fatal fanout arm can abort a sibling arm's own in-flight round;
-    /// every handle is aborted on cancellation, and aborting a completed
-    /// task is a no-op. The handles are kept joinable (not bare abort
-    /// handles) so a terminal run outcome can drain them: a store op
-    /// runs on the blocking pool, where abort detaches rather than
-    /// interrupts, and only the op's completion drops its access clone.
+    /// every handle is aborted on cancellation or on the driver future's
+    /// drop, and aborting a completed task is a no-op. The handles are
+    /// kept joinable (not bare abort handles) so a terminal run outcome
+    /// can drain them: a store op runs on the blocking pool, where abort
+    /// detaches rather than interrupts, and only the op's completion
+    /// drops its access clone.
     io_tasks: HashMap<RequestId, JoinHandle<()>>,
     /// The request ids whose in-flight tasks an abort discarded: a task
     /// that posted its answer before the abort landed delivers it late,
@@ -515,6 +516,22 @@ pub(crate) struct Scheduler<'a> {
     /// way. One resolution serves the whole pass, so its decision cache
     /// keeps the single-flight guarantee across blocks and resumes.
     h1_resolution: Option<RuntimeResolution<'a>>,
+}
+
+/// Aborts every in-flight leaf task when the driver future is dropped
+/// mid-suspension - a host tearing the run down without polling it to a
+/// terminal state. Dropping a bare `JoinHandle` detaches the task, which
+/// would strand a broker wait or gateway round forever (a session close
+/// would leak its pending input wait and never emit `input_cancelled`),
+/// so the drop path applies the same abort the cancellation path does.
+/// The claims-release join in [`Self::drain_io_tasks`] is unnecessary
+/// here: a dropped run delivers no result.
+impl Drop for Scheduler<'_> {
+    fn drop(&mut self) {
+        for handle in self.io_tasks.values() {
+            handle.abort();
+        }
+    }
 }
 
 impl<'a> Scheduler<'a> {

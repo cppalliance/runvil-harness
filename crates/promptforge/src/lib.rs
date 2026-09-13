@@ -1,8 +1,7 @@
 //! PromptForge integrator-facing facade.
 //!
-//! Two entry points: [`pipeline`] for document prompts (`.md`) and [`agent`]
-//! for agent programs (`.lua`). This crate re-exports only; it never grows
-//! logic or types of its own.
+//! One entry point: [`pipeline`] for document prompts (`.md`). This crate
+//! re-exports only; it never grows logic or types of its own.
 //!
 //! Integrators who need substrate types (parser, store, tools, models)
 //! depend on those crates directly.
@@ -14,9 +13,4 @@ pub mod pipeline {
     pub use promptforge_core::input::{
         INPUT_UNAVAILABLE_FALLBACK, InputBroker, InputError, InputOutcome,
     };
-}
-
-/// Agent programs (`.lua`): the Lua program owns the loop.
-pub mod agent {
-    pub use promptforge_agent::{AgentConfig, AgentError, run_agent as run};
 }
