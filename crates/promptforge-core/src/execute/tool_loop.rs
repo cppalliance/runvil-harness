@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::atomic::AtomicU32;
 
-use promptforge_core_support::events::{CallMetrics, ToolCallEvent};
+use shared_promptforge_api::events::{CallMetrics, ToolCallEvent};
 
 use crate::cancel;
 use crate::client::{

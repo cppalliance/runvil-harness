@@ -58,7 +58,7 @@ use crate::events::{CallMetrics, ToolCallEvent};
 /// wildcard arm (the enum is `#[non_exhaustive]`):
 ///
 /// ```
-/// use promptforge_core_support::observe::Observation;
+/// use shared_promptforge_api::observe::Observation;
 ///
 /// fn describe(event: &Observation) -> String {
 ///     match event {
@@ -388,7 +388,7 @@ pub mod detail {
 /// ```
 /// use std::sync::atomic::{AtomicUsize, Ordering};
 ///
-/// use promptforge_core_support::observe::{Observation, Observer};
+/// use shared_promptforge_api::observe::{Observation, Observer};
 ///
 /// #[derive(Default)]
 /// struct Counter(AtomicUsize);
@@ -419,7 +419,7 @@ pub trait Observer: Send + Sync {
     /// variants carry no payload and are safe to record. [`Observation`] is
     /// `#[non_exhaustive]`, so a wildcard arm is required:
     /// ```
-    /// use promptforge_core_support::observe::{Observation, NullObserver, Observer};
+    /// use shared_promptforge_api::observe::{Observation, NullObserver, Observer};
     ///
     /// let observer = NullObserver::default();
     /// let event = Observation::Lua("author checkpoint text".to_owned());
@@ -541,7 +541,7 @@ pub trait Observer: Send + Sync {
 ///
 /// # Examples
 /// ```
-/// use promptforge_core_support::observe::{Observation, NullObserver, Observer};
+/// use shared_promptforge_api::observe::{Observation, NullObserver, Observer};
 ///
 /// // `#[non_exhaustive]`, so construct it through `Default` rather than the
 /// // unit literal.

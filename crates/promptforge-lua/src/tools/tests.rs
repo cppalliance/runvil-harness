@@ -1,6 +1,6 @@
 use mlua::{Lua, Value, Variadic};
-use promptforge_core_support::observe::NullObserver;
-use promptforge_core_support::untrusted::GuardNonce;
+use shared_promptforge_api::observe::NullObserver;
+use shared_promptforge_api::untrusted::GuardNonce;
 use serde_json::json;
 
 use super::decode::{add_local_params_schema, collect_tools_add_entries, tool_alias};

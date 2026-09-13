@@ -24,7 +24,7 @@
 //!
 //! # Examples
 //! ```
-//! use promptforge_core_support::events::{RuntimeEvent, RuntimeEventKind};
+//! use shared_promptforge_api::events::{RuntimeEvent, RuntimeEventKind};
 //!
 //! let event = RuntimeEvent {
 //!     kind: RuntimeEventKind::UserInput,
@@ -61,7 +61,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// # Examples
 /// ```
-/// use promptforge_core_support::events::{EventLog, RuntimeEvent, RuntimeEventKind};
+/// use shared_promptforge_api::events::{EventLog, RuntimeEvent, RuntimeEventKind};
 ///
 /// struct VecLog(Vec<RuntimeEvent>);
 ///

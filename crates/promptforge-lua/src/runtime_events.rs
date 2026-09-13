@@ -14,7 +14,7 @@
 //! Installed by the agent executor alone; a section VM never has a
 //! `runtime` global.
 
-use promptforge_core_support::events::EventLog;
+use shared_promptforge_api::events::EventLog;
 
 use super::{
     Arc, AtomicU64, Error, Lua, LuaSerdeExt, MetaMethod, Ordering, Result, UserData,
@@ -169,7 +169,7 @@ pub fn install_runtime_events(
 
 #[cfg(test)]
 mod tests {
-    use promptforge_core_support::events::{RuntimeEvent, RuntimeEventKind};
+    use shared_promptforge_api::events::{RuntimeEvent, RuntimeEventKind};
 
     use super::*;
     use crate::AtomicUsize;

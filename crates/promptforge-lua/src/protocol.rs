@@ -13,7 +13,7 @@
 
 use mlua::{Lua, LuaSerdeExt, MultiValue, Value};
 
-use promptforge_core_support::events::{CallMetrics, ToolCallEvent};
+use shared_promptforge_api::events::{CallMetrics, ToolCallEvent};
 use promptforge_model_client::model::ModelBinding;
 
 use crate::tools::tool_alias;
@@ -2133,7 +2133,7 @@ mod tests {
 
     #[test]
     fn an_ok_chat_reply_answer_resumes_as_a_table_with_nil_tool_calls() {
-        use promptforge_core_support::events::{ClientTiming, Usage};
+        use shared_promptforge_api::events::{ClientTiming, Usage};
 
         let lua = Lua::new();
         let result = ChatResult {

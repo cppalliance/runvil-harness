@@ -9,7 +9,7 @@ use std::ops::Range;
 
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
-use promptforge_core_support::observe::Observer;
+use shared_promptforge_api::observe::Observer;
 
 use super::fence::{RawBlock, lua_block_location, split_section_blocks};
 use super::list::{is_all_list_markers, parse_bullet_items};

@@ -1,7 +1,7 @@
 //! Wire types for the chat-completions protocol: messages, tool schemas,
 //! tool calls, and completion results.
 
-use promptforge_core_support::events::{ClientTiming, LlamaTimings, Usage, VllmMetrics};
+use shared_promptforge_api::events::{ClientTiming, LlamaTimings, Usage, VllmMetrics};
 use serde_json::Value;
 
 /// A single chat message.

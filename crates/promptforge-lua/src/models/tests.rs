@@ -321,9 +321,9 @@ fn model_runtime_starts_with_no_selection() {
 /// Builds a section VM with the Agent-window raw-id opt-in as `raw_ids`,
 /// host values injected (which installs the H2 `models` table).
 fn h2_vm(raw_ids: bool) -> crate::SectionVm {
-    let observer = promptforge_core_support::observe::NullObserver::default();
+    let observer = shared_promptforge_api::observe::NullObserver::default();
     let mut vm = crate::SectionVm::new(
-        &promptforge_core_support::untrusted::GuardNonce::fresh(),
+        &shared_promptforge_api::untrusted::GuardNonce::fresh(),
         "raw-id-test",
         &observer,
         "S",

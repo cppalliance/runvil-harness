@@ -90,7 +90,7 @@ pub(crate) mod untrusted;
 pub(crate) use crate::error::{Error, Result};
 pub(crate) use crate::tools::NearDuplicateDiagnostic;
 
-pub use promptforge_core_support::cancel::CancelHandle;
+pub use shared_promptforge_api::cancel::CancelHandle;
 
 pub use crate::execute::{ResolutionContext, RunConfig, RunError, RunErrorKind, RunLimits, run};
 pub use crate::model::{CompletionError, CompletionErrorKind};

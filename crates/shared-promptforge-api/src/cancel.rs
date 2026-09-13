@@ -37,7 +37,7 @@ tokio::task_local! {
 /// # Examples
 ///
 /// ```
-/// use promptforge_core_support::cancel::CancelHandle;
+/// use shared_promptforge_api::cancel::CancelHandle;
 ///
 /// let handle = CancelHandle::new();
 /// assert!(!handle.is_cancelled());

@@ -49,8 +49,8 @@ pub(crate) fn pack_sequence<T: mlua::IntoLua>(
 /// # Examples
 /// ```text
 /// use promptforge_lua::SectionVm;
-/// use promptforge_core_support::observe::NullObserver;
-/// use promptforge_core_support::untrusted::GuardNonce;
+/// use shared_promptforge_api::observe::NullObserver;
+/// use shared_promptforge_api::untrusted::GuardNonce;
 ///
 /// let nonce = GuardNonce::fresh();
 /// let vm = SectionVm::new(&nonce, "example-run", &NullObserver::default(), "Example")?;
@@ -224,8 +224,8 @@ impl SectionVm {
     /// # Examples
     /// ```text
     /// use promptforge_lua::SectionVm;
-    /// use promptforge_core_support::observe::NullObserver;
-    /// use promptforge_core_support::untrusted::GuardNonce;
+    /// use shared_promptforge_api::observe::NullObserver;
+    /// use shared_promptforge_api::untrusted::GuardNonce;
     ///
     /// let nonce = GuardNonce::fresh();
     /// let vm = SectionVm::new(&nonce, "example-run", &NullObserver::default(), "Example")?;
@@ -405,8 +405,8 @@ impl SectionVm {
     /// # Examples
     /// ```text
     /// use promptforge_lua::SectionVm;
-    /// use promptforge_core_support::observe::NullObserver;
-    /// use promptforge_core_support::untrusted::GuardNonce;
+    /// use shared_promptforge_api::observe::NullObserver;
+    /// use shared_promptforge_api::untrusted::GuardNonce;
     ///
     /// let nonce = GuardNonce::fresh();
     /// let vfs = promptforge_vfs::empty();
@@ -781,8 +781,8 @@ impl SectionVm {
     /// # Examples
     /// ```text
     /// use promptforge_lua::SectionVm;
-    /// use promptforge_core_support::observe::NullObserver;
-    /// use promptforge_core_support::untrusted::GuardNonce;
+    /// use shared_promptforge_api::observe::NullObserver;
+    /// use shared_promptforge_api::untrusted::GuardNonce;
     ///
     /// let nonce = GuardNonce::fresh();
     /// let vfs = promptforge_vfs::empty();
@@ -952,8 +952,8 @@ impl SectionVm {
     /// # Examples
     /// ```text
     /// use promptforge_lua::SectionVm;
-    /// use promptforge_core_support::observe::NullObserver;
-    /// use promptforge_core_support::untrusted::GuardNonce;
+    /// use shared_promptforge_api::observe::NullObserver;
+    /// use shared_promptforge_api::untrusted::GuardNonce;
     ///
     /// let nonce = GuardNonce::fresh();
     /// let vm = SectionVm::new(&nonce, "example-run", &NullObserver::default(), "Example")?;

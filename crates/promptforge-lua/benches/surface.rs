@@ -17,8 +17,8 @@
 use std::num::NonZeroU32;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use promptforge_core_support::observe::NullObserver;
-use promptforge_core_support::untrusted::GuardNonce;
+use shared_promptforge_api::observe::NullObserver;
+use shared_promptforge_api::untrusted::GuardNonce;
 use promptforge_lua::{
     LuaProgram, MessageContent, MessageRecord, MessageRole, SectionVm, ToolCallRecord, ToolSet,
     project_messages,

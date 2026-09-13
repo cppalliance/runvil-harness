@@ -1354,7 +1354,7 @@ impl Tool for SlowTool {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancel_during_in_flight_tool_call_returns_promptly() {
     use crate::cancel::CancelHandle;
-    use promptforge_core_support::cancel::scope;
+    use shared_promptforge_api::cancel::scope;
     use std::time::{Duration, Instant};
 
     let gateway = ScriptedGateway::start(echo_then_text_script()).await;

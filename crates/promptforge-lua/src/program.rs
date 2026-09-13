@@ -53,7 +53,7 @@ fn compile_chunk(source: &str, location: &str) -> std::result::Result<Vec<u8>, C
 /// ```
 /// use std::num::NonZeroU32;
 ///
-/// use promptforge_core_support::observe::NullObserver;
+/// use shared_promptforge_api::observe::NullObserver;
 /// use promptforge_lua::LuaProgram;
 ///
 /// let program = LuaProgram::compile(
@@ -102,7 +102,7 @@ impl LuaProgram {
     /// use std::num::NonZeroU32;
     ///
     /// use mlua::Lua;
-    /// use promptforge_core_support::observe::NullObserver;
+    /// use shared_promptforge_api::observe::NullObserver;
     /// use promptforge_lua::LuaProgram;
     ///
     /// let program = LuaProgram::compile(
@@ -239,7 +239,7 @@ impl LuaProgram {
     pub fn map_runtime_error(&self, error: &mlua::Error) -> Error {
         // A block aborted by the cancellation hook surfaces as an interruption,
         // not a Lua authoring error.
-        if promptforge_core_support::cancel::is_cancelled() {
+        if shared_promptforge_api::cancel::is_cancelled() {
             return Error::Interrupted;
         }
         let raw = error.to_string();

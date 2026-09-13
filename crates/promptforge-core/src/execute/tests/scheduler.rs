@@ -118,7 +118,7 @@ async fn nested_call_and_inference_run_end_to_end_on_a_current_thread_runtime() 
 #[tokio::test(flavor = "current_thread")]
 async fn cancellation_while_suspended_on_infer_interrupts_the_run() {
     use crate::cancel::CancelHandle;
-    use promptforge_core_support::cancel::scope;
+    use shared_promptforge_api::cancel::scope;
 
     let gateway = ScriptedGateway::start(vec![resp_delayed_text(
         "too late",
@@ -2102,7 +2102,7 @@ async fn pre_cancelled_fanout_returns_interrupted() {
     // fanout entered under an already-cancelled handle fails the run with
     // Error::Interrupted instead of running the arms.
     use crate::cancel::CancelHandle;
-    use promptforge_core_support::cancel::scope;
+    use shared_promptforge_api::cancel::scope;
 
     let md = "---\nname: t\ndescription: d\npromptforge: 0\n---\n\n\
         # Fanout\n\n\
@@ -2979,7 +2979,7 @@ async fn cancellation_while_suspended_in_a_fanout_arm_interrupts_the_run() {
     // 30-second answers and the timeout guard prove the aborted I/O is
     // never awaited.
     use crate::cancel::CancelHandle;
-    use promptforge_core_support::cancel::scope;
+    use shared_promptforge_api::cancel::scope;
 
     let gateway = ScriptedGateway::start(vec![resp_delayed_text(
         "too late",
@@ -3335,7 +3335,7 @@ impl Tool for SignallingSlowTool {
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn cancellation_interrupts_a_slow_script_tools_call() {
     use crate::cancel::CancelHandle;
-    use promptforge_core_support::cancel::scope;
+    use shared_promptforge_api::cancel::scope;
 
     let md = "---\nname: t\ndescription: d\npromptforge: 0\n---\n\n\
         # ToolCall\n\n\

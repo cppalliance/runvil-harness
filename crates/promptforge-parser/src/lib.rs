@@ -16,7 +16,7 @@
 //!
 //! The parser does no execution. It turns bytes into a [`Prompt`] tree.
 
-use promptforge_core_support::observe::{Observer, detail};
+use shared_promptforge_api::observe::{Observer, detail};
 
 pub use promptforge_lua::LuaProgram;
 
@@ -371,7 +371,7 @@ impl Prompt {
     /// `execution` identifier unchanged.
     ///
     /// ```
-    /// use promptforge_core_support::observe::NullObserver;
+    /// use shared_promptforge_api::observe::NullObserver;
     /// use promptforge_parser::{Prompt, ParseErrorKind};
     ///
     /// let source = "---\nname: greeter\ndescription: says hi\n---\n\n# Greeter\n\n## Say hi\n\nSay hello.\n";

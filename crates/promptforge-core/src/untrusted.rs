@@ -1,7 +1,7 @@
 //! Guard-wrapping for untrusted external data.
 //!
-//! The implementation lives in the `promptforge-core-support` crate and is
+//! The implementation lives in the `shared-promptforge-api` crate and is
 //! re-exported here unchanged, so existing `promptforge_core::untrusted::*`
 //! paths keep working.
 
-pub(crate) use promptforge_core_support::untrusted::GuardNonce;
+pub(crate) use shared_promptforge_api::untrusted::GuardNonce;

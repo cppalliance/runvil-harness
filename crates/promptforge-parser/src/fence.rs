@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
 
-use promptforge_core_support::observe::Observer;
+use shared_promptforge_api::observe::Observer;
 
 use super::build::{line_add, newlines_before, nz_source_line};
 use super::{Block, LuaProgram, ParseErrorKind};

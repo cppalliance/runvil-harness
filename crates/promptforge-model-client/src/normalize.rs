@@ -13,10 +13,10 @@
 //! Beside the strict turn parse, [`response_metadata`] leniently parses the
 //! body's call metadata - the serving `model`, `usage` token accounting,
 //! llama.cpp's `timings` extension, and vLLM's `metrics` extension - into the
-//! canonical `promptforge-core-support` vocabulary. Metadata never fails a
+//! canonical `shared-promptforge-api` vocabulary. Metadata never fails a
 //! completion: a malformed section degrades to `None` with a warning.
 
-use promptforge_core_support::events::{LlamaTimings, Usage, VllmMetrics};
+use shared_promptforge_api::events::{LlamaTimings, Usage, VllmMetrics};
 use serde::Deserialize;
 use serde_json::Value;
 

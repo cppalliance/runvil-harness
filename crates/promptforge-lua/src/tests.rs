@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use super::*;
 use crate::program::map_chunk_line_to_absolute;
 use crate::vm::{LocalTools, LuaOutcome, run_chunk};
-use promptforge_core_support::observe::{NullObserver, Observation};
+use shared_promptforge_api::observe::{NullObserver, Observation};
 use promptforge_store::Store;
 use promptforge_tools::{Tool, ToolError, ToolOutput};
 use serde_json::json;
@@ -1978,7 +1978,7 @@ stack traceback:
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn long_running_lua_block_cancels_cooperatively() {
-    use promptforge_core_support::cancel::{self, CancelHandle};
+    use shared_promptforge_api::cancel::{self, CancelHandle};
     use std::time::{Duration, Instant};
 
     // An unbounded loop that, without cooperative cancellation, would run
@@ -2330,7 +2330,7 @@ fn dangerous_globals_absent() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pre_cancelled_run_aborts_a_tight_loop_promptly() {
-    use promptforge_core_support::cancel::{self, CancelHandle};
+    use shared_promptforge_api::cancel::{self, CancelHandle};
     use std::time::{Duration, Instant};
 
     // No instruction ceiling aborts a runaway block anymore; the cancel flag,

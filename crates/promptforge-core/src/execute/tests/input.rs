@@ -303,7 +303,7 @@ async fn an_uncaught_broker_failure_fails_the_run_typed() {
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn cancellation_interrupts_a_pending_input_wait() {
     use crate::cancel::CancelHandle;
-    use promptforge_core_support::cancel::scope;
+    use shared_promptforge_api::cancel::scope;
     use std::time::{Duration, Instant};
 
     let md = input_prompt("user_input()\nreturn 'unreachable'");

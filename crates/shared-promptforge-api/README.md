@@ -1,4 +1,4 @@
-# promptforge-core-support
+# shared-promptforge-api
 
 Small shared host-support primitives for the PromptForge runtime:
 `untrusted` wraps untrusted external data in a nonce-guarded envelope,

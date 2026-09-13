@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use promptforge_core_support::observe::{NullObserver, Observation, detail};
+use shared_promptforge_api::observe::{NullObserver, Observation, detail};
 
 use super::list::parse_bullet_items;
 use super::*;

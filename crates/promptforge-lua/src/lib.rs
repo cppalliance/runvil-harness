@@ -42,8 +42,8 @@ pub(crate) use mlua::{
 };
 pub(crate) use serde_json::Value as Json;
 
-pub(crate) use promptforge_core_support::observe::{Observation, Observer, detail};
-pub(crate) use promptforge_core_support::untrusted::GuardNonce;
+pub(crate) use shared_promptforge_api::observe::{Observation, Observer, detail};
+pub(crate) use shared_promptforge_api::untrusted::GuardNonce;
 pub(crate) use promptforge_model_client::model::{
     ModelBinding, ModelResolver, ModelSet, ModelView,
 };

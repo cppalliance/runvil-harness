@@ -13,7 +13,7 @@
 //!
 //! The metrics vocabulary ([`Usage`], [`LlamaTimings`], [`VllmMetrics`],
 //! [`ClientTiming`], [`CallMetrics`]) is canonical in
-//! `promptforge-core-support` and re-exported here: the client parses each
+//! `shared-promptforge-api` and re-exported here: the client parses each
 //! response body's call metadata into it, and [`client::Completion`] carries
 //! the result.
 //!
@@ -29,6 +29,6 @@ mod normalize;
 pub use crate::error::Error;
 pub(crate) use crate::error::Result;
 
-pub use promptforge_core_support::events::{
+pub use shared_promptforge_api::events::{
     CallMetrics, ClientTiming, LlamaTimings, Usage, VllmMetrics,
 };
