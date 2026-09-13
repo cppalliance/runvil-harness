@@ -20,7 +20,6 @@ promptforge-model-client.workspace = true
 promptforge-parser.workspace = true
 promptforge-store.workspace = true
 promptforge-tool-picker.workspace = true
-promptforge-tools.workspace = true
 promptforge-vfs.workspace = true
 promptforge-web-search.workspace = true
 rand.workspace = true

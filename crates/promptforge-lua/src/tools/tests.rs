@@ -9,7 +9,7 @@ use super::{install_h2_tools, install_tool_call_counts};
 use crate::handles::{LuaFanoutResult, ToolSet};
 use crate::scope::ToolRuntime;
 use crate::{SectionVm, ToolBinding};
-use promptforge_tools::ToolId;
+use shared_promptforge_api::tools::ToolId;
 use std::sync::{Arc, Mutex};
 
 /// A fresh stock handle's access capability for a test VM.
@@ -240,7 +240,7 @@ fn tool_call_counts_seed_read_and_reject_unknown_keys() {
 struct EchoTool;
 
 #[async_trait::async_trait]
-impl promptforge_tools::Tool for EchoTool {
+impl shared_promptforge_api::tools::Tool for EchoTool {
     fn id(&self) -> ToolId {
         ToolId::new("tests", "echo").expect("valid id")
     }
@@ -268,7 +268,10 @@ impl promptforge_tools::Tool for EchoTool {
     async fn call(
         &self,
         _args: serde_json::Value,
-    ) -> std::result::Result<promptforge_tools::ToolOutput, promptforge_tools::ToolError> {
-        Ok(promptforge_tools::ToolOutput::trusted("echoed"))
+    ) -> std::result::Result<
+        shared_promptforge_api::tools::ToolOutput,
+        shared_promptforge_api::tools::ToolError,
+    > {
+        Ok(shared_promptforge_api::tools::ToolOutput::trusted("echoed"))
     }
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use crate::{Tool, ToolCatalog, ToolCatalogErrorKind, ToolError, ToolId, ToolOutput};
+use super::{Tool, ToolCatalog, ToolCatalogErrorKind, ToolError, ToolId, ToolOutput};
 
 fn inspect_id() -> ToolId {
     ToolId::new("fixtures", "inspect").expect("fixture id is valid")
@@ -81,7 +81,7 @@ fn trait_is_dyn_compatible() {
 
 #[test]
 fn tool_output_carries_mandatory_trust() {
-    use crate::{OutputTrust, ToolOutput};
+    use super::{OutputTrust, ToolOutput};
     assert_eq!(ToolOutput::trusted("a").trust(), OutputTrust::Trusted);
     assert_eq!(ToolOutput::untrusted("b").trust(), OutputTrust::Untrusted);
     assert_eq!(ToolOutput::trusted("a").text(), "a");
@@ -98,7 +98,7 @@ fn tool_catalog_is_send_and_sync() {
 
 #[test]
 fn tool_error_classifies_and_hides_source() {
-    use crate::{ToolError, ToolErrorKind};
+    use super::{ToolError, ToolErrorKind};
     fn assert_send_sync<T: Send + Sync + 'static>() {}
     assert_send_sync::<ToolError>();
 
@@ -222,7 +222,7 @@ fn catalog_rejects_duplicate_tool_ids() {
 
 #[test]
 fn tool_id_new_rejects_empty_separator_and_control() {
-    use crate::ToolIdErrorKind;
+    use super::ToolIdErrorKind;
 
     assert_eq!(
         ToolId::new("", "name").expect_err("empty server").kind(),

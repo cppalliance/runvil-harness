@@ -1,5 +1,6 @@
 //! Regression coverage for the `promptforge_core::tools` compatibility
-//! re-exports: the contract vocabulary moved to `promptforge-tools`, and these
+//! re-exports: the contract vocabulary lives in `shared-promptforge-api`'s
+//! `tools` module, and these
 //! tests pin that the re-exported path is the same trait and types, not a
 //! lookalike.
 
@@ -10,7 +11,7 @@ use serde_json::{Value, json};
 // The fixture implements the trait through the defining crate's path on
 // purpose: if the re-export ever stopped being the same trait, the `Arc<dyn
 // crate::tools::Tool>` coercions below would fail to compile.
-use promptforge_tools::{Tool as ContractTool, ToolError, ToolId, ToolOutput};
+use shared_promptforge_api::tools::{Tool as ContractTool, ToolError, ToolId, ToolOutput};
 
 use crate::tools::{Tool, ToolCatalog};
 
@@ -70,10 +71,10 @@ fn reexported_types_are_the_contract_types() {
     // A function written against the defining crate's types accepts values
     // produced through the re-exported path only when both names denote the
     // same type.
-    fn takes_contract_id(id: &promptforge_tools::ToolId) -> &str {
+    fn takes_contract_id(id: &shared_promptforge_api::tools::ToolId) -> &str {
         id.name()
     }
-    fn takes_contract_catalog(catalog: &promptforge_tools::ToolCatalog) -> usize {
+    fn takes_contract_catalog(catalog: &shared_promptforge_api::tools::ToolCatalog) -> usize {
         catalog.tools().len()
     }
 

@@ -11,7 +11,7 @@
 
 use promptforge_model_client::Error as GatewayClientError;
 use promptforge_model_client::model::ModelId;
-use promptforge_tools::ToolId;
+use shared_promptforge_api::tools::ToolId;
 
 /// A type-erased owned error cause used by the internal substrate.
 pub(crate) type BoxedSource = Box<dyn std::error::Error + Send + Sync>;
@@ -334,7 +334,7 @@ impl Error {
 
     /// Wrap a tool failure as [`Error::Tool`], preserving the tool's own
     /// error as the `#[source]` cause rather than discarding it.
-    pub(crate) fn tool(source: promptforge_tools::ToolError) -> Error {
+    pub(crate) fn tool(source: shared_promptforge_api::tools::ToolError) -> Error {
         Error::Tool {
             message: source.to_string(),
             source: Box::new(source),

@@ -120,15 +120,6 @@ fn preface(nonce: &GuardNonce) -> String {
     )
 }
 
-/// Wraps `content` in a self-contained guard block under the run's `nonce`.
-///
-/// Deprecated alias for [`GuardNonce::wrap`].
-#[deprecated(since = "0.2.0", note = "use GuardNonce::wrap")]
-#[must_use]
-pub fn wrap(nonce: &GuardNonce, content: &str) -> String {
-    nonce.wrap(content)
-}
-
 /// Escapes every literal `<` so content cannot introduce any live markup tag,
 /// then neutralizes the control markup that survives escaping.
 ///

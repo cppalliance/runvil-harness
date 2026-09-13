@@ -48,11 +48,11 @@ impl ToolCatalog {
     /// # Examples
     ///
     /// ```
-    /// use promptforge_tools::ToolCatalog;
+    /// use shared_promptforge_api::tools::ToolCatalog;
     ///
     /// let catalog = ToolCatalog::new(&[])?;
     /// assert!(catalog.tools().is_empty());
-    /// # Ok::<(), promptforge_tools::ToolCatalogError>(())
+    /// # Ok::<(), shared_promptforge_api::tools::ToolCatalogError>(())
     /// ```
     pub fn new(tools: &[Arc<dyn Tool>]) -> Result<Self, ToolCatalogError> {
         let mut seen = std::collections::BTreeSet::new();
@@ -86,7 +86,7 @@ impl ToolCatalog {
     /// # Examples
     ///
     /// ```
-    /// use promptforge_tools::{ToolCatalog, ToolId};
+    /// use shared_promptforge_api::tools::{ToolCatalog, ToolId};
     ///
     /// let catalog = ToolCatalog::new(&[])?;
     /// let missing = ToolId::new("promptforge", "missing")?;
@@ -106,11 +106,11 @@ impl ToolCatalog {
     /// # Examples
     ///
     /// ```
-    /// use promptforge_tools::ToolCatalog;
+    /// use shared_promptforge_api::tools::ToolCatalog;
     ///
     /// let catalog = ToolCatalog::new(&[])?;
     /// assert!(catalog.tools().is_empty());
-    /// # Ok::<(), promptforge_tools::ToolCatalogError>(())
+    /// # Ok::<(), shared_promptforge_api::tools::ToolCatalogError>(())
     /// ```
     #[must_use]
     pub fn tools(&self) -> &[Arc<dyn Tool>] {
@@ -186,7 +186,7 @@ impl ToolCatalogError {
 /// [`call`](Tool::call). A minimal doctested implementation:
 ///
 /// ```
-/// use promptforge_tools::{
+/// use shared_promptforge_api::tools::{
 ///     OutputTrust, Tool, ToolError, ToolErrorKind, ToolId, ToolOutput,
 /// };
 ///
@@ -228,7 +228,7 @@ impl ToolCatalogError {
 /// assert_eq!(echo.wire_name(), "echo");
 /// assert_eq!(echo.id().server(), "example");
 /// # let _ = OutputTrust::Trusted;
-/// # Ok::<(), promptforge_tools::ToolIdError>(())
+/// # Ok::<(), shared_promptforge_api::tools::ToolIdError>(())
 /// ```
 ///
 /// # Compatibility policy
@@ -293,9 +293,9 @@ pub trait Tool: Send + Sync {
     /// Execute the tool with the given JSON arguments and return its output.
     ///
     /// The returned [`ToolOutput`] carries its own
-    /// [`OutputTrust`](crate::OutputTrust), so trust is mandatory and
+    /// [`OutputTrust`](crate::tools::OutputTrust), so trust is mandatory and
     /// cannot be forgotten: an
-    /// [`OutputTrust::Untrusted`](crate::OutputTrust::Untrusted) result
+    /// [`OutputTrust::Untrusted`](crate::tools::OutputTrust::Untrusted) result
     /// is nonce-wrapped before it can reach model input. A failure returns a
     /// narrow, model-safe [`ToolError`]. Implementations must not panic and
     /// should return promptly when the run is cancelled.

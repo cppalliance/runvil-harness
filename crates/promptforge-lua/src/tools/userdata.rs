@@ -10,8 +10,8 @@
 //! callers that ignore the return value keep working.
 
 use mlua::{LuaSerdeExt, MetaMethod, UserData, UserDataFields, UserDataMethods, Value};
-use promptforge_tools::{Tool, ToolId};
 use serde_json::{Value as Json, json};
+use shared_promptforge_api::tools::{Tool, ToolId};
 
 /// Inspectable Tool object returned by Lua `tools.bind`.
 #[derive(Debug, Clone, PartialEq)]

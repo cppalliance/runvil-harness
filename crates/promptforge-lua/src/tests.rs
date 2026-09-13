@@ -4,9 +4,9 @@ use super::*;
 use crate::program::map_chunk_line_to_absolute;
 use crate::vm::{LocalTools, LuaOutcome, run_chunk};
 use promptforge_store::Store;
-use promptforge_tools::{Tool, ToolError, ToolOutput};
 use serde_json::json;
 use shared_promptforge_api::observe::{NullObserver, Observation};
+use shared_promptforge_api::tools::{Tool, ToolError, ToolOutput};
 use shared_vfs::{ExecId, Origin, Vfs, VfsAccess, VfsError, VfsPath, VfsRef};
 
 const EXECUTION: &str = "lua-test";

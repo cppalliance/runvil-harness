@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use reqwest::header::CONTENT_TYPE;
 
-use promptforge_tools::{Tool, ToolError, ToolErrorKind, ToolId, ToolOutput};
+use shared_promptforge_api::tools::{Tool, ToolError, ToolErrorKind, ToolId, ToolOutput};
 
 use crate::config::{ConfigError, FetchConfig};
 use crate::error::{Disposition, FetchError, SafeUrl};
@@ -38,7 +38,7 @@ type CallResult = Result<ToolOutput, ToolError>;
 /// use promptforge_webfetch::WebFetch;
 ///
 /// let tool = WebFetch::new();
-/// let shared: Arc<dyn promptforge_tools::Tool> = Arc::new(tool);
+/// let shared: Arc<dyn shared_promptforge_api::tools::Tool> = Arc::new(tool);
 /// assert_eq!(shared.wire_name(), "web_fetch");
 /// ```
 #[derive(Debug, Clone)]
@@ -428,7 +428,7 @@ mod tests {
     use super::WebFetch;
     use crate::config::{FetchConfig, FetchConfigBuilder};
     use crate::resolver::{Lookup, LookupFuture};
-    use promptforge_tools::{Tool, ToolErrorKind, ToolId};
+    use shared_promptforge_api::tools::{Tool, ToolErrorKind, ToolId};
 
     /// An article page long enough for readability extraction to fire.
     const ARTICLE_HTML: &str = r"
@@ -1233,7 +1233,7 @@ mod tests {
             .expect("a mid-stream flat-text failure must be a soft return, not a hard error");
         assert_eq!(
             outcome.trust(),
-            promptforge_tools::OutputTrust::Untrusted,
+            shared_promptforge_api::tools::OutputTrust::Untrusted,
             "a soft body-read failure must be untrusted output"
         );
         let result = outcome.text().to_owned();

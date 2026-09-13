@@ -11,7 +11,7 @@ use promptforge_core::observe::{Observation, Observer};
 use promptforge_core::parser::Prompt;
 use promptforge_core::store::{StoreError, StoreExt, VfsRef};
 use promptforge_tool_picker::{Catalog, Config, ToolPicker};
-use promptforge_tools::{Tool, ToolCatalog};
+use shared_promptforge_api::tools::{Tool, ToolCatalog};
 use shared_vfs::Origin;
 
 /// One correlated observation: which execution and section emitted it, plus the

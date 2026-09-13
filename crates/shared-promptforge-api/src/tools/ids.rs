@@ -23,12 +23,12 @@ impl ToolId {
     /// # Examples
     ///
     /// ```
-    /// use promptforge_tools::ToolId;
+    /// use shared_promptforge_api::tools::ToolId;
     ///
     /// let id = ToolId::new("promptforge", "web_fetch")?;
     /// assert_eq!(id.server(), "promptforge");
     /// assert_eq!(id.name(), "web_fetch");
-    /// # Ok::<(), promptforge_tools::ToolIdError>(())
+    /// # Ok::<(), shared_promptforge_api::tools::ToolIdError>(())
     /// ```
     pub fn new(server: impl Into<String>, name: impl Into<String>) -> Result<ToolId, ToolIdError> {
         let server = server.into();
@@ -62,11 +62,11 @@ impl ToolId {
     /// # Examples
     ///
     /// ```
-    /// use promptforge_tools::ToolId;
+    /// use shared_promptforge_api::tools::ToolId;
     ///
     /// let id = ToolId::new("promptforge", "web_fetch")?;
     /// assert_eq!(id.server(), "promptforge");
-    /// # Ok::<(), promptforge_tools::ToolIdError>(())
+    /// # Ok::<(), shared_promptforge_api::tools::ToolIdError>(())
     /// ```
     #[must_use]
     pub fn server(&self) -> &str {
@@ -78,11 +78,11 @@ impl ToolId {
     /// # Examples
     ///
     /// ```
-    /// use promptforge_tools::ToolId;
+    /// use shared_promptforge_api::tools::ToolId;
     ///
     /// let id = ToolId::new("promptforge", "web_fetch")?;
     /// assert_eq!(id.name(), "web_fetch");
-    /// # Ok::<(), promptforge_tools::ToolIdError>(())
+    /// # Ok::<(), shared_promptforge_api::tools::ToolIdError>(())
     /// ```
     #[must_use]
     pub fn name(&self) -> &str {
@@ -131,7 +131,7 @@ impl ToolIdError {
     }
 
     /// The crate-internal human-readable reason, reused when a wire-name
-    /// rejection is re-reported as a [`crate::ToolCatalogError`].
+    /// rejection is re-reported as a [`crate::tools::ToolCatalogError`].
     pub(crate) fn reason(&self) -> &'static str {
         self.reason
     }

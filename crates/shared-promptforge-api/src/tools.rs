@@ -6,11 +6,11 @@
 //! an executor can dispatch them uniformly. Stable identity ([`ToolId`]) is
 //! separate from the wire name used by the current model transport.
 //!
-//! This crate holds vocabulary only: the [`Tool`] trait, the caller-provided
+//! This module holds vocabulary only: the [`Tool`] trait, the caller-provided
 //! [`ToolCatalog`], trusted output ([`ToolOutput`], [`OutputTrust`]), the
 //! model-safe [`ToolError`], and the contract errors. Concrete tool
 //! implementations, the prompt parser, and the executor live in their own
-//! crates and depend on this one.
+//! crates and depend on `shared-promptforge-api`.
 
 mod ids;
 mod output;

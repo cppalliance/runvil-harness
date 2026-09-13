@@ -7,17 +7,18 @@
 //! used by the current model transport.
 //!
 //! The runtime-agnostic contract vocabulary ([`Tool`], [`ToolCatalog`],
-//! [`ToolId`], the output and error types) lives in the `promptforge-tools`
-//! crate and is re-exported here unchanged, so existing
+//! [`ToolId`], the output and error types) lives in the
+//! `shared-promptforge-api` crate's `tools` module and is re-exported here
+//! unchanged, so existing
 //! `promptforge_core::tools::*` paths keep working. The concrete `WebSearch`
 //! provider lives in the `promptforge-web-search` crate and is re-exported
 //! here under its historical path for the same reason.
 
-pub use promptforge_tools::{
+pub use promptforge_web_search::WebSearch;
+pub use shared_promptforge_api::tools::{
     OutputTrust, Tool, ToolCatalog, ToolCatalogError, ToolCatalogErrorKind, ToolError,
     ToolErrorKind, ToolId, ToolIdError, ToolIdErrorKind, ToolOutput,
 };
-pub use promptforge_web_search::WebSearch;
 
 /// Diagnostics for two semantic near-duplicates exposed in one model turn.
 ///
