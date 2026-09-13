@@ -16,7 +16,8 @@
 //! the same rules, and the parent walk resumes after the jumper when that
 //! level exhausts.
 //!
-//! One run-scoped [`VfsRef`] is created once by the caller and threaded through
+//! One run-scoped store handle travels with the run's [`RunConfig`] (the
+//! stock handle by default), shared by
 //! every section, so
 //! bulk state persists across the context-clearing transitions even though a
 //! section's Lua state never does.
@@ -25,7 +26,7 @@
 //! `(execution, section, event)` record when the run starts and ends, at each
 //! section boundary, model turn, tool call, and harness-mediated store
 //! operation. Reporting is a side channel and never
-//! a decision, so passing [`crate::observe::NullObserver`] changes nothing but
+//! a decision, so passing [`NullObserver`](shared_promptforge_api::observe::NullObserver) changes nothing but
 //! the silence.
 //!
 //! Rust installs tool bindings captured from live H1 into each section VM.
@@ -139,11 +140,10 @@ use crate::store::VfsRef;
 /// current-thread runtime below runs the whole prompt, host calls included:
 /// ```
 /// use promptforge_api::execute::{run, RunConfig, ResolutionContext};
-/// use promptforge_api::model::ModelCatalog;
-/// use promptforge_api::observe::NullObserver;
 /// use promptforge_api::parser::Prompt;
-/// use promptforge_api::tools::ToolCatalog;
-/// use promptforge_tool_picker::{Catalog, Config, ToolPicker};
+/// use shared_promptforge_api::models::ModelCatalog;
+/// use shared_promptforge_api::observe::NullObserver;
+/// use shared_promptforge_api::tools::ToolCatalog;
 ///
 /// let source = concat!(
 ///     "---\nname: t\ndescription: d\npromptforge: 0\n---\n\n",
@@ -154,7 +154,6 @@ use crate::store::VfsRef;
 ///     "```lua\nreturn 'hello'\n```\n",
 /// );
 /// let prompt = Prompt::parse(source, "doc-example", &NullObserver::default())?;
-/// let picker = ToolPicker::build(Catalog::new(Vec::new()), Config::default())?;
 /// let models = ModelCatalog::empty();
 /// let tools = ToolCatalog::new(&[])?;
 ///
@@ -162,8 +161,7 @@ use crate::store::VfsRef;
 /// let output = runtime.block_on(run(
 ///     &prompt,
 ///     "",
-///     ResolutionContext::new(&picker, &models, &tools),
-///     &promptforge_vfs::empty(),
+///     ResolutionContext::new(None, &models, &tools),
 ///     RunConfig::new("doc-example"),
 /// ))?;
 /// assert_eq!(output, "hello");
@@ -183,7 +181,6 @@ pub async fn run(
     prompt: &Prompt,
     args: &str,
     resolution: ResolutionContext<'_>,
-    vfs: &VfsRef,
     config: RunConfig,
 ) -> std::result::Result<String, RunError> {
     match prompt.frontmatter().promptforge() {
@@ -210,19 +207,18 @@ pub async fn run(
     // it gets a fresh memory store overlaid as a defensive fallback, so a
     // run never fails for want of the mount. A mounted-but-failing backend
     // is never shadowed by the throwaway overlay: its error fails the run.
-    let fallback;
-    let vfs = match store_mount_present(vfs) {
-        Ok(true) => vfs,
+    let mut config = config;
+    match store_mount_present(&config.vfs) {
+        Ok(true) => {}
         Ok(false) => {
-            fallback = vfs.overlay(
+            config.vfs = config.vfs.overlay(
                 promptforge_vfs::STORE_MOUNT,
                 shared_vfs::MemoryBackend::new(),
             );
-            &fallback
         }
         Err(error) => return Err(RunError::from(Error::Store(error))),
-    };
-    let ctx = RunContext::new(prompt, args, vfs, shared, &config);
+    }
+    let ctx = RunContext::new(prompt, args, &config.vfs, shared, &config);
 
     let RunConfig {
         execution,

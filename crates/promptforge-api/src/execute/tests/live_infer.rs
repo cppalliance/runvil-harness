@@ -20,8 +20,7 @@ async fn live_h1_infer_runs_once() {
     let out = super::super::run(
         &prompt,
         "",
-        ResolutionContext::new(&picker, &models, &ToolCatalog::default()),
-        &TestStore::new(),
+        ResolutionContext::new(Some(&picker), &models, &ToolCatalog::default()),
         to_config(gatewayed(addr)),
     )
     .await
@@ -101,8 +100,7 @@ async fn shared_function_resolves_host_globals_when_called() {
     let out = super::super::run(
         &prompt,
         "later host value",
-        ResolutionContext::new(&picker, &models, &ToolCatalog::default()),
-        &TestStore::new(),
+        ResolutionContext::new(Some(&picker), &models, &ToolCatalog::default()),
         to_config(silent()),
     )
     .await
@@ -131,9 +129,8 @@ async fn shared_library_calls_host_apis_at_load_time() {
     let out = super::super::run(
         &prompt,
         "load-time args",
-        ResolutionContext::new(&picker, &models, &ToolCatalog::default()),
-        &store,
-        to_config(silent()),
+        ResolutionContext::new(Some(&picker), &models, &ToolCatalog::default()),
+        to_config(silent()).vfs(store.vfs().clone()),
     )
     .await
     .expect("top-level shared host calls must succeed");
@@ -190,8 +187,7 @@ async fn captured_bindings_reach_section_call_and_fanout_vms() {
     let out = super::super::run(
         &prompt,
         "",
-        ResolutionContext::new(&picker, &models, &catalog),
-        &TestStore::new(),
+        ResolutionContext::new(Some(&picker), &models, &catalog),
         to_config(silent()),
     )
     .await
@@ -224,8 +220,7 @@ async fn live_h1_models_infer_resolves_the_default_model_without_touching_sys() 
     let out = super::super::run(
         &prompt,
         "",
-        ResolutionContext::new(&picker, &models, &ToolCatalog::default()),
-        &TestStore::new(),
+        ResolutionContext::new(Some(&picker), &models, &ToolCatalog::default()),
         to_config(gatewayed(gateway.addr())),
     )
     .await
@@ -274,8 +269,7 @@ async fn nested_lua_infer_emits_a_model_turn_observation() {
     let out = super::super::run(
         &prompt,
         "",
-        ResolutionContext::new(&picker, &models, &ToolCatalog::default()),
-        &TestStore::new(),
+        ResolutionContext::new(Some(&picker), &models, &ToolCatalog::default()),
         to_config(RunOptions {
             execution: EXECUTION,
             observer: Arc::clone(&recorder) as Arc<dyn Observer>,
@@ -338,8 +332,7 @@ async fn cancelled_nested_infer_does_not_report_model_turn_failed() {
     let error = super::super::run(
         &prompt,
         "",
-        ResolutionContext::new(&picker, &models, &ToolCatalog::default()),
-        &TestStore::new(),
+        ResolutionContext::new(Some(&picker), &models, &ToolCatalog::default()),
         RunConfig::new(EXECUTION)
             .observer(Arc::clone(&recorder) as Arc<dyn Observer>)
             .client(gateway_client(gateway.addr()))
@@ -422,8 +415,7 @@ async fn live_h1_prose_infers_explicitly_and_var_accumulates_into_the_walk() {
     let out = super::super::run(
         &prompt,
         "",
-        ResolutionContext::new(&picker, &models, &ToolCatalog::default()),
-        &TestStore::new(),
+        ResolutionContext::new(Some(&picker), &models, &ToolCatalog::default()),
         to_config(gatewayed(addr)),
     )
     .await
@@ -458,8 +450,7 @@ async fn h1_and_h2_prose_each_infer_explicitly_in_source_order() {
     let out = super::super::run(
         &prompt,
         "",
-        ResolutionContext::new(&picker, &models, &ToolCatalog::default()),
-        &TestStore::new(),
+        ResolutionContext::new(Some(&picker), &models, &ToolCatalog::default()),
         to_config(gatewayed(gateway.addr())),
     )
     .await
@@ -508,8 +499,7 @@ async fn live_h1_chunk_keeps_sys_id_zero_and_the_first_walked_section_takes_one(
     let out = super::super::run(
         &prompt,
         "",
-        ResolutionContext::new(&picker, &models, &ToolCatalog::default()),
-        &TestStore::new(),
+        ResolutionContext::new(Some(&picker), &models, &ToolCatalog::default()),
         to_config(silent()),
     )
     .await

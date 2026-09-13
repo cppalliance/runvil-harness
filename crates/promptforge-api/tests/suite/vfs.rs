@@ -5,7 +5,7 @@
 //! output to the prompt's promise as an explicit contract error.
 
 use promptforge_api::parser::Prompt;
-use promptforge_api::store::{Store, StoreError, StoreExt};
+use promptforge_store::{Store, StoreError, StoreExt};
 use shared_vfs::{HostBackend, Origin, VfsRef};
 
 use super::support::{RunOptions, parse_execution_fixture, run, run_fixture};

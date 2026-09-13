@@ -6,13 +6,13 @@
 use std::sync::{Arc, Mutex};
 
 use promptforge_api::execute::{ResolutionContext, RunConfig, RunError, run as run_core};
-use promptforge_api::model::ModelCatalog;
-use promptforge_api::observe::{Observation, Observer};
 use promptforge_api::parser::Prompt;
-use promptforge_api::store::{StoreError, StoreExt, VfsRef};
+use promptforge_store::{StoreError, StoreExt};
 use promptforge_tool_picker::{Catalog, Config, ToolPicker};
+use shared_promptforge_api::models::ModelCatalog;
+use shared_promptforge_api::observe::{Observation, Observer};
 use shared_promptforge_api::tools::{Tool, ToolCatalog};
-use shared_vfs::Origin;
+use shared_vfs::{Origin, VfsRef};
 
 /// One correlated observation: which execution and section emitted it, plus the
 /// rendered event detail the fixtures assert on.
@@ -61,9 +61,10 @@ pub(super) async fn run(
     run_core(
         prompt,
         args,
-        ResolutionContext::new(&picker, &models, &tools),
-        vfs,
-        RunConfig::new(opts.execution).observer(opts.observer),
+        ResolutionContext::new(Some(&picker), &models, &tools),
+        RunConfig::new(opts.execution)
+            .observer(opts.observer)
+            .vfs(vfs.clone()),
     )
     .await
 }

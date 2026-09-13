@@ -18,10 +18,10 @@ use crate::{Error, Result};
 
 /// Run-scoped capability resolver and live H1 binding producer.
 pub(crate) struct RuntimeResolution<'a> {
-    tool_resolver: PickerResolver<'a, ToolPicker>,
+    tool_resolver: PickerResolver<'a, dyn DecisionSource>,
     tools: &'a ToolCatalog,
     models: &'a ModelCatalog,
-    base_picker: &'a ToolPicker,
+    base_picker: Option<&'a ToolPicker>,
     producer: LiveBindingProducer,
 }
 
@@ -38,19 +38,27 @@ impl<'a> RuntimeResolution<'a> {
     /// model index is built on demand, when a `models.bind`'s constraints are
     /// known, so the redundant full-catalog index is never materialized.
     ///
+    /// A picker-less run (`picker: None`) is the capability-free posture:
+    /// every executed `tools.bind` or `models.bind` fails as a binding error
+    /// naming the missing picker.
+    ///
     /// `tool_set` and `model_set` are the run's shared sets: executed
     /// `tools.bind`/`tools.always` and `models.bind`/`models.default` calls
     /// write through them, and the run context reads the same allocations
     /// through its views.
     pub(crate) fn new(
-        picker: &'a ToolPicker,
+        picker: Option<&'a ToolPicker>,
         tools: &'a ToolCatalog,
         models: &'a ModelCatalog,
         tool_set: Arc<Mutex<ToolSet>>,
         model_set: Arc<Mutex<ModelSet>>,
     ) -> Self {
+        let source: &dyn DecisionSource = match picker {
+            Some(picker) => picker,
+            None => &NoPicker,
+        };
         Self {
-            tool_resolver: PickerResolver::new(picker),
+            tool_resolver: PickerResolver::new(source),
             tools,
             models,
             base_picker: picker,
@@ -98,9 +106,16 @@ impl ModelResolver for RuntimeResolution<'_> {
                 capability: description.to_owned(),
             });
         }
+        // A picker-less run cannot bind a described model.
+        let Some(picker) = self.base_picker else {
+            return Err(GatewayClientError::ModelBind {
+                capability: description.to_owned(),
+                detail: "the run was given no tool picker".to_owned(),
+            });
+        };
         // The filtered model index is built here, from the base embedder, over
         // just the descriptors that satisfy the bind's constraints (F7).
-        PickerModelResolver::new(self.models, self.base_picker).resolve(description, opts)
+        PickerModelResolver::new(self.models, picker).resolve(description, opts)
     }
 }
 
@@ -124,6 +139,9 @@ enum CachedDecision {
     /// The picker returned an outcome this resolver does not model (a defensive
     /// catch-all; no dependency error to preserve).
     Unrecognized,
+    /// The run was given no picker: every capability bind fails, naming the
+    /// missing picker.
+    NoPicker,
 }
 
 /// Converts a borrowed picker descriptor to a core-owned [`ToolId`].
@@ -171,6 +189,10 @@ impl CachedDecision {
                 capability: capability.to_owned(),
                 detail: "the picker reported an unrecognized outcome".to_owned(),
             }),
+            Self::NoPicker => Err(promptforge_lua::Error::Bind {
+                capability: capability.to_owned(),
+                detail: "the run was given no tool picker".to_owned(),
+            }),
         }
     }
 }
@@ -210,6 +232,24 @@ impl DecisionSource for ToolPicker {
                     .collect()
             })
             .map_err(SharedSource::new)
+    }
+}
+
+/// The decision source behind a picker-less run: every tool capability fails
+/// as an unbound bind, and the near-duplicate scan is vacuous (no bind ever
+/// succeeds, so no scope is ever analyzed).
+struct NoPicker;
+
+impl DecisionSource for NoPicker {
+    fn decide(&self, _capability: &str) -> CachedDecision {
+        CachedDecision::NoPicker
+    }
+
+    fn near_duplicates(
+        &self,
+        _ids: &[PickerToolId],
+    ) -> std::result::Result<Vec<(PickerToolId, PickerToolId, f32)>, SharedSource> {
+        Ok(Vec::new())
     }
 }
 

@@ -3,8 +3,8 @@
 
 use std::num::NonZeroU32;
 
-use promptforge_api::observe::NullObserver;
 use promptforge_api::parser::{LuaProgram, MaxToolIterations, ParseErrorKind, Prompt};
+use shared_promptforge_api::observe::NullObserver;
 
 struct ValidFixture {
     name: &'static str,

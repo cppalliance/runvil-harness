@@ -2,7 +2,7 @@
 //!
 //! A prompt run keeps its bulk state in virtual files addressed by logical
 //! string paths. The run's [`VfsRef`] handle carries the store mount; the
-//! [`Store`] facade (behind the [`StoreExt`] extension trait's
+//! [`Store`] facade (behind the `StoreExt` extension trait's
 //! `vfs.store(&access)` call shape) scopes logical paths onto it, and every
 //! operation is attributed to the [`Access`] capability's identity, so a
 //! conflicting operation by a second live identity surfaces as
@@ -15,9 +15,11 @@
 //! `untrusted` Lua global). Edits are anchor-based ([`Store::str_replace`])
 //! rather than offset-based, the shape that works for a model.
 //!
-//! The implementation lives in the `promptforge-store` crate and is
-//! re-exported here unchanged, so existing `promptforge_api::store::*`
-//! paths keep working.
+//! The implementation lives in the `promptforge-store` and `shared-vfs`
+//! crates. This module is the crate-internal import surface for them; hosts
+//! that seed or extract the store depend on `shared-vfs` directly.
 
-pub use promptforge_store::{PathReason, Store, StoreError, StoreErrorKind, StoreExt};
-pub use shared_vfs::{Access, VfsRef};
+#[cfg(test)]
+pub(crate) use promptforge_store::StoreExt;
+pub(crate) use promptforge_store::{Store, StoreError};
+pub(crate) use shared_vfs::{Access, VfsRef};

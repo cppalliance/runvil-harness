@@ -16,7 +16,7 @@
 //! unavailable-fallback policy, and a broker error is the failure policy,
 //! raising a typed [`RunErrorKind::Input`](crate::RunErrorKind::Input)
 //! failure at the Lua call site. Waits and responses are recorded through
-//! the run's [`Observer`](crate::observe::Observer) - a wait-opened observation and
+//! the run's [`Observer`](shared_promptforge_api::observe::Observer) - a wait-opened observation and
 //! a byte-exact `on_user_input` report - without any replay machinery.
 
 use std::fmt;

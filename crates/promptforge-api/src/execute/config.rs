@@ -10,6 +10,7 @@ use crate::client::{GatewayClient, StreamDelta};
 use crate::debug::DebugCapture;
 use crate::input::InputBroker;
 use crate::observe::{NullObserver, Observer};
+use crate::store::VfsRef;
 
 /// Generates one `nz_*` constructor per `NonZero*` type: a `const fn`
 /// building the wrapper from a compile-time-known non-zero value.
@@ -167,9 +168,10 @@ impl Default for RunLimits {
     }
 }
 
-/// Everything a run needs beyond the prompt, its input, its tools, and its
-/// store: the execution id, where progress is reported, the raw-capture seam,
-/// the gateway client, an explicit cancellation handle, and resource limits.
+/// Everything a run needs beyond the prompt, its input, and its tools: the
+/// execution id, where progress is reported, the raw-capture seam,
+/// the gateway client, an explicit cancellation handle, resource limits, and
+/// the store handle.
 ///
 /// `RunConfig` is owned (no borrows), so its observer and debug sinks reach the
 /// nested `models.infer` path that a borrowed option could not.
@@ -192,12 +194,14 @@ pub struct RunConfig {
     pub(crate) input: Option<Arc<dyn InputBroker>>,
     pub(crate) ui: Option<Arc<dyn Fn() -> serde_json::Value + Send + Sync>>,
     pub(crate) on_delta: Option<Arc<dyn Fn(StreamDelta) + Send + Sync>>,
+    pub(crate) vfs: VfsRef,
 }
 
 impl RunConfig {
     /// Builds a config for `execution` with default observer, no client, no
     /// capture, no cancellation, no input broker, no `ui` provider, no delta
-    /// callback, and default [`RunLimits`].
+    /// callback, default [`RunLimits`], and the stock store handle
+    /// (`promptforge_vfs::empty()`).
     #[must_use]
     pub fn new(execution: impl Into<String>) -> RunConfig {
         RunConfig {
@@ -210,6 +214,7 @@ impl RunConfig {
             input: None,
             ui: None,
             on_delta: None,
+            vfs: promptforge_vfs::empty(),
         }
     }
 
@@ -282,6 +287,17 @@ impl RunConfig {
         self
     }
 
+    /// Sets the run's VFS handle, which carries the store mount every
+    /// section's `store` table operates on. Hosts that seed before the run
+    /// or extract after it build their own handle and set it here; the
+    /// default is the stock handle (`promptforge_vfs::empty()`), a fresh
+    /// memory backend at the store mount.
+    #[must_use]
+    pub fn vfs(mut self, vfs: VfsRef) -> RunConfig {
+        self.vfs = vfs;
+        self
+    }
+
     /// Returns the execution identifier shared by every report.
     #[must_use]
     pub fn execution(&self) -> &str {
@@ -301,6 +317,7 @@ impl fmt::Debug for RunConfig {
             .field("input", &self.input.is_some())
             .field("ui", &self.ui.is_some())
             .field("on_delta", &self.on_delta.is_some())
+            .field("vfs", &self.vfs)
             .finish()
     }
 }

@@ -5,13 +5,11 @@
 //! never consulted for a decision. [`NullObserver`] provides silence without
 //! a second execution path.
 //!
-//! The implementation lives in the `shared-promptforge-api` crate and is
-//! re-exported here unchanged, so existing `promptforge_api::observe::*`
-//! paths keep working.
+//! The implementation lives in the `shared-promptforge-api` crate. This
+//! module is the crate-internal import surface for it; hosts name the
+//! observation vocabulary through `shared_promptforge_api::observe`.
 
-pub use shared_promptforge_api::observe::{NullObserver, Observation, Observer};
-
-pub(crate) use shared_promptforge_api::observe::detail;
+pub(crate) use shared_promptforge_api::observe::{NullObserver, Observation, Observer, detail};
 
 #[cfg(test)]
 mod tests {

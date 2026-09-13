@@ -11,29 +11,26 @@ A Rust library that turns Markdown files into executable AI prompt pipelines. Yo
 ```toml
 [dependencies]
 promptforge-api = "0.1"
-promptforge-tool-picker = "0.1"
-promptforge-vfs = "0.1"
+shared-promptforge-api = "0.1"
 ```
 
 ```rust
-use promptforge_api::model::ModelCatalog;
-use promptforge_api::observe::NullObserver;
-use promptforge_api::tools::ToolCatalog;
 use promptforge_api::{Prompt, ResolutionContext, RunConfig, run};
-use promptforge_tool_picker::{Catalog, Config, ToolPicker};
+use shared_promptforge_api::models::ModelCatalog;
+use shared_promptforge_api::observe::NullObserver;
+use shared_promptforge_api::tools::ToolCatalog;
 
 async fn execute(source: &str) -> Result<String, Box<dyn std::error::Error>> {
     let prompt = Prompt::parse(source, "readme", &NullObserver::default())?;
-    let picker = ToolPicker::build(Catalog::new(Vec::new()), Config::default())?;
+    // Capability-free agents pass no picker; the store handle defaults to a
+    // stock in-memory mount.
     let models = ModelCatalog::empty();
     let tools = ToolCatalog::new(&[])?;
-    let vfs = promptforge_vfs::empty();
 
     let result = run(
         &prompt,
         "",
-        ResolutionContext::new(&picker, &models, &tools),
-        &vfs,
+        ResolutionContext::new(None, &models, &tools),
         RunConfig::new("readme"),
     )
     .await?;

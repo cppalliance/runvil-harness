@@ -357,9 +357,8 @@ async fn run(
     super::run(
         &test.prompt,
         args,
-        ResolutionContext::new(&picker, &test.models, &tool_catalog),
-        store.vfs(),
-        run_config,
+        ResolutionContext::new(Some(&picker), &test.models, &tool_catalog),
+        run_config.vfs(store.vfs().clone()),
     )
     .await
     .map_err(Error::from)
@@ -406,9 +405,8 @@ async fn run_with_config(
     super::run(
         &test.prompt,
         "",
-        ResolutionContext::new(&picker, &test.models, &ToolCatalog::default()),
-        TestStore::new().vfs(),
-        configure(RunConfig::new(EXECUTION)),
+        ResolutionContext::new(Some(&picker), &test.models, &ToolCatalog::default()),
+        configure(RunConfig::new(EXECUTION)).vfs(TestStore::new().vfs().clone()),
     )
     .await
 }

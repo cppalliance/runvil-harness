@@ -15,8 +15,10 @@ use super::config::RunLimits;
 #[derive(Clone, Copy)]
 #[non_exhaustive]
 pub struct ResolutionContext<'a> {
-    /// Semantic picker used by executed H1 capability calls.
-    pub(crate) picker: &'a ToolPicker,
+    /// Semantic picker used by executed H1 capability calls. `None` for
+    /// capability-free agents: a `tools.bind` or `models.bind` executed
+    /// without a picker fails as a binding error naming the missing picker.
+    pub(crate) picker: Option<&'a ToolPicker>,
     /// Live model catalog used by executed H1 model calls.
     pub(crate) models: &'a ModelCatalog,
     /// Caller-provided tool catalog used by executed H1 `tools.bind` calls.
@@ -24,11 +26,11 @@ pub struct ResolutionContext<'a> {
 }
 
 impl<'a> ResolutionContext<'a> {
-    /// Builds a resolution context from a live picker, model catalog, and
-    /// tool catalog.
+    /// Builds a resolution context from an optional live picker, a model
+    /// catalog, and a tool catalog.
     #[must_use]
     pub fn new(
-        picker: &'a ToolPicker,
+        picker: Option<&'a ToolPicker>,
         models: &'a ModelCatalog,
         tools: &'a ToolCatalog,
     ) -> ResolutionContext<'a> {

@@ -1292,7 +1292,7 @@ impl H1Resolution {
     }
 
     fn context(&self) -> ResolutionContext<'_> {
-        ResolutionContext::new(&self.picker, &self.models, &self.tools)
+        ResolutionContext::new(Some(&self.picker), &self.models, &self.tools)
     }
 }
 

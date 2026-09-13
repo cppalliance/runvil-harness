@@ -2,23 +2,24 @@
 //!
 //! Some tools run locally in this process (for example fetching and rendering a
 //! web page), while others proxy through the gateway so a shared credential
-//! never leaves the server. Both kinds share the [`Tool`] trait so the executor
+//! never leaves the server. Both kinds share one `Tool` trait so the executor
 //! can dispatch them uniformly. Stable identity is separate from the wire name
 //! used by the current model transport.
 //!
-//! The runtime-agnostic contract vocabulary ([`Tool`], [`ToolCatalog`],
-//! [`ToolId`], the output and error types) lives in the
-//! `shared-promptforge-api` crate's `tools` module and is re-exported here
-//! unchanged, so existing
-//! `promptforge_api::tools::*` paths keep working. The concrete `WebSearch`
-//! provider lives in the `promptforge-web-search` crate and is re-exported
-//! here under its historical path for the same reason.
+//! The runtime-agnostic contract vocabulary (the `Tool` trait,
+//! [`ToolCatalog`], [`ToolId`], the output and error types) lives in the
+//! `shared-promptforge-api` crate's `tools` module, and the concrete
+//! `WebSearch` provider lives in the `promptforge-web-search` crate. This
+//! module is the crate-internal import surface for both; hosts name the
+//! contract through `shared_promptforge_api::tools`.
 
-pub use promptforge_web_search::WebSearch;
-pub use shared_promptforge_api::tools::{
-    OutputTrust, Tool, ToolCatalog, ToolCatalogError, ToolCatalogErrorKind, ToolError,
-    ToolErrorKind, ToolId, ToolIdError, ToolIdErrorKind, ToolOutput,
+#[cfg(test)]
+pub(crate) use promptforge_web_search::WebSearch;
+#[cfg(test)]
+pub(crate) use shared_promptforge_api::tools::{
+    OutputTrust, Tool, ToolError, ToolErrorKind, ToolOutput,
 };
+pub(crate) use shared_promptforge_api::tools::{ToolCatalog, ToolId};
 
 /// Diagnostics for two semantic near-duplicates exposed in one model turn.
 ///

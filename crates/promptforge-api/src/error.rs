@@ -3,7 +3,7 @@
 //! [`Error`] is a `pub(crate)` substrate: it is never part of the public API.
 //! Every public boundary returns its own typed error ([`crate::RunError`],
 //! [`crate::ParseError`], [`crate::CompletionError`],
-//! [`crate::tools::ToolError`], [`crate::store::StoreError`]); those wrappers
+//! [`shared_promptforge_api::tools::ToolError`], [`promptforge_store::StoreError`]); those wrappers
 //! classify this substrate and preserve its source. See the module wrappers for
 //! the `From` bridges that let internal `?` keep flowing through the substrate.
 
@@ -475,9 +475,9 @@ pub(crate) enum Error {
     #[error("unsupported promptforge version: {0} (this build supports major 0)")]
     UnsupportedVersion(u32),
 
-    /// A dispatched [`crate::tools::Tool`] returned a model-safe failure.
+    /// A dispatched [`shared_promptforge_api::tools::Tool`] returned a model-safe failure.
     ///
-    /// The tool's own [`crate::tools::ToolError`] is preserved as the
+    /// The tool's own [`shared_promptforge_api::tools::ToolError`] is preserved as the
     /// `#[source]` cause, so the failure chain (and any transport/parse error the
     /// tool wrapped) survives instead of being flattened to a string.
     #[error("tool call failure: {message}")]
@@ -644,8 +644,8 @@ impl From<GatewayClientError> for Error {
     }
 }
 
-impl From<crate::model::CompletionError> for Error {
-    fn from(error: crate::model::CompletionError) -> Error {
+impl From<crate::client::CompletionError> for Error {
+    fn from(error: crate::client::CompletionError) -> Error {
         Error::from(GatewayClientError::from(error))
     }
 }
@@ -882,8 +882,7 @@ mod tests {
         // client :419 / AUDIT-DISCARDED-SOURCE: an unusable credential and a bad
         // endpoint URL both retain their concrete cause through the public
         // CompletionError::source, classified as Config.
-        use crate::client::{GatewayEndpoint, SecretString};
-        use crate::model::{CompletionError, CompletionErrorKind};
+        use crate::client::{CompletionError, CompletionErrorKind, GatewayEndpoint, SecretString};
 
         let secret_error = SecretString::new("").expect_err("blank key is rejected");
         let completion = CompletionError::from(secret_error);

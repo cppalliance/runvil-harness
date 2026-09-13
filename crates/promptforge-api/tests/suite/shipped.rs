@@ -3,8 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use promptforge_api::observe::NullObserver;
 use promptforge_api::parser::Prompt;
+use shared_promptforge_api::observe::NullObserver;
 
 const SHIPPED_PARSE: &str = "fixture-shipped-prompts";
 

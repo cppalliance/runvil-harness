@@ -2304,9 +2304,8 @@ async fn a_mount_less_handle_runs_on_the_defensive_store_overlay() {
     let out = crate::execute::run(
         &test.prompt,
         "",
-        ResolutionContext::new(&picker, &test.models, &ToolCatalog::default()),
-        &vfs,
-        RunConfig::new(EXECUTION),
+        ResolutionContext::new(Some(&picker), &test.models, &ToolCatalog::default()),
+        RunConfig::new(EXECUTION).vfs(vfs.clone()),
     )
     .await
     .expect("a mount-less handle gets the defensive memory-store overlay");
@@ -2324,5 +2323,105 @@ async fn a_mount_less_handle_runs_on_the_defensive_store_overlay() {
             Err(shared_vfs::VfsError::NotFound(_))
         ),
         "the run's writes must land on the overlay, not the caller's backend"
+    );
+}
+
+#[tokio::test]
+async fn picker_less_context_runs_a_capability_free_prompt() {
+    // The picker is optional: a prompt with no capability binds runs under
+    // `ResolutionContext::new(None, ...)`.
+    let md = flow_prompt!(
+        "# Test prompt\n\n\
+        ## Only\n\n```lua\nreturn 'no capabilities'\n```\n"
+    );
+    let test = fixture(md);
+    let out = crate::execute::run(
+        &test.prompt,
+        "",
+        ResolutionContext::new(None, &test.models, &ToolCatalog::default()),
+        RunConfig::new(EXECUTION),
+    )
+    .await
+    .expect("a capability-free prompt runs without a picker");
+    assert_eq!(out, "no capabilities");
+}
+
+#[tokio::test]
+async fn default_run_config_store_handle_carries_the_stock_mount() {
+    // `RunConfig` absorbs the store handle with a `promptforge_vfs::empty()`
+    // default: a store-using run needs no host-supplied handle.
+    let md = flow_prompt!(
+        "# Test prompt\n\n\
+        ## First\n\n```lua\nstore.write('default.txt', 'stock')\n```\n\n\
+        ## Second\n\n```lua\nreturn store.read('default.txt')\n```\n"
+    );
+    let test = fixture(md);
+    let out = crate::execute::run(
+        &test.prompt,
+        "",
+        ResolutionContext::new(None, &test.models, &ToolCatalog::default()),
+        RunConfig::new(EXECUTION),
+    )
+    .await
+    .expect("the default store handle carries the stock mount");
+    assert_eq!(out, "stock");
+}
+
+#[tokio::test]
+async fn picker_less_context_fails_a_tool_bind_as_a_binding_error() {
+    // A `tools.bind` under a picker-less context fails classified as a
+    // binding failure, naming the missing picker.
+    let md = flow_prompt!(
+        "# Test prompt\n\n\
+        ```lua\ntools.bind('search', 'search the web')\n```\n\n\
+        ## Only\n\n```lua\nreturn 'unreachable'\n```\n"
+    );
+    let test = fixture(md);
+    let error = crate::execute::run(
+        &test.prompt,
+        "",
+        ResolutionContext::new(None, &test.models, &ToolCatalog::default()),
+        RunConfig::new(EXECUTION),
+    )
+    .await
+    .expect_err("a tools.bind without a picker must fail");
+    assert_eq!(
+        error.kind(),
+        RunErrorKind::Binding,
+        "a picker-less tools.bind classifies as Binding: {error:?}"
+    );
+    assert!(
+        error.to_string().contains("no tool picker"),
+        "the failure names the missing picker: {error}"
+    );
+}
+
+#[tokio::test]
+async fn picker_less_context_fails_a_model_bind_as_a_binding_error() {
+    // A non-empty catalog still cannot bind without the picker: the failure
+    // is the missing picker, not the empty-catalog absent shortcut.
+    let md = flow_prompt!(
+        "# Test prompt\n\n\
+        ```lua\nmodels.bind('writer', 'A general model for tests')\n```\n\n\
+        ## Only\n\n```lua\nreturn 'unreachable'\n```\n"
+    );
+    let mut test = fixture(md);
+    test.models = test_model_catalog();
+    let error = crate::execute::run(
+        &test.prompt,
+        "",
+        ResolutionContext::new(None, &test.models, &ToolCatalog::default()),
+        RunConfig::new(EXECUTION),
+    )
+    .await
+    .expect_err("a models.bind without a picker must fail");
+    assert_eq!(
+        error.kind(),
+        RunErrorKind::Binding,
+        "a picker-less models.bind classifies as Binding: {error:?}"
+    );
+    assert!(
+        error.to_string().contains("no tool picker"),
+        "the failure names the missing picker: {error}"
     );
 }

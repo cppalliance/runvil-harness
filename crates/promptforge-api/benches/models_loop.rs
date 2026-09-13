@@ -26,12 +26,11 @@ use axum::response::IntoResponse;
 use axum::routing::post;
 use criterion::{Criterion, criterion_group, criterion_main};
 use promptforge_api::client::{GatewayClient, GatewayEndpoint, SecretString};
-use promptforge_api::model::{ModelCatalog, ModelDescriptor, ModelId, ThinkingMode};
-use promptforge_api::observe::NullObserver;
-
-use promptforge_api::tools::ToolCatalog;
 use promptforge_api::{Prompt, ResolutionContext, RunConfig, run};
 use promptforge_tool_picker::{Catalog, Config, ToolPicker};
+use shared_promptforge_api::models::{ModelCatalog, ModelDescriptor, ModelId, ThinkingMode};
+use shared_promptforge_api::observe::NullObserver;
+use shared_promptforge_api::tools::ToolCatalog;
 
 const EXECUTION: &str = "bench";
 
@@ -149,7 +148,7 @@ fn resolution<'a>(
     models: &'a ModelCatalog,
     tools: &'a ToolCatalog,
 ) -> ResolutionContext<'a> {
-    ResolutionContext::new(picker, models, tools)
+    ResolutionContext::new(Some(picker), models, tools)
 }
 
 /// One `models.loop` turn end to end: parse is excluded, so the measurement
@@ -174,7 +173,6 @@ fn models_loop(c: &mut Criterion) {
                     &prompt,
                     "",
                     resolution(&picker, &models, &tools),
-                    &promptforge_vfs::empty(),
                     RunConfig::new(EXECUTION)
                         .observer(Arc::new(NullObserver::default()))
                         .client(gateway.client()),
@@ -210,7 +208,6 @@ fn compactors_fail(c: &mut Criterion) {
                     &prompt,
                     "",
                     resolution(&picker, &models, &tools),
-                    &promptforge_vfs::empty(),
                     RunConfig::new(EXECUTION)
                         .observer(Arc::new(NullObserver::default()))
                         .client(gateway.client()),

@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use promptforge_api::execute::RunErrorKind;
-use promptforge_api::observe::Observer;
+use shared_promptforge_api::observe::Observer;
 
 use super::support::{Record, Recorder, RunOptions, parse_execution_fixture, run, run_fixture};
 

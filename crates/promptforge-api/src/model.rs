@@ -9,18 +9,18 @@
 //! that omit `models.use`. Model-facing sections with neither binding fail with
 //! a model-binding failure surfaced through [`crate::RunError`].
 //!
-//! The implementation lives in the `promptforge-model-client` crate and is
-//! re-exported here unchanged, so existing `promptforge_api::model::*` paths
-//! keep working.
+//! The implementation lives in the `promptforge-model-client` crate. This
+//! module is the crate-internal import surface for it; hosts name the model
+//! vocabulary through `shared-promptforge-api`'s `models` module and the
+//! completion error types through [`crate::client`].
 
-pub use promptforge_model_client::model::{
-    CompletionError, CompletionErrorKind, CompletionOptions, ModelCatalog, ModelCatalogError,
-    ModelDescriptor, ModelId, ModelIdError, TemperatureError, ThinkingMode, fetch_model_catalog,
-};
 pub(crate) use promptforge_model_client::model::{
-    ModelBindOpts, ModelBinding, ModelResolver, ModelSet, ModelView, PickerModelResolver,
-    ResolvedModel,
+    CompletionOptions, ModelBindOpts, ModelBinding, ModelCatalog, ModelId, ModelResolver, ModelSet,
+    ModelView, PickerModelResolver, ResolvedModel,
 };
+
+#[cfg(test)]
+pub(crate) use promptforge_model_client::model::{ModelDescriptor, ThinkingMode};
 
 #[cfg(test)]
 mod tests;
