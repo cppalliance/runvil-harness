@@ -33,7 +33,7 @@ pub use resolver::PickerModelResolver;
 pub use shared_promptforge_api::models::{
     ModelCatalog, ModelCatalogError, ModelDescriptor, ModelId, ModelIdError, ThinkingMode,
 };
-pub use transport::{fetch_model_catalog, subscribe_progress};
+pub use transport::fetch_model_catalog;
 
 /// Returns the descriptors satisfying `opts` as borrowed references.
 ///
