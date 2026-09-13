@@ -23,6 +23,6 @@ reasoning-token details), llama.cpp `timings`, vLLM `metrics`, and a
 `client_timing` (TTFT, mean inter-token latency, end-to-end) measured on
 the client's own clock. The metrics vocabulary (`Usage`, `LlamaTimings`,
 `VllmMetrics`, `ClientTiming`, `CallMetrics`) is canonical in
-`promptforge-core-support` and re-exported at this crate's root. A
+`shared-promptforge-api` and re-exported at this crate's root. A
 malformed metadata section degrades to `None` with a `tracing` warning; it
 never fails the call.

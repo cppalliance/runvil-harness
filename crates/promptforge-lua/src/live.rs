@@ -93,7 +93,7 @@ impl LiveBindingProducer {
     /// Production reads the shared sets through the run context's views; test
     /// doubles snapshot straight from the producer.
     ///
-    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-core`'s tests,
+    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-api`'s tests,
     /// not host API.
     ///
     /// # Errors

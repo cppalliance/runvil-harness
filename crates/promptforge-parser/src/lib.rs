@@ -40,7 +40,7 @@ pub(crate) type BoxedSource = Box<dyn std::error::Error + Send + Sync>;
 /// the public boundary.
 ///
 /// `#[doc(hidden)]`: this type exists in the public item tree only so the
-/// companion `promptforge-core` crate can convert it back onto its own
+/// companion `promptforge-api` crate can convert it back onto its own
 /// substrate variant-for-variant. It is not host API.
 #[derive(Debug, thiserror::Error)]
 #[doc(hidden)]
@@ -159,7 +159,7 @@ impl ParseError {
 
     /// Unwraps the internal substrate error.
     ///
-    /// `#[doc(hidden)]`: cross-crate seam for `promptforge-core`'s own error
+    /// `#[doc(hidden)]`: cross-crate seam for `promptforge-api`'s own error
     /// substrate, mirroring the `promptforge-lua` precedent. Not host API.
     #[doc(hidden)]
     #[must_use]

@@ -187,7 +187,7 @@ pub struct ToolSchema {
 /// `#[doc(hidden)]`: `ToolSchema` is built only inside the workspace (from the
 /// executor's `Tool` contract), so the raw-`Value` validation and its error
 /// stay out of the documented API (client F8, lib F3). The type is visible
-/// only so the companion `promptforge-core` crate can box it as an error
+/// only so the companion `promptforge-api` crate can box it as an error
 /// source.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[doc(hidden)]

@@ -1,11 +1,11 @@
 //! The crate's internal error substrate.
 //!
-//! [`Error`] mirrors the role `promptforge-core`'s substrate plays there: it
+//! [`Error`] mirrors the role `promptforge-api`'s substrate plays there: it
 //! is never part of the documented API. The executor's public boundary
-//! (`promptforge_core::RunError`) wraps and classifies core's own substrate,
+//! (`promptforge_api::RunError`) wraps and classifies core's own substrate,
 //! which maps this one back variant-for-variant through
 //! `From<promptforge_lua::Error>`. The substrate is `#[doc(hidden)]` and
-//! re-exported only so `promptforge-core` can perform that mapping verbatim;
+//! re-exported only so `promptforge-api` can perform that mapping verbatim;
 //! it is not a stable API and is not marked `#[non_exhaustive]`, so the
 //! mapping stays total.
 
@@ -24,7 +24,7 @@ pub(crate) type BoxedSource = Box<dyn std::error::Error + Send + Sync>;
 /// [`SharedSource`] lets the typed cause be retained as a `#[source]` and cloned
 /// cheaply per lookup instead of being flattened to a string (resolve F4).
 ///
-/// `promptforge-core`'s substrate carries this same type in its
+/// `promptforge-api`'s substrate carries this same type in its
 /// `BindQuery`/`ModelBindQuery` variants, so the cross-crate mapping needs no
 /// re-wrapping.
 #[derive(Debug, Clone)]
@@ -56,7 +56,7 @@ impl std::error::Error for SharedSource {
 /// bridging, capability binding, and Lua compile/runtime failures.
 ///
 /// `#[doc(hidden)]`: this type exists in the public item tree only so the
-/// companion `promptforge-core` crate can convert it back onto its own
+/// companion `promptforge-api` crate can convert it back onto its own
 /// substrate variant-for-variant. It is not host API.
 #[derive(Debug, thiserror::Error)]
 #[doc(hidden)]
@@ -346,7 +346,7 @@ impl Error {
 /// variants map variant-for-variant (they are the only ones a
 /// `models.bind`/`models.default` resolution can produce), and
 /// `ModelSetLock` flattens to [`Error::Lua`], matching the mapping
-/// `promptforge-core` has always applied. Any remaining transport variant is
+/// `promptforge-api` has always applied. Any remaining transport variant is
 /// unreachable on the model-resolution path and degrades to its display
 /// string rather than fabricating a classification.
 impl From<GatewayClientError> for Error {

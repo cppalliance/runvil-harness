@@ -145,7 +145,7 @@ impl ToolBinding {
     /// Builds a binding for a test double: the identity comes from the tool,
     /// with no override and no recorded clashes.
     ///
-    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-core`'s executor
+    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-api`'s executor
     /// tests, not host API.
     #[doc(hidden)]
     #[must_use]
@@ -285,7 +285,7 @@ pub struct ToolSet {
 impl ToolSet {
     /// Builds a set from owned parts, for executor test doubles.
     ///
-    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-core`'s executor
+    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-api`'s executor
     /// tests, not host API.
     #[doc(hidden)]
     #[must_use]

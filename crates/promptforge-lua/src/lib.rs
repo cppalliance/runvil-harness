@@ -24,7 +24,7 @@
 //! `SectionVm::run_chunk` as [`Error::Lua`].
 //!
 //! Most of this crate is a `#[doc(hidden)]` cross-crate seam for
-//! `promptforge-core`'s executor, which drives the VM and the coroutine
+//! `promptforge-api`'s executor, which drives the VM and the coroutine
 //! protocol; [`LuaProgram`] is the documented exception.
 
 // These imports are re-exported `pub(crate)` so the child modules can pull
@@ -114,7 +114,7 @@ mod models;
 mod protocol;
 mod runtime_events;
 
-// The executor-facing surface: every item `promptforge-core` names crosses
+// The executor-facing surface: every item `promptforge-api` names crosses
 // here. These are `#[doc(hidden)]` cross-crate seams, not host API;
 // `LuaProgram` is the documented exception.
 #[doc(hidden)]

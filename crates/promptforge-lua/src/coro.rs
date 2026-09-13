@@ -20,7 +20,7 @@ use super::{Error, Lua, LuaProgram, Result, SharedSource, StdLib, var_snapshot_t
 
 /// The shim chunk's name: `@`-prefixed so PUC renders it verbatim as a file
 /// path, making unexpected shim errors clickable `file:line:` references.
-const SHIM_CHUNK_NAME: &str = "@crates/promptforge-core/src/lua/__impl_coro.lua";
+const SHIM_CHUNK_NAME: &str = "@crates/promptforge-api/src/lua/__impl_coro.lua";
 
 /// The shim source, embedded verbatim so chunk line 1 is file line 1.
 const SHIM_SOURCE: &str = include_str!("__impl_coro.lua");

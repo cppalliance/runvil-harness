@@ -42,7 +42,7 @@ pub use transport::{fetch_model_catalog, subscribe_progress};
 /// back out of the same borrowed slice.
 ///
 /// `#[doc(hidden)]`: a cross-crate seam for the resolver and its test
-/// doubles in `promptforge-core`, not host API. An extension trait because
+/// doubles in `promptforge-api`, not host API. An extension trait because
 /// [`ModelCatalog`] is canonical in `shared-promptforge-api` while
 /// [`ModelBindOpts`] binding machinery stays here.
 #[doc(hidden)]

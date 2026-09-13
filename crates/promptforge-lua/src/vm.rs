@@ -743,7 +743,7 @@ impl SectionVm {
     /// Returns [`Error::Lua`] if host values have not been injected, execution
     /// fails, or the program returns a non-scalar value.
     ///
-    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-core`'s executor
+    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-api`'s executor
     /// tests, not host API.
     #[doc(hidden)]
     pub fn run_chunk(
@@ -859,7 +859,7 @@ impl SectionVm {
 
     /// Returns frozen tool bindings and the live H2 addition runtime.
     ///
-    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-core`'s executor
+    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-api`'s executor
     /// tests, not host API.
     #[doc(hidden)]
     #[must_use]
@@ -872,7 +872,7 @@ impl SectionVm {
     /// Test-only: production reads the run's shared set through the model
     /// view; tests snapshot straight from the VM.
     ///
-    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-core`'s tests,
+    /// `#[doc(hidden)]`: a cross-crate seam for `promptforge-api`'s tests,
     /// not host API.
     #[doc(hidden)]
     #[must_use]

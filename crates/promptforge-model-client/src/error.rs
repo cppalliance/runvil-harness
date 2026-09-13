@@ -1,11 +1,11 @@
 //! The crate's internal error substrate.
 //!
-//! [`Error`] mirrors the role `promptforge-core`'s substrate plays there: it is
+//! [`Error`] mirrors the role `promptforge-api`'s substrate plays there: it is
 //! never part of the documented API. Every public boundary returns its own
 //! typed error ([`crate::model::CompletionError`], [`crate::client::SecretError`],
 //! [`crate::model::ModelIdError`]); those wrappers classify this substrate and
 //! preserve its source. The substrate is `#[doc(hidden)]` and re-exported only
-//! so `promptforge-core` can map every variant back onto its own substrate
+//! so `promptforge-api` can map every variant back onto its own substrate
 //! verbatim; it is not a stable API and is not marked `#[non_exhaustive]`, so
 //! that mapping stays total.
 
@@ -46,7 +46,7 @@ impl std::error::Error for SharedSource {
 /// transport, and model-binding resolution failures.
 ///
 /// `#[doc(hidden)]`: this type exists in the public item tree only so the
-/// companion `promptforge-core` crate can convert it back onto its own
+/// companion `promptforge-api` crate can convert it back onto its own
 /// substrate variant-for-variant. It is not host API.
 #[derive(Debug, thiserror::Error)]
 #[doc(hidden)]
@@ -199,7 +199,7 @@ pub enum Error {
     /// A lock on the shared model set was poisoned.
     ///
     /// `Display` is the bare message so the companion crate can reclassify the
-    /// failure (`promptforge-core` maps it onto its own Lua-layer variant)
+    /// failure (`promptforge-api` maps it onto its own Lua-layer variant)
     /// without a wording change.
     #[error("{0}")]
     ModelSetLock(String),
