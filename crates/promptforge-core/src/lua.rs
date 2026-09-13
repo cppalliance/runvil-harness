@@ -21,6 +21,7 @@ pub(crate) use promptforge_lua::{
     project_messages, resolve_model_binding, run_store_op, shim_live_h1_models,
 };
 
+#[cfg(test)]
 pub(crate) use promptforge_lua::ToolOutputKind;
 
 #[cfg(test)]

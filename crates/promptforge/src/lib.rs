@@ -12,7 +12,7 @@ pub mod pipeline {
     pub use promptforge_core::execute::run;
     pub use promptforge_core::execute::{RunConfig, RunError};
     pub use promptforge_core::input::{
-        INPUT_UNAVAILABLE_FALLBACK, InputBroker, InputError, InputOutcome, InputTool,
+        INPUT_UNAVAILABLE_FALLBACK, InputBroker, InputError, InputOutcome,
     };
 }
 

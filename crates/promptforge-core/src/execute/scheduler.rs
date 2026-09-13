@@ -67,19 +67,19 @@ use tokio::task::JoinHandle;
 use crate::client::GatewayClient;
 use crate::fanout;
 use crate::fanout::ArmFinalizer;
-use crate::input::{INPUT_UNAVAILABLE_FALLBACK, InputBroker, InputOutcome, InputTool};
+use crate::input::{INPUT_UNAVAILABLE_FALLBACK, InputOutcome};
 use crate::lua::{
     CoroStep, LuaBlockResult, LuaFanoutResult, LuaProgram, MessageRecord, OverflowReason,
-    ScriptReport, SectionVm, ToolOutputKind, UserInputOutcome, append_message_record,
-    current_tool_bindings, dispatch_tool, invoke_selected, project_messages, resolve_model_binding,
-    run_store_op, shim_live_h1_models,
+    ScriptReport, SectionVm, UserInputOutcome, append_message_record, current_tool_bindings,
+    dispatch_tool, invoke_selected, project_messages, resolve_model_binding, run_store_op,
+    shim_live_h1_models,
 };
 use crate::model::ModelBinding;
-use crate::observe::{Observation, Observer, detail};
+use crate::observe::{Observation, detail};
 use crate::parser::{Block, Prompt, Section};
 use crate::resolve::RuntimeResolution;
 use crate::store::{Access, Store, StoreError};
-use crate::tools::{Tool, ToolId};
+use crate::tools::ToolId;
 use crate::{Error, Result, cancel, subst};
 
 use super::context::RunContext;
@@ -244,35 +244,6 @@ struct ChainTarget<'a> {
     index: usize,
     /// True when the target is a direct child of the current section.
     child: bool,
-}
-
-/// Builds the model-visible input tool's binding for one loop scope: the
-/// input broker's second surface, advertised under the `user_input` alias,
-/// so the model can ask the operator mid-loop and the answer lands as the
-/// correlated tool result. Constructed per loop call with the frame's
-/// effective reporting handles, exactly as the broker's direct
-/// `user_input()` path reports under the chain's own coordinates.
-fn input_tool_binding(
-    broker: &Arc<dyn InputBroker>,
-    execution: &str,
-    section: &str,
-    observer: &Arc<dyn Observer>,
-) -> crate::lua::ToolBinding {
-    let tool: Arc<dyn Tool> = Arc::new(InputTool::new(
-        Arc::clone(broker),
-        execution,
-        section,
-        Arc::clone(observer),
-    ));
-    crate::lua::ToolBinding {
-        alias: tool.wire_name().to_owned(),
-        description: tool.description().to_owned(),
-        id: tool.id(),
-        model_description: None,
-        tool,
-        conflicts: Vec::new(),
-        output_kind: ToolOutputKind::Plain,
-    }
 }
 
 /// Resolves `heading` against an at-worker arm's visible set: the fanout
@@ -1983,23 +1954,11 @@ impl<'a> Scheduler<'a> {
             // The scope is read at call time: `tools.add` and
             // `tools.add_local` calls since the last model operation shape
             // this call's advertised set.
-            let mut effective = current_tool_bindings(&tool_set, &frame.vm()?.tool_runtime)?;
+            let effective = current_tool_bindings(&tool_set, &frame.vm()?.tool_runtime)?;
             let handles = frame.reporting_handles();
             let observer = handles.observer;
             let debug = handles.debug;
             let turns = handles.turns;
-            // The broker's second surface: with an input broker configured,
-            // the model-visible input tool joins the loop scope, so the
-            // model can ask the operator mid-loop through the same broker
-            // the direct `user_input()` suspends on. A prompt-declared
-            // `user_input` alias wins over the synthetic binding.
-            if let Some(broker) = chain.ctx.input_broker()
-                && !effective
-                    .iter()
-                    .any(|binding| binding.alias() == "user_input")
-            {
-                effective.push(input_tool_binding(broker, &execution, &section, &observer));
-            }
             let counts = frame.script_call_counts(&chain.ctx, &effective)?;
             let local_schemas = frame.vm()?.local_tool_schemas()?;
             // The shared dispatch body's increment errors on an unseeded

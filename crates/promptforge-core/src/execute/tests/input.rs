@@ -1,13 +1,12 @@
 //! Tests for the generic input broker: direct `user_input()` (operator
 //! text with the availability flag, the unspoofable fallback sentence,
-//! host failure, cancellation) and the model-visible input tool adapting
-//! the same broker through the correlated tool protocol inside
-//! `models.loop`.
+//! host failure, cancellation) and the contract that a configured broker
+//! advertises no `user_input` tool to the model.
 
 use super::*;
 use crate::execute::scheduler::Scheduler;
-use crate::input::{INPUT_UNAVAILABLE_FALLBACK, InputBroker, InputError, InputOutcome, InputTool};
-use crate::lua::{ToolBinding, ToolSet};
+use crate::input::{INPUT_UNAVAILABLE_FALLBACK, InputBroker, InputError, InputOutcome};
+use crate::lua::ToolSet;
 use crate::model::{ModelBinding, ModelId};
 use promptforge_model_client::model::ModelInvocation;
 
@@ -332,63 +331,26 @@ async fn cancellation_interrupts_a_pending_input_wait() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn the_model_visible_input_tool_adapts_the_broker_through_the_correlated_tool_protocol() {
-    let gateway = ScriptedGateway::start(vec![
-        resp_tool_call("call_1", "user_input", "{}"),
-        resp_text("all done"),
-    ])
-    .await;
-    let recorder = Arc::new(InputRecorder::default());
-    let tool = InputTool::new(
-        Arc::new(TextBroker("from the operator")),
-        EXECUTION,
-        "Only",
-        Arc::clone(&recorder) as Arc<dyn Observer>,
-    );
-    let tools = ToolSet::for_test(
-        vec![ToolBinding::for_test(
-            "user_input",
-            "operator input capability",
-            Arc::new(tool),
-        )],
-        vec!["user_input".to_owned()],
-    );
+async fn a_brokered_loop_with_no_prompt_tools_advertises_no_tools_to_the_model() {
+    let gateway = ScriptedGateway::start(vec![resp_text("all done")]).await;
     let md = input_prompt(
         "local msgs = messages.new()\n\
-         msgs:user('ask me something')\n\
+         msgs:user('hello')\n\
          models.loop(msgs)\n\
-         assert(#msgs == 4, 'user, assistant call, correlated result, terminal')\n\
-         assert(msgs[2].role == 'assistant', 'the model asked through a tool call')\n\
-         assert(msgs[3].role == 'tool', 'the input answer is a tool result')\n\
-         assert(msgs[3].tool_call_id == 'call_1', 'the result is correlated to the call')\n\
-         assert(msgs[3].content == 'from the operator', 'the operator text is the result content')\n\
-         assert(msgs[4].role == 'assistant' and msgs[4].content == 'all done', 'the terminal record closes the loop')\n\
-         return 'ok'",
+         return msgs[#msgs].content",
     );
     let prompt = parse(&md);
-    let config = RunConfig::new(EXECUTION).observer(Arc::clone(&recorder) as Arc<dyn Observer>);
-    let ctx = input_context(&prompt, tools, &config);
+    let config = RunConfig::new(EXECUTION).input_broker(Arc::new(TextBroker("never asked")));
+    let ctx = input_context(&prompt, ToolSet::default(), &config);
     let out = Scheduler::new(&ctx, Some(gateway_client(gateway.addr())))
         .drive()
         .await
-        .expect("the loop runs the input tool round to its terminal turn");
-    assert_eq!(out, "ok");
+        .expect("a tool-free loop runs to its terminal turn");
+    assert_eq!(out, "all done");
     let bodies = gateway.requests();
-    assert_eq!(bodies.len(), 2, "the tool round plus the terminal round");
-    let tool_message = bodies[1]["messages"]
-        .as_array()
-        .expect("a request body must carry a messages array")
-        .iter()
-        .find(|message| message["role"] == "tool")
-        .expect("the re-sent conversation must include the tool turn");
-    assert_eq!(
-        tool_message["tool_call_id"], "call_1",
-        "the wire result answers the model's call id"
-    );
-    assert_eq!(tool_message["content"], "from the operator");
-    assert_eq!(
-        recorder.inputs(),
-        vec!["from the operator".to_owned()],
-        "the tool path records the response through host observation exactly once"
+    assert_eq!(bodies.len(), 1, "one terminal turn is one request");
+    assert!(
+        bodies[0].get("tools").is_none() || bodies[0]["tools"].is_null(),
+        "a configured input broker advertises no user_input tool: {bodies:?}"
     );
 }
