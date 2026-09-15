@@ -268,4 +268,5 @@ pub(crate) fn install_compactors(lua: &Lua, globals: &Table) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "compactors-tests.rs"]
 mod tests;

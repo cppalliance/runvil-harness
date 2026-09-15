@@ -309,4 +309,5 @@ fn wire_message(record: &MessageRecord) -> Message {
 }
 
 #[cfg(test)]
+#[path = "projection-tests.rs"]
 mod tests;
