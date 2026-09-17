@@ -1,0 +1,21 @@
+[package]
+name = "promptforge-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+description = "PromptForge run-scoped virtual files: the Store facade over the shared VFS, exposed as vfs.store(&access)"
+readme = "README.md"
+keywords = ["prompt", "llm", "virtual-filesystem", "storage"]
+categories = ["data-structures", "rust-patterns"]
+documentation = "https://cppalliance.github.io/promptforge/"
+
+[dependencies]
+promptforge-vfs.workspace = true
+shared-vfs.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
