@@ -1,0 +1,152 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "crates/runvil-internal/types", "crates/runvil-internal/runtime", "crates/runvil-internal/lua", "crates/runvil-internal/markdown", "crates/runvil-internal/prompt", "crates/runvil-internal/vfs", "crates/runvil-internal/model-client", "crates/harness-internal/runner", "crates/harness-internal/plugin-loader", "crates/harness-internal/test-plugin"]
+# crates/runvil-internal and crates/harness-internal are manifestless
+# containers holding their families' private crates. Cargo prunes excluded
+# subtrees from member globs, so a "crates/runvil-internal/*" glob beside
+# the exclude below would match nothing; the container crates are
+# enumerated explicitly instead.
+exclude = ["crates/runvil-internal", "crates/harness-internal"]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
+# The Engine crates' floor, which CI's msrv job builds them at:
+# `runvil-lua` calls the atomics' `try_update`, stable since 1.95.
+rust-version = "1.95"
+license = "BSL-1.0"
+repository = "https://github.com/cppalliance/runvil-harness"
+
+[workspace.dependencies]
+bytes = "1"
+runvil-engine = { path = "crates/runvil-engine" }
+runvil-runtime = { path = "crates/runvil-internal/runtime" }
+runvil-plugin = { path = "crates/runvil-plugin" }
+# The C Plugin contract, version 0.4, from its own repository, pinned by
+# commit. `version` beside `git` keeps cargo-deny's wildcard check quiet.
+# The crate sets `links`, so Cargo refuses two commits of the contract in
+# one build: a Host that also names `runvil-plugin-sdk`, or a Plugin built
+# on it, pins this same commit.
+runvil-plugin-sys = { version = "0.4.0", git = "https://github.com/cppalliance/runvil-plugin-api", rev = "03a9fa37d2fe690d42ee0aa5c7a8289173e8e0f2" }
+runvil-types = { path = "crates/runvil-internal/types" }
+runvil = { path = "crates/runvil" }
+harness-runner = { path = "crates/harness-internal/runner" }
+harness-plugin-loader = { path = "crates/harness-internal/plugin-loader" }
+plugin-web = { path = "crates/plugin-web" }
+runvil-lua = { path = "crates/runvil-internal/lua" }
+runvil-markdown = { path = "crates/runvil-internal/markdown" }
+runvil-model-client = { path = "crates/runvil-internal/model-client" }
+runvil-prompt = { path = "crates/runvil-internal/prompt" }
+runvil-vfs = { path = "crates/runvil-internal/vfs" }
+# default-features off: all three users (the Markdown parser, the prompt
+# parser, and build-xtask's doctest scan) read only the core event stream,
+# never the `html` renderer or the `getopts` binary.
+pulldown-cmark = { version = "0.12", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_yaml_ng = "0.10"
+# `float_roundtrip` makes `from_str` reproduce the exact `f64` that
+# `to_string` printed, so a payload a recorder stores reads back
+# bit-for-bit.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+# 0.13 rather than 0.12 so a Host that links these crates gets exactly one
+# rustls crypto backend, aws-lc-rs. 0.13 has no `ring` option, so a bump
+# cannot re-enable it; CI checks that `ring` stays out of the workspace's
+# normal dependency graph. Root certificates come from the OS trust store
+# through the platform verifier (the `rustls` feature's default), not from
+# a bundled Mozilla list. `query` became opt-in in 0.13. `system-proxy`
+# makes reqwest honor Windows registry and macOS proxies.
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "stream", "system-proxy"] }
+rand = "0.9"
+readabilityrs = "0.1"
+htmd = "0.5"
+mime = "0.3"
+encoding_rs = "0.8"
+url = "2"
+ipnet = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "sync"] }
+thiserror = "2"
+# Dev-only: the mock servers that the Gateway client's and the Plugins'
+# tests send real requests to.
+axum = "0.8"
+# Pinned to 3.9.0, which fixes RUSTSEC-2026-0457, -0461, and -0462. `plugin-mcp`
+# was written against 3.5.1 (its `ClientConfig` handler,
+# `send_cancellable_request`, and `RequestHandle` fields). default-features off
+# drops `server` and `macros`; `base64` still arrives through `client-side-sse`,
+# which `transport-streamable-http-client` turns on. Each crate that uses it
+# names the features it needs.
+rmcp = { version = "=3.9.0", default-features = false }
+async-trait = "0.1"
+flate2 = "1"
+futures-util = "0.3"
+mlua = { version = "0.12", features = ["lua55", "vendored", "serialize", "send"] }
+# Reads each crate's manifest for build-xtask's structural checks.
+toml = "1"
+# Parses the facades' source for build-xtask's shape check;
+# `full` is the feature that parses items and `use` trees. 3 is the newest
+# major the lockfile already carries.
+syn = { version = "3", features = ["full"] }
+# `span-locations` makes a span parsed outside a proc macro report its line,
+# which the shape check prints with every violation.
+proc-macro2 = { version = "1", features = ["span-locations"] }
+# The rustdoc JSON model `cargo xtask api` reads. Exact pin: each release
+# matches one `format_version`, so it moves only together with the pinned
+# nightly in build-xtask's `api/toolchain.rs`.
+rustdoc-types = "=0.61.0"
+tracing = "0.1"
+tempfile = "3"
+time = { version = "0.3", features = ["formatting"] }
+sha2 = "0.11"
+# Loads plugin dynamic libraries without linking them into Cargo builds.
+libloading = "0.8"
+# `RTLD_NOLOAD`, with which the loader's end-to-end tests ask on Unix
+# whether a library is still loaded; already in the tree transitively.
+libc = "0.2"
+# Benchmark framework for the executor and Lua-boundary benches; dev-only.
+criterion = "0.5"
+# The Engine's GetDynamicTools pattern search; already in the tree through
+# criterion and readabilityrs.
+regex = "1"
+
+# The dylint libraries `cargo dylint --all` runs. The lints live in their
+# own repository, shared across the runvil project, because they build on
+# their own nightly with `rustc_private`. Moving to a newer lint set is a
+# change of `rev`.
+[workspace.metadata.dylint]
+libraries = [{ git = "https://github.com/cppalliance/dylints", rev = "982b297ede90d37cdf8f3bf9995d1d706dcc51d4" }]
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+future_incompatible = { level = "warn", priority = -1 }
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+unescaped_backticks = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "warn"
+todo = "deny"
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+exit = "deny"
+disallowed_methods = "deny"
+disallowed_types = "deny"
+disallowed_macros = "deny"
+# Cherry-picked out of pedantic: it flags product names (Runvil, OpenAI) in
+# prose, which reads worse backticked than the lint is worth.
+doc_markdown = "allow"
+# Cherry-picked out of pedantic: its suggested rewrite for a collection is
+# `assert_eq!(x, [] as [T; 0])`, which has to spell out the element type and
+# needs `T: PartialEq + Debug`, so it cannot be applied to most call sites.
+assert_is_empty = "allow"
