@@ -4,15 +4,15 @@
 // Host or the Harness's crates and types; and neither the root AGENTS.md
 // nor the Pack-facing crates' comments describe Pack activation. Reads
 // the files with node:fs rather than importing anything, so the check
-// needs no bundle and runs in the plain SPA suite.
-// Run: node --test test/docs-claims.mjs
+// needs Node and no install.
+// Run: node --test tools/docs-claims.mjs
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Every line of `file` (relative to the repo root) matching `phrase`, a string or a RegExp, tagged with its number. */
 async function offendingLines(file, phrase) {
@@ -30,13 +30,11 @@ async function offendingLines(file, phrase) {
 // `## Invariants`) as instructions, so each one uses the four words one way.
 // Inline and fenced code is skipped, and so is the Definitions section itself,
 // whose rule text names the words it restricts.
-const SKIP_DIRS = new Set([".git", "node_modules", "target", "dist"]);
-// Network and outside-tool phrases that keep a lowercase "host".
-const HOST_ALLOWED = /host-and-address|self-hosted|github-hosted/gi;
-// Other senses that keep a lowercase "engine" or "harness".
-const TERM_ALLOWED = /speech engine|database engine|test harness/gi;
-// Other programs' plugins, which keep a lowercase "plugin".
-const PLUGIN_ALLOWED = /Tauri plugin|ProseMirror plugin|esbuild plugin|NSIS plugin/gi;
+const SKIP_DIRS = new Set([".git", "target"]);
+// The network phrase that keeps a lowercase "host".
+const HOST_ALLOWED = /host-and-address/gi;
+// The other sense that keeps a lowercase "harness".
+const TERM_ALLOWED = /test harness/gi;
 
 async function* walk(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -94,15 +92,12 @@ test("rulebooks use Engine, Harness, Host, and Plugin as the root AGENTS.md defi
     if (/\bhost(s|ed|ing)?\b|\bhost-/.test(text.replace(HOST_ALLOWED, " "))) {
       offenders.push(`${where} (lowercase "host": required "Host" for the application, another word for any other sense)`);
     }
-    // The scan applies one rule everywhere, the Gateway tree included: a
-    // Gateway rulebook that means the speech engine says "speech engine",
-    // which TERM_ALLOWED allows.
     const terms = /(?<![-_/:\w])(engine|harness)(?![-_/:\w])/;
     if (terms.test(text.replace(TERM_ALLOWED, " "))) {
       offenders.push(`${where} (lowercase "engine" or "harness": required "Engine" or "Harness" for the defined term)`);
     }
-    if (/(?<![-_/:\w])plugins?(?![-_/:\w])/.test(text.replace(PLUGIN_ALLOWED, " "))) {
-      offenders.push(`${where} (lowercase "plugin": required "Plugin" for the defined term, or the other program's name, such as "Tauri plugin")`);
+    if (/(?<![-_/:\w])plugins?(?![-_/:\w])/.test(text)) {
+      offenders.push(`${where} (lowercase "plugin": required "Plugin" for the defined term)`);
     }
   }
   assert.deepEqual(offenders, [], "rulebook lines break the root AGENTS.md Definitions");
@@ -162,8 +157,6 @@ const PLUGIN_DOC_DIRS = [
   "crates/harness-gateway-client",
   "crates/plugin-web",
   "crates/plugin-mcp",
-  "crates/workshop/plugin-std",
-  "crates/workshop/plugin-bashkit",
 ];
 
 test("the root AGENTS.md and the Pack-facing crates' comments never describe Pack activation", async () => {
