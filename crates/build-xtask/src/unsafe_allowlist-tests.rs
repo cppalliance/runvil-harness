@@ -42,8 +42,6 @@ fn the_workspace_relaxes_unsafe_code_only_in_its_owned_crates() {
 fn the_owned_crates_may_relax_unsafe_code_and_text_that_spells_it_passes() {
     let root = tempfile::TempDir::new().expect("tempdir");
     for dir in [
-        "workshop/desktop",
-        "workshop/gateway-discovery",
         "harness-internal/plugin-loader",
         "harness-internal/test-plugin",
     ] {

@@ -9,16 +9,6 @@ fn workspace_root() -> PathBuf {
 }
 
 #[test]
-fn workshop_tier_dependencies_flow_one_way() {
-    let violations = tier_dependency_violations(&workspace_root());
-    assert!(
-        violations.is_empty(),
-        "tier violations:\n{}",
-        violations.join("\n")
-    );
-}
-
-#[test]
 fn every_workspace_crate_inherits_workspace_lints() {
     let violations = lint_inheritance_violations(&workspace_root());
     assert!(
@@ -36,25 +26,6 @@ fn family_crates_have_the_invariants_marker() {
         "marker violations:\n{}",
         violations.join("\n")
     );
-}
-
-#[test]
-fn a_tiered_crate_whose_manifest_is_missing_is_reported_not_skipped() {
-    let root = tempfile::TempDir::new().expect("tempdir");
-    std::fs::create_dir_all(root.path().join("crates")).expect("the crates directory creates");
-    let violations = tier_dependency_violations(root.path());
-    let tiered = packages(&[VOCABULARY, PLUGINS, SERVICES, FEATURES, SERVER]);
-    assert_eq!(
-        violations.len(),
-        tiered.len(),
-        "every tiered crate's missing manifest is reported: {violations:?}"
-    );
-    for name in tiered {
-        assert!(
-            violations.iter().any(|v| v.contains(name)),
-            "{name} is named in the violations: {violations:?}"
-        );
-    }
 }
 
 /// Writes a crate under `crates/<dir>/` named `name`, with the given
@@ -131,16 +102,6 @@ fn a_manifest_read_failure_is_reported_once_across_the_checks() {
     assert!(
         crate::product::product_boundary_violations(root.path()).is_empty(),
         "the two checks share one walk and report its read failures once"
-    );
-}
-
-#[test]
-fn the_workshop_desktop_app_without_the_marker_passes() {
-    let root = tempfile::TempDir::new().expect("tempdir");
-    write_crate(root.path(), "workshop/desktop", "workshop", UNMARKED);
-    assert!(
-        marker_violations(root.path()).is_empty(),
-        "the desktop app is exempt from the marker"
     );
 }
 
@@ -251,37 +212,4 @@ fn an_undecodable_path_component_keeps_its_place_in_the_relative_path() {
         "a component that does not decode must not vanish and let the path \
          collide with an allowlist entry: {relative}"
     );
-}
-
-#[test]
-fn tier_table_grants_each_tier_only_lower_tiers() {
-    assert_eq!(allowed_dependencies("workshop-protocol"), Some(Vec::new()));
-    assert_eq!(
-        allowed_dependencies("workshop-registry"),
-        Some(vec!["workshop-protocol"])
-    );
-    assert_eq!(
-        allowed_dependencies("workshop-gateway"),
-        Some(packages(&[VOCABULARY]))
-    );
-    assert_eq!(
-        allowed_dependencies("workshop-workspace"),
-        Some(packages(&[VOCABULARY, SERVICES]))
-    );
-    assert_eq!(
-        allowed_dependencies("workshop-agents"),
-        Some(packages(&[VOCABULARY, SERVICES]))
-    );
-    assert_eq!(
-        allowed_dependencies("workshop-server"),
-        Some(packages(&[VOCABULARY, SERVICES, FEATURES, PLUGINS]))
-    );
-    for plugin in ["workshop-plugin-std", "workshop-plugin-bashkit"] {
-        assert_eq!(
-            allowed_dependencies(plugin),
-            Some(Vec::new()),
-            "a library Plugin names no workshop crate"
-        );
-    }
-    assert_eq!(allowed_dependencies("gateway"), None);
 }

@@ -1,13 +1,13 @@
-//! Tidy-style architecture checks for the workshop server decomposition,
-//! the Harness family, the sans-I/O Engine (dependency guard, clippy
-//! guard, and `test-support` leak guard, run from `engine_guards`), the
-//! `runvil-engine` and `runvil` facades' source shape (run from
-//! `facade_shape`), the `doc(hidden)` ban over both facades and their
-//! containers (run from `doc_hidden`), the doctest ban over every
-//! workspace crate (run from `no_doctests`), the `Debug` trait's one
-//! spelling over every workspace crate (run from `debug_spelling`), the
-//! unsafe allowlist (run from `unsafe_allowlist`), and the type-size
-//! limits over every workspace crate (run from `type_size`).
+//! Tidy-style architecture checks for the Harness family, the sans-I/O
+//! Engine (dependency guard, clippy guard, and `test-support` leak guard,
+//! run from `engine_guards`), the `runvil-engine` and `runvil` facades'
+//! source shape (run from `facade_shape`), the `doc(hidden)` ban over both
+//! facades and their containers (run from `doc_hidden`), the doctest ban
+//! over every workspace crate (run from `no_doctests`), the `Debug`
+//! trait's one spelling over every workspace crate (run from
+//! `debug_spelling`), the unsafe allowlist (run from `unsafe_allowlist`),
+//! and the type-size limits over every workspace crate (run from
+//! `type_size`).
 //!
 //! Each check returns a list of human-readable violations. The `#[test]`
 //! wrappers assert the lists are empty, so `cargo test -p build-xtask`
@@ -19,52 +19,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// A tiered workshop crate: its package name and its directory under the
-/// `crates/workshop/` container.
-type Tiered = (&'static str, &'static str);
-
-/// Tier 0: vocabulary crates. No internal `workshop-*` dependencies.
-const VOCABULARY: &[Tiered] = &[
-    ("workshop-gateway-discovery", "gateway-discovery"),
-    ("workshop-protocol", "protocol"),
-    ("workshop-registry", "registry"),
-    ("workshop-support", "support"),
-];
-/// Tier 0: library Plugins, each the dynamic library of a Plugin whose
-/// code lives in another repository. No internal `workshop-*`
-/// dependencies, and only the server may name one.
-const PLUGINS: &[Tiered] = &[
-    ("workshop-plugin-std", "plugin-std"),
-    ("workshop-plugin-bashkit", "plugin-bashkit"),
-];
-/// Tier 1: domain services. Depend on vocabulary crates only.
-const SERVICES: &[Tiered] = &[
-    ("workshop-gateway", "gateway"),
-    ("workshop-menu", "menu"),
-    ("workshop-status", "status"),
-];
-/// Tier 2: features. Depend on vocabulary and service crates.
-const FEATURES: &[Tiered] = &[
-    ("workshop-agents", "agents"),
-    ("workshop-run-log", "run-log"),
-    ("workshop-user-state", "user-state"),
-    ("workshop-workspace", "workspace"),
-];
-/// Tier 3: the server. May depend on every lower tier, the library
-/// Plugins included.
-const SERVER: &[Tiered] = &[("workshop-server", "server")];
-
 /// Marker in a crate's `lib.rs` (or `main.rs`) crate docs. Mandatory for
-/// every `workshop-*`, `harness-*`, and `plugin-*` crate (see
-/// [`family_requires_marker`]);
-/// optional on any other crate. The `new-crate` scaffolder emits it.
+/// every `harness-*` and `plugin-*` crate (see [`family_requires_marker`]);
+/// optional on any other crate.
 const INVARIANT_MARKER: &str = "//! ## Invariants";
 
 /// Runs every check and returns all violations.
 #[must_use]
 pub(crate) fn all_violations(root: &Path) -> Vec<String> {
-    let mut violations = tier_dependency_violations(root);
-    violations.extend(marker_violations(root));
+    let mut violations = marker_violations(root);
     violations.extend(lint_inheritance_violations(root));
     violations.extend(crate::unsafe_allowlist::unsafe_allowlist_violations(root));
     violations.extend(crate::product::product_boundary_violations(root));
@@ -79,106 +42,6 @@ pub(crate) fn all_violations(root: &Path) -> Vec<String> {
     violations.extend(crate::debug_spelling::debug_spelling_violations(root));
     violations.extend(crate::type_size::type_size_violations(root));
     violations
-}
-
-/// The internal `workshop-*` crates a tiered crate may depend on, or `None`
-/// when `name` is not part of the decomposition's crate map.
-fn allowed_dependencies(name: &str) -> Option<Vec<&'static str>> {
-    let in_tier = |tier: &[Tiered]| tier.iter().any(|&(package, _)| package == name);
-    let allowed = if name == "workshop-registry" {
-        // The proxy slots speak the wire types: the status push-channel
-        // slot holds `workshop-protocol`'s `StatusBarUpdate`.
-        vec!["workshop-protocol"]
-    } else if in_tier(VOCABULARY) || in_tier(PLUGINS) {
-        Vec::new()
-    } else if in_tier(SERVICES) {
-        packages(&[VOCABULARY])
-    } else if in_tier(FEATURES) {
-        packages(&[VOCABULARY, SERVICES])
-    } else if in_tier(SERVER) {
-        packages(&[VOCABULARY, SERVICES, FEATURES, PLUGINS])
-    } else {
-        return None;
-    };
-    Some(allowed)
-}
-
-/// The package names of the crates in `tiers`, in table order.
-fn packages(tiers: &[&[Tiered]]) -> Vec<&'static str> {
-    tiers
-        .iter()
-        .flat_map(|tier| tier.iter().map(|&(package, _)| package))
-        .collect()
-}
-
-/// Checks that tiered `workshop-*` crates depend only on lower tiers.
-///
-/// A missing manifest is a violation, not a crate to skip.
-#[must_use]
-fn tier_dependency_violations(root: &Path) -> Vec<String> {
-    let mut violations = Vec::new();
-    for (name, dir) in [VOCABULARY, PLUGINS, SERVICES, FEATURES, SERVER].concat() {
-        let Some(allowed) = allowed_dependencies(name) else {
-            continue;
-        };
-        let manifest_path = root
-            .join("crates")
-            .join("workshop")
-            .join(dir)
-            .join("Cargo.toml");
-        let Ok(text) = fs::read_to_string(&manifest_path) else {
-            violations.push(format!(
-                "{name}: tiered crate has no manifest at {}",
-                manifest_path.display()
-            ));
-            continue;
-        };
-        let manifest: toml::Value = match toml::from_str(&text) {
-            Ok(manifest) => manifest,
-            Err(error) => {
-                violations.push(format!(
-                    "{}: unparseable manifest: {error}",
-                    manifest_path.display()
-                ));
-                continue;
-            }
-        };
-        for dep in workshop_dependencies(&manifest) {
-            if dep == name {
-                continue; // self dev-dependency for test fixtures
-            }
-            if !allowed.contains(&dep.as_str()) {
-                violations.push(format!(
-                    "{name} depends on {dep}, which its tier forbids (allowed: {})",
-                    allowed.join(", ")
-                ));
-            }
-        }
-    }
-    violations
-}
-
-/// Collects the `workshop-*` dependency names of every kind (normal, dev,
-/// build, and target-specific) declared in a manifest.
-fn workshop_dependencies(manifest: &toml::Value) -> Vec<String> {
-    let mut names = Vec::new();
-    let kinds = ["dependencies", "dev-dependencies", "build-dependencies"];
-    for (_, table) in crate::manifest::dependency_tables(manifest, &kinds) {
-        collect_workshop_deps(table, &mut names);
-    }
-    names
-}
-
-fn collect_workshop_deps(table: &toml::map::Map<String, toml::Value>, names: &mut Vec<String>) {
-    for (key, value) in table {
-        let package = value
-            .get("package")
-            .and_then(toml::Value::as_str)
-            .unwrap_or(key);
-        if package.starts_with("workshop-") && !names.contains(&package.to_owned()) {
-            names.push(package.to_owned());
-        }
-    }
 }
 
 /// Checks that every workspace crate, unread ones included, inherits
@@ -259,7 +122,7 @@ fn marker_violations(root: &Path) -> Vec<String> {
         if family_requires_marker(&krate.package) && !has_marker(&root.join(&krate.dir)) {
             violations.push(format!(
                 "{}: src/lib.rs lacks the `{INVARIANT_MARKER}` marker required of every \
-                 workshop-*, harness-*, and plugin-* crate",
+                 harness-* and plugin-* crate",
                 krate.package
             ));
         }
@@ -268,14 +131,12 @@ fn marker_violations(root: &Path) -> Vec<String> {
 }
 
 /// Whether a package name places the crate in a family that must have the
-/// marker: `workshop-*`, `harness-*`, and `plugin-*`. The Tauri desktop app
-/// (the `workshop` package) and the `runvil` facade fall outside every
-/// prefix, so they are exempt.
+/// marker: `harness-*` and `plugin-*`. The `runvil` facade falls outside
+/// both prefixes, so it is exempt.
 fn family_requires_marker(name: &str) -> bool {
-    name != "workshop"
-        && ["workshop-", "harness-", "plugin-"]
-            .iter()
-            .any(|prefix| name.starts_with(prefix))
+    ["harness-", "plugin-"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
 }
 
 /// Whether a crate's `lib.rs` or `main.rs` crate docs have the marker.

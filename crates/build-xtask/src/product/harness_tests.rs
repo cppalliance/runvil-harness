@@ -6,28 +6,6 @@ use super::product_boundary_violations;
 use super::test_support::write_crate;
 
 #[test]
-fn a_harness_crate_depending_on_a_gateway_crate_is_reported() {
-    // The Gateway is its own repository now, so a package named like one of
-    // its crates is an unaffiliated crate, and those are closed to the
-    // Harness family as well.
-    let root = tempfile::TempDir::new().expect("tempdir");
-    write_crate(
-        root.path(),
-        "harness-internal/sessions",
-        "harness-sessions",
-        "[dependencies]\ngateway-api-types = { path = \"../../gateway-api-types\" }\n",
-    );
-    write_crate(root.path(), "gateway-api-types", "gateway-api-types", "");
-    let violations = product_boundary_violations(root.path());
-    assert_eq!(violations.len(), 1, "{violations:?}");
-    assert!(
-        violations[0].starts_with("harness-sessions depends on gateway-api-types:")
-            && violations[0].contains("harness crates must not depend on unaffiliated crates"),
-        "every gateway crate is closed to harness crates: {violations:?}"
-    );
-}
-
-#[test]
 fn a_harness_crate_depending_on_the_plugin_contract_passes() {
     let root = tempfile::TempDir::new().expect("tempdir");
     write_crate(
@@ -51,13 +29,13 @@ fn a_harness_crate_build_depending_on_a_build_crate_is_reported() {
         root.path(),
         "harness-internal/runner",
         "harness-runner",
-        "[build-dependencies]\nbuild-ui = { path = \"../../build-ui\" }\n",
+        "[build-dependencies]\nbuild-xtask = { path = \"../../build-xtask\" }\n",
     );
-    write_crate(root.path(), "build-ui", "build-ui", "");
+    write_crate(root.path(), "build-xtask", "build-xtask", "");
     let violations = product_boundary_violations(root.path());
     assert_eq!(violations.len(), 1, "{violations:?}");
     assert!(
-        violations[0].starts_with("harness-runner depends on build-ui:")
+        violations[0].starts_with("harness-runner depends on build-xtask:")
             && violations[0].contains(
                 "harness crates must not depend on build-* crates; outside their family they may name only runvil-engine and runvil-plugin"
             ),
@@ -87,7 +65,7 @@ fn a_harness_crate_depending_on_an_unaffiliated_crate_is_reported() {
 }
 
 #[test]
-fn a_non_workshop_outside_crate_depending_past_the_harness_facade_is_reported() {
+fn an_outside_crate_depending_past_the_harness_facade_is_reported() {
     let root = tempfile::TempDir::new().expect("tempdir");
     write_crate(
         root.path(),
@@ -129,13 +107,13 @@ fn a_build_crate_depending_past_the_harness_facade_is_reported() {
 }
 
 #[test]
-fn a_workshop_crate_depending_on_the_harness_gateway_client_passes() {
+fn an_outside_crate_depending_on_the_harness_gateway_client_passes() {
     let root = tempfile::TempDir::new().expect("tempdir");
     write_crate(
         root.path(),
-        "workshop/server",
-        "workshop-server",
-        "[dependencies]\nharness-gateway-client = { path = \"../../harness-gateway-client\" }\n",
+        "outside-tool",
+        "outside-tool",
+        "[dependencies]\nharness-gateway-client = { path = \"../harness-gateway-client\" }\n",
     );
     write_crate(
         root.path(),

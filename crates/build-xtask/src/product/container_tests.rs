@@ -9,15 +9,15 @@ fn an_outside_crate_depending_into_the_private_container_is_reported() {
     let root = tempfile::TempDir::new().expect("tempdir");
     write_crate(
         root.path(),
-        "workshop-sessions",
-        "workshop-sessions",
+        "outside-tool",
+        "outside-tool",
         "[dependencies]\nrunvil-lua = { path = \"../runvil-internal/lua\" }\n",
     );
     write_crate(root.path(), "runvil-internal/lua", "runvil-lua", "");
     let violations = product_boundary_violations(root.path());
     assert_eq!(violations.len(), 1, "{violations:?}");
     assert!(
-        violations[0].contains("workshop-sessions depends on runvil-lua")
+        violations[0].contains("outside-tool depends on runvil-lua")
             && violations[0].contains("crates/runvil-internal is private to its family")
             && violations[0].contains("only runvil-engine or runvil-plugin may depend into it"),
         "the violation includes the container privacy message: {violations:?}"
@@ -102,39 +102,39 @@ fn a_root_engine_crate_other_than_the_named_ones_depending_into_the_engine_conta
 }
 
 #[test]
-fn an_outside_crate_depending_into_the_workshop_container_is_reported() {
+fn an_outside_crate_depending_into_a_container_with_no_named_exception_is_reported() {
     let root = tempfile::TempDir::new().expect("tempdir");
     write_crate(
         root.path(),
         "outside-tool",
         "outside-tool",
-        "[dependencies]\nworkshop-protocol = { path = \"../workshop/protocol\" }\n",
+        "[dependencies]\nother-protocol = { path = \"../other-internal/protocol\" }\n",
     );
-    write_crate(root.path(), "workshop/protocol", "workshop-protocol", "");
+    write_crate(root.path(), "other-internal/protocol", "other-protocol", "");
     let violations = product_boundary_violations(root.path());
     assert_eq!(violations.len(), 1, "{violations:?}");
     assert!(
-        violations[0].contains("outside-tool depends on workshop-protocol")
-            && violations[0].contains("crates/workshop is private to its family")
+        violations[0].contains("outside-tool depends on other-protocol")
+            && violations[0].contains("crates/other-internal is private to its family")
             && violations[0].contains("no outside crate"),
-        "the violation includes the workshop container privacy message: {violations:?}"
+        "the violation says no outside crate may enter a container that names none: {violations:?}"
     );
 }
 
 #[test]
-fn workshop_container_siblings_may_depend_on_each_other() {
+fn siblings_in_a_container_with_no_named_exception_may_depend_on_each_other() {
     let root = tempfile::TempDir::new().expect("tempdir");
     write_crate(
         root.path(),
-        "workshop/server",
-        "workshop-server",
-        "[dependencies]\nworkshop-protocol = { path = \"../protocol\" }\n",
+        "other-internal/server",
+        "other-server",
+        "[dependencies]\nother-protocol = { path = \"../protocol\" }\n",
     );
-    write_crate(root.path(), "workshop/protocol", "workshop-protocol", "");
+    write_crate(root.path(), "other-internal/protocol", "other-protocol", "");
     let violations = product_boundary_violations(root.path());
     assert!(
         violations.is_empty(),
-        "workshop container siblings may depend on each other: {violations:?}"
+        "siblings in a container that names no exception may depend on each other: {violations:?}"
     );
 }
 
@@ -143,11 +143,11 @@ fn a_build_crate_depending_into_a_container_passes() {
     let root = tempfile::TempDir::new().expect("tempdir");
     write_crate(
         root.path(),
-        "build-workshop",
-        "build-workshop",
-        "[dependencies]\nworkshop-protocol = { path = \"../workshop/protocol\" }\n",
+        "build-xtask",
+        "build-xtask",
+        "[dependencies]\nother-protocol = { path = \"../other-internal/protocol\" }\n",
     );
-    write_crate(root.path(), "workshop/protocol", "workshop-protocol", "");
+    write_crate(root.path(), "other-internal/protocol", "other-protocol", "");
     let violations = product_boundary_violations(root.path());
     assert!(
         violations.is_empty(),
@@ -160,8 +160,8 @@ fn a_crate_outside_the_harness_container_cannot_reach_a_nested_one() {
     let root = tempfile::TempDir::new().expect("tempdir");
     write_crate(
         root.path(),
-        "workshop-server",
-        "workshop-server",
+        "outside-tool",
+        "outside-tool",
         "[dependencies]\nharness-runner = { path = \"../harness-internal/nested/runner\" }\n",
     );
     write_crate(
@@ -184,15 +184,15 @@ fn an_outside_crate_depending_into_the_harness_container_is_reported() {
     let root = tempfile::TempDir::new().expect("tempdir");
     write_crate(
         root.path(),
-        "workshop/server",
-        "workshop-server",
+        "other-internal/server",
+        "other-server",
         "[dependencies]\nharness-runner = { path = \"../../harness-internal/runner\" }\n",
     );
     write_crate(root.path(), "harness-internal/runner", "harness-runner", "");
     let violations = product_boundary_violations(root.path());
     assert_eq!(violations.len(), 1, "{violations:?}");
     assert!(
-        violations[0].contains("workshop-server depends on harness-runner")
+        violations[0].contains("other-server depends on harness-runner")
             && violations[0].contains(
                 "crates/harness-internal is private to its family; only runvil may depend into it"
             ),

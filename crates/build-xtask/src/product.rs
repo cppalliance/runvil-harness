@@ -5,15 +5,10 @@
 //! family, and its dependencies of every kind (normal, dev, build, and
 //! target-specific) are checked against the matrix:
 //!
-//! - Engine crates (`runvil-*`) must not depend on workshop or Harness
-//!   crates.
-//! - `workshop`/`workshop-*` crates must not depend on Engine crates,
-//!   which they reach through `runvil`, or on Harness crates, except
-//!   through the Harness family's two public crates.
-//! - Harness crates (`runvil` and `harness-*`) must not depend on
-//!   workshop crates; outside their own family they may name only
-//!   `runvil-engine` and `runvil-plugin`, which rules out `build-*`
-//!   and other unaffiliated crates.
+//! - Engine crates (`runvil-*`) must not depend on Harness crates.
+//! - Harness crates (`runvil` and `harness-*`) may name, outside their
+//!   own family, only `runvil-engine` and `runvil-plugin`, which rules
+//!   out `build-*` and other unaffiliated crates.
 //! - `plugin-*` crates may depend only on `runvil-plugin` and outside
 //!   libraries. Engine and Harness crates must not depend on `plugin-*`
 //!   crates, except `harness-gateway-client`, which implements web's
@@ -23,21 +18,16 @@
 //!   `runvil-plugin`, and a crate outside the Harness family on that
 //!   family only through its two public crates, `runvil` and
 //!   `harness-gateway-client`. The `build-*` crates are bound too.
-//! - Container privacy: the manifestless `crates/runvil-internal/`,
-//!   `crates/workshop/`, and `crates/harness-internal/` directories are
-//!   private to their families; only the crates inside a container and the
-//!   container's named outside exceptions (`runvil-engine` and
-//!   `runvil-plugin` for `crates/runvil-internal/`, `runvil` for
-//!   `crates/harness-internal/`; the workshop container names none) may
-//!   depend on the crates it holds.
-//! - Desktop-app boundary: the `workshop` desktop app may depend on no
-//!   workshop crate except `workshop-server-api`, and `workshop-server-api`
-//!   on none except `workshop-server`. A crate's dependency on itself is
-//!   not an edge.
+//! - Container privacy: the manifestless `crates/runvil-internal/` and
+//!   `crates/harness-internal/` directories are private to their
+//!   families; only the crates inside a container and the container's
+//!   named outside exceptions (`runvil-engine` and `runvil-plugin` for
+//!   `crates/runvil-internal/`, `runvil` for `crates/harness-internal/`)
+//!   may depend on the crates it holds. A crate's dependency on itself
+//!   is not an edge.
 //!
-//! The Gateway is a separate product in its own repository, so no crate
-//! here is classified into a gateway family: a dependency on a crate this
-//! workspace does not hold is outside the matrix's reach.
+//! A dependency on a crate this workspace does not hold is outside the
+//! matrix's reach.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -49,7 +39,6 @@ const DEP_KINDS: [&str; 3] = ["dependencies", "dev-dependencies", "build-depende
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Family {
     Engine,
-    Workshop,
     Harness,
     Plugin,
     Build,
@@ -61,8 +50,6 @@ enum Family {
 fn family(package: &str) -> Family {
     if package.starts_with("runvil-") {
         Family::Engine
-    } else if package == "workshop" || package.starts_with("workshop-") {
-        Family::Workshop
     } else if package == "runvil" || package.starts_with("harness-") {
         Family::Harness
     } else if package.starts_with("plugin-") {
@@ -123,13 +110,6 @@ pub(crate) fn product_boundary_violations(root: &Path) -> Vec<String> {
     violations
 }
 
-/// The Tauri desktop app crate, bound by the desktop-app boundary rule.
-const DESKTOP: &str = "workshop";
-/// The server's re-export facade: the one workshop crate the desktop app
-/// may name.
-const SERVER_API: &str = "workshop-server-api";
-/// The server crate: the one workshop crate the facade may name.
-const SERVER: &str = "workshop-server";
 /// The Engine-family crates outside crates may depend on directly:
 /// the Engine facade and the Plugin contract.
 const PUBLIC_ENGINE: [&str; 2] = ["runvil-engine", "runvil-plugin"];
@@ -148,16 +128,6 @@ const PLUGIN_CONTRACT: &str = "runvil-plugin";
 /// The reason a dependency from `package` to `dep` breaches the matrix,
 /// or `None` when the edge is legal.
 fn boundary_breach(package: &CrateInfo, dep: &CrateInfo) -> Option<String> {
-    if let Some(face) = desktop_boundary_face(&package.package)
-        && family(&dep.package) == Family::Workshop
-        && dep.package != face
-        && dep.package != package.package
-    {
-        return Some(format!(
-            "on the desktop-app boundary, {} may depend on workshop crates only through {face}",
-            package.package
-        ));
-    }
     if let Some(container) = container_of(&dep.dir) {
         // Inside is physical containment: a crate anywhere under
         // crates/<container>/ may name the container's crates, so nested
@@ -186,14 +156,8 @@ fn boundary_breach(package: &CrateInfo, dep: &CrateInfo) -> Option<String> {
     }
     let (from, to) = (family(&package.package), family(&dep.package));
     let family_rule = match (from, to) {
-        (Family::Engine, Family::Workshop | Family::Harness) => {
-            Some("Engine crates must not depend on workshop or harness crates")
-        }
-        (Family::Workshop, Family::Engine) => Some(
-            "workshop crates must not depend on Engine crates; they reach the Engine through runvil",
-        ),
-        (Family::Harness, Family::Workshop) => {
-            Some("harness crates must not depend on workshop crates")
+        (Family::Engine, Family::Harness) => {
+            Some("Engine crates must not depend on harness crates")
         }
         (Family::Harness, Family::Build) => Some(
             "harness crates must not depend on build-* crates; outside their family they may name only runvil-engine and runvil-plugin",
@@ -242,16 +206,6 @@ fn plugin_breach(package: &CrateInfo, dep: &CrateInfo) -> Option<&'static str> {
                 "Engine and harness crates must not depend on plugin crates; only harness-gateway-client may",
             )
         }
-        _ => None,
-    }
-}
-
-/// The one workshop crate a crate on the desktop-app boundary may name, or
-/// `None` for a crate the boundary does not bind.
-fn desktop_boundary_face(package: &str) -> Option<&'static str> {
-    match package {
-        DESKTOP => Some(SERVER_API),
-        SERVER_API => Some(SERVER),
         _ => None,
     }
 }

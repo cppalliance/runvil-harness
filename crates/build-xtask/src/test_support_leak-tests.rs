@@ -168,8 +168,8 @@ fn a_features_value_enabling_an_engine_test_support_feature_is_reported() {
     let root = engine_root();
     write_crate(
         root.path(),
-        "workshop/server",
-        "workshop-server",
+        "outside-tool",
+        "outside-tool",
         "[dependencies]\n\
          runvil-runtime = { workspace = true }\n\
          rt-types = { package = \"runvil-types\", workspace = true, optional = true }\n\
@@ -185,7 +185,7 @@ fn a_features_value_enabling_an_engine_test_support_feature_is_reported() {
     assert!(
         violations.iter().any(|v| v.contains("[features] default")
             && v.contains("runvil-runtime/test-support")
-            && v.contains("server")),
+            && v.contains("outside-tool")),
         "the plain dependency-feature reference names the feature, the engine crate, and the consuming crate: {violations:?}"
     );
     assert!(

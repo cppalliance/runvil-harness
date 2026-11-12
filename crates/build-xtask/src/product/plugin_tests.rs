@@ -1,7 +1,6 @@
 //! Plugin-family fixtures: a `plugin-*` crate depends only on
-//! `runvil-plugin` and outside libraries; Engine, Gateway, and Harness
-//! crates may not depend on a Plugin crate, except
-//! `harness-gateway-client`.
+//! `runvil-plugin` and outside libraries; Engine and Harness crates may
+//! not depend on a Plugin crate, except `harness-gateway-client`.
 
 use super::product_boundary_violations;
 use super::test_support::write_crate;
@@ -15,8 +14,8 @@ fn plugin_web_naming(deps: &str) -> Vec<String> {
         ("runvil-plugin", "runvil-plugin"),
         ("runvil-engine", "runvil-engine"),
         ("runvil", "runvil"),
-        ("plugin-user-input", "plugin-user-input"),
-        ("build-ui", "build-ui"),
+        ("plugin-mcp", "plugin-mcp"),
+        ("build-xtask", "build-xtask"),
     ] {
         write_crate(root.path(), dir, name, "");
     }
@@ -39,8 +38,8 @@ fn a_plugin_crate_naming_any_other_workspace_crate_is_reported_in_every_table() 
     for (table, dep) in [
         ("dependencies", "runvil-engine"),
         ("dependencies", "runvil"),
-        ("dev-dependencies", "plugin-user-input"),
-        ("build-dependencies", "build-ui"),
+        ("dev-dependencies", "plugin-mcp"),
+        ("build-dependencies", "build-xtask"),
     ] {
         let violations =
             plugin_web_naming(&format!("[{table}]\n{dep} = {{ path = \"../{dep}\" }}\n"));
@@ -86,10 +85,10 @@ fn engine_and_harness_crates_naming_a_plugin_crate_are_reported() {
 }
 
 #[test]
-fn the_harness_gateway_client_and_workshop_crates_may_name_a_plugin_crate() {
+fn the_harness_gateway_client_and_outside_crates_may_name_a_plugin_crate() {
     for (dir, package) in [
         ("harness-gateway-client", "harness-gateway-client"),
-        ("workshop/server", "workshop-server"),
+        ("outside-tool", "outside-tool"),
     ] {
         let violations = naming_plugin_web(dir, package, "dependencies");
         assert!(violations.is_empty(), "{package}: {violations:?}");

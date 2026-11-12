@@ -7,7 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-anyhow.workspace = true
 proc-macro2.workspace = true
 pulldown-cmark.workspace = true
 rustdoc-types.workspace = true
@@ -17,7 +16,6 @@ toml.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-workshop-gateway-discovery = { workspace = true, features = ["test-fixtures"] }
 
 [lints]
 workspace = true

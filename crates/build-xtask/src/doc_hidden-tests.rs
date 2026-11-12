@@ -289,7 +289,7 @@ fn a_doc_hidden_under_a_harness_internal_crate_is_rejected() {
 fn files_outside_the_facades_and_containers_are_not_scanned() {
     let mut files = BANNED_DIR_LIBS.to_vec();
     files.extend([
-        ("crates/workshop/server/src/lib.rs", HIDDEN),
+        ("crates/plugin-web/src/lib.rs", HIDDEN),
         ("crates/shared-crypto/src/lib.rs", HIDDEN),
         ("crates/runvil-internal-old/src/lib.rs", HIDDEN),
         ("crates/harness-internal-old/src/lib.rs", HIDDEN),
