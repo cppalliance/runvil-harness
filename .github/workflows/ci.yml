@@ -1,0 +1,266 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Format
+        run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Clippy
+        env:
+          CARGO_BUILD_WARNINGS: deny
+        run: cargo clippy --workspace --all-targets --all-features
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@4dc1969decfa71b34f25aa7f3dd4656654d9ad1e # nextest
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Test (concurrent via nextest)
+        run: cargo nextest run --locked --workspace --all-features
+
+      # No build or test step may write into the repository; catch a
+      # regression here rather than in a diff.
+      - name: Clean tree
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "the build dirtied the repository:"
+            git status --porcelain
+            exit 1
+          fi
+
+  # The Plugin loader opens libraries, and the file system's real backend
+  # reads directories, through Windows-only code that the Linux job never
+  # compiles.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@4dc1969decfa71b34f25aa7f3dd4656654d9ad1e # nextest
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Test (Windows)
+        run: cargo nextest run --locked --workspace --all-features
+
+  docs:
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Docs
+        run: cargo doc --workspace --no-deps --all-features
+
+      # Each facade as consumers read it: the topic docs build alone, with
+      # default features.
+      - name: Facade docs
+        run: cargo doc -p runvil-engine --no-deps
+
+      - name: Harness facade docs
+        run: cargo doc -p runvil --no-deps
+
+      - name: Engine docs (private items)
+        run: cargo doc --locked --no-deps --all-features -p runvil-runtime --document-private-items
+
+  # The wording scan reads the rulebooks and the Engine crates with Node's
+  # own modules, so it needs no install.
+  wording:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Wording
+        run: node --test tools/docs-claims.mjs
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: cargo-deny, cargo-audit
+
+      - name: cargo deny
+        run: cargo deny check
+
+      - name: cargo audit
+        run: cargo audit
+
+      # A Host that links these crates gets exactly one rustls crypto
+      # backend, aws-lc-rs. This fails when `ring` enters the workspace's
+      # normal-edge graph (through a reqwest or rmcp bump) and when
+      # `cargo tree` itself cannot run. It passes when `ring` is outside
+      # that graph, and when the lockfile does not hold it at all.
+      - name: One rustls crypto backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! out="$(cargo tree --locked --workspace -e normal -i ring --depth 0 2>&1)"; then
+            if printf '%s\n' "$out" | grep -q 'did not match any packages'; then
+              echo "ring is not in the lockfile"
+              exit 0
+            fi
+            echo "cargo tree failed:"
+            printf '%s\n' "$out"
+            exit 1
+          fi
+          if printf '%s\n' "$out" | grep -v '^warning: nothing to print' | grep -q '^ring v'; then
+            echo "ring is in the workspace's normal dependency graph; aws-lc-rs is the only permitted rustls backend"
+            printf '%s\n' "$out"
+            exit 1
+          fi
+
+  # `cargo xtask api` reads rustdoc JSON, which only a nightly emits, so this
+  # job runs on the nightly pinned in crates/build-xtask/src/api/toolchain.rs.
+  # The date is read from that constant, never repeated here, so the two
+  # cannot drift; exporting it as RUSTUP_TOOLCHAIN puts every cargo below on it.
+  api-surface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pinned nightly
+        id: pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          nightly="$(sed -n 's/^ *nightly: "\(nightly-[0-9-]*\)",.*$/\1/p' crates/build-xtask/src/api/toolchain.rs)"
+          case "$nightly" in
+            nightly-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+            *)
+              echo "expected one pinned nightly in crates/build-xtask/src/api/toolchain.rs, found: '$nightly'"
+              exit 1
+              ;;
+          esac
+          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
+          echo "RUSTUP_TOOLCHAIN=$nightly" >> "$GITHUB_ENV"
+
+      - name: Install the pinned nightly
+        run: rustup toolchain install "${{ steps.pin.outputs.nightly }}" --profile minimal
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@4dc1969decfa71b34f25aa7f3dd4656654d9ad1e # nextest
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Surface closure and listing
+        run: cargo xtask api --check
+
+      - name: Nightly-only fixtures
+        run: cargo nextest run --locked -p build-xtask --run-ignored only
+
+  # The custom lints, the dylint library in cppalliance/dylints at the
+  # rev the root Cargo.toml's [workspace.metadata.dylint] pins. `cargo
+  # dylint` fetches it and builds it on the nightly in its
+  # rust-toolchain.toml, which rustup installs with that file's components;
+  # the date is never repeated here. Its UI tests run in its own CI.
+  # It runs on 24.04: the prebuilt cargo-dylint and dylint-link binaries
+  # need glibc 2.38 or later.
+  dylint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same release as the `dylint_linting` the library depends on.
+      - name: Install cargo-dylint and dylint-link
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: cargo-dylint@6.3.2, dylint-link@6.3.2
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Dylint
+        run: cargo dylint --all -- --locked --workspace --all-targets --all-features
+
+  # The Engine crates inherit `rust-version` from the root Cargo.toml's
+  # [workspace.package]; this job builds them at that toolchain. The version
+  # is read from the manifest, never repeated here, so the two cannot drift.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the declared floor
+        id: floor
+        shell: bash
+        run: |
+          set -euo pipefail
+          floor="$(sed -n 's/^rust-version = "\([0-9.]*\)"$/\1/p' Cargo.toml)"
+          if [[ ! "$floor" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "expected one rust-version in the root Cargo.toml, found: '$floor'"
+            exit 1
+          fi
+          echo "floor=$floor" >> "$GITHUB_OUTPUT"
+          echo "RUSTUP_TOOLCHAIN=$floor" >> "$GITHUB_ENV"
+
+      - name: Install the floor toolchain
+        run: rustup toolchain install "${{ steps.floor.outputs.floor }}" --profile minimal
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Build the Engine crates at the floor
+        run: cargo build --locked -p runvil-engine -p runvil-runtime -p runvil-lua -p runvil-prompt -p runvil-types -p runvil-vfs -p runvil-model-client
+
+  # Single required status check for branch protection: it fails when any
+  # job fails or is cancelled, so a cancelled job cannot read as green.
+  # needs: is a static list, so every newly added job must be added to it
+  # or that job bypasses this gate.
+  ci-green:
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy, test, test-windows, docs, wording, supply-chain, api-surface, dylint, msrv]
+    if: always()
+    steps:
+      - name: Verify every job succeeded
+        shell: bash
+        run: |
+          status=0
+          for result in ${{ join(needs.*.result, ' ') }}; do
+            if [ "$result" != "success" ]; then
+              echo "a required job did not succeed: $result"
+              status=1
+            fi
+          done
+          exit $status
