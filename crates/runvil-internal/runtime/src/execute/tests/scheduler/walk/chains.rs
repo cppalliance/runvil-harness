@@ -1,5 +1,6 @@
 //! Contained chains: a `return` or `jump` inside a `call` or child walk
-//! stays inside its chain, the outer walk never moves meanwhile, a jump
+//! stays inside its chain, a `return` that gives no value ends its chain
+//! with no text, the outer walk never moves meanwhile, a jump
 //! descent consumes no call depth, and a chain started past index 0 names
 //! its start section before its first entry.
 
@@ -8,7 +9,7 @@ use crate::test_support::rig::Rig;
 
 #[test]
 fn a_return_inside_a_child_walk_ends_the_whole_chain() {
-    // A scalar return inside a jump-started child-level walk ends the whole
+    // A return inside a jump-started child-level walk ends the whole
     // chain, not just the child level - the parent walk never resumes.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         # Return\n\n\
@@ -25,6 +26,111 @@ fn a_return_inside_a_child_walk_ends_the_whole_chain() {
         "x-value",
         "a return in the child walk ends the whole chain"
     );
+}
+
+#[test]
+fn a_return_with_no_value_inside_a_child_walk_ends_the_whole_chain() {
+    // A `return` that gives no value ends the chain as one that gives a
+    // scalar does: neither the child level's next section nor the parent
+    // walk runs, and the root chain ends with the generic completion.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Return\n\n\
+        ## A\n\n\
+        ```lua\njump('X')\n```\n\n\
+        ### X\n\n\
+        ```lua\n\
+        store.append('order.txt', 'X\\n')\n\
+        return\n\
+        ```\n\n\
+        ### Y\n\n\
+        ```lua\nerror('the return must end the chain before the child level goes on')\n```\n\n\
+        ## B\n\n\
+        ```lua\nerror('the return must end the chain before the parent resumes')\n```\n";
+    let rig = Rig::run(scheduler_scenario(md));
+
+    assert_eq!(rig.trace().text(), "done");
+    assert_eq!(rig.trace().read("order.txt").expect("order log"), "X\n");
+}
+
+#[test]
+fn a_return_with_no_value_inside_a_chain_ends_the_chain_with_empty_text() {
+    // The called chain ends at its `return`: the rest of `Sub` and the
+    // section after it do not run, the caller gets the empty string, and
+    // the outer walk continues.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Scoped\n\n\
+        ## A\n\n\
+        ```lua\n\
+        local r = call('../Sub')\n\
+        store.append('order.txt', 'A:[' .. r .. ']:' .. type(r) .. '\\n')\n\
+        ```\n\n\
+        ## B\n\n\
+        ```lua\n\
+        store.append('order.txt', 'B\\n')\n\
+        return store.read('order.txt')\n\
+        ```\n\n\
+        ## Sub\n\n\
+        ```lua\n\
+        store.append('order.txt', 'Sub\\n')\n\
+        return nil\n\
+        ```\n\n\
+        ```lua\nerror('a return must end the chain before the next block')\n```\n\n\
+        ## After\n\n\
+        ```lua\nerror('a return must end the chain before fall-through')\n```\n";
+    let rig = Rig::run(scheduler_scenario(md));
+
+    assert_eq!(rig.trace().text(), "Sub\nA:[]:string\nB\n");
+}
+
+#[test]
+fn a_return_with_no_value_inside_a_called_child_walk_returns_to_the_caller() {
+    // The call chain descended into `### S1`. Its `return` ends the whole
+    // call chain, not the child level, so `### S2` and `## After` do not
+    // run and the caller goes on with the empty string.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # CallDescend\n\n\
+        ## Main\n\n\
+        ```lua\nreturn 'main:[' .. call('../Sub') .. ']'\n```\n\n\
+        ## Sub\n\n\
+        ```lua\njump('S1')\n```\n\n\
+        ### S1\n\n\
+        ```lua\nif true then return end\n```\n\n\
+        ### S2\n\n\
+        ```lua\nerror('the return must end the chain before the child level goes on')\n```\n\n\
+        ## After\n\n\
+        ```lua\nerror('the return must end the chain before the parent resumes')\n```\n";
+    let rig = Rig::run(scheduler_scenario(md));
+
+    assert_eq!(rig.trace().text(), "main:[]");
+}
+
+#[test]
+fn a_task_and_an_arm_that_return_no_value_succeed_with_empty_text() {
+    // A task chain and a fanout arm end at the worker's `return` too: each
+    // succeeds with the empty string, and nothing after the `return` runs.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Workers\n\n\
+        ## Main\n\n\
+        ```lua\n\
+        local results = tasks.join({ tasks.spawn('../Worker') })\n\
+        assert(results[1].ok == true, 'the task succeeded')\n\
+        assert(results[1].result == '', 'a task that returns no value has empty text')\n\
+        local r = tasks.fanout('../Worker', {'a', 'b'})\n\
+        assert(r[1].ok and r[2].ok, 'both arms succeeded')\n\
+        assert(r[1].text == '' and r[2].text == '', 'an arm that returns no value has empty text')\n\
+        return 'three workers returned'\n\
+        ```\n\n\
+        ## Worker\n\n\
+        ```lua\n\
+        local ready = false\n\
+        if not ready then return end\n\
+        ```\n\n\
+        ```lua\nerror('a return must end the chain before the next block')\n```\n\n\
+        ## After\n\n\
+        ```lua\nerror('a return must end the chain before fall-through')\n```\n";
+    let rig = Rig::run(scheduler_scenario(md));
+
+    assert_eq!(rig.trace().text(), "three workers returned");
 }
 
 #[test]

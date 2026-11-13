@@ -110,10 +110,11 @@ use effects::{CallSite, Continuation, EffectTable, Pending, ToolCallContinuation
 use inbox::Inboxes;
 use tasks::TaskArena;
 
-/// The run's final result when no section produced a reply, which three
+/// The run's final result when no section produced a reply, which four
 /// fallback sites share: a prompt with neither H1 blocks nor sections, a
-/// top-level walk that ends without a scalar, and an H1 pass with no walk
-/// after it.
+/// top-level walk that ends with no text, by running past its last section
+/// or at a `return` that gave no value, an H1 pass with no walk after it,
+/// and an H1 pass that ends at a `return` that gave no value.
 const GENERIC_COMPLETION: &str = "done";
 
 /// The most precise prompt-source line known for `blocks`: the first

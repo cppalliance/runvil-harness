@@ -257,7 +257,7 @@ fn assert_task_outlives_movement(md: String) {
 
 #[test]
 fn a_task_survives_its_spawning_sections_fall_through() {
-    // The spawner's chunk ends without a scalar, so the walk falls through
+    // The spawner's chunk runs off its end, so the walk falls through
     // to the sibling: the task is the chain's, not the section's, and the
     // sibling's return leaks it.
     assert_task_outlives_movement(moving_spawner_prompt(""));

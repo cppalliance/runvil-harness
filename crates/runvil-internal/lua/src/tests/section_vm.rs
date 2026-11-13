@@ -1,7 +1,7 @@
 //! Section VM construction and phases: one environment across every
 //! chunk, delayed single Engine injection, what a VM offers before it,
-//! scalar returns, isolation between VMs, the control globals' target
-//! checks, and the lifecycle reports around them.
+//! what a chunk's top-level return gives, isolation between VMs, the
+//! control globals' target checks, and the lifecycle reports around them.
 
 use super::*;
 
@@ -232,19 +232,22 @@ fn section_vm_reports_store_operations_in_each_chunk() {
 
 #[test]
 fn section_vm_accepts_only_scalar_top_level_returns() {
+    let text = |text: &str| LuaBlockResult::Returned(Some(text.to_owned()));
     for (source, expected) in [
-        ("return 'text'", Some("text")),
-        ("return 42", Some("42")),
-        ("return 1.5", Some("1.5")),
-        ("return true", Some("true")),
-        ("return nil", None),
+        ("return 'text'", text("text")),
+        ("return 42", text("42")),
+        ("return 1.5", text("1.5")),
+        ("return true", text("true")),
+        ("return nil", LuaBlockResult::Returned(None)),
+        ("return", LuaBlockResult::Returned(None)),
+        ("local x = 1", LuaBlockResult::RanOff),
     ] {
         let vm = TestVm::new().build();
         assert_eq!(
-            run_scalar(&vm, &program(source), &null_emitter(), "Test")
-                .expect("scalar return must work")
-                .as_deref(),
-            expected
+            vm.run_chunk(&program(source), &null_emitter(), "Test")
+                .expect("the chunk must run"),
+            expected,
+            "{source:?}"
         );
     }
 

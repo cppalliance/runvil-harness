@@ -9,16 +9,37 @@ use std::sync::Arc;
 use mlua::{MultiValue, Value};
 
 use crate::error::{Error, Result, make_lua_runtime_error};
+use crate::program::is_ran_off;
 
-/// Outcome of a Lua block that may invoke `jump`.
+/// How a Lua block ended, when it did not fail.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LuaBlockResult {
-    /// Normal completion with an optional scalar return.
+    /// The block ran off its end without executing a `return`: the
+    /// section's next block runs.
+    RanOff,
+    /// The block executed a `return` at its top level, which ends the
+    /// chain the block runs in: the first returned value as text, or
+    /// `None` when that value is nil or the `return` gave no value.
     Returned(Option<String>),
     /// `jump` transferred control to the section this path names, called
     /// on this prompt line, which is `None` when the call found no author
     /// frame running.
     Jump(String, Option<NonZeroU32>),
+}
+
+/// Classifies what a prompt block called with the ran-off marker returned:
+/// the marker as its first value means the block ran off its end, and
+/// anything else is what a `return` the block executed gave, converted as
+/// [`scalar_return`] converts it.
+///
+/// # Errors
+/// Returns a `LuaRuntime` failure when the block returned a first value
+/// that is not a supported scalar.
+pub(crate) fn block_result(returned: MultiValue) -> Result<LuaBlockResult> {
+    if returned.iter().next().is_some_and(is_ran_off) {
+        return Ok(LuaBlockResult::RanOff);
+    }
+    scalar_return(returned).map(LuaBlockResult::Returned)
 }
 
 /// Renders a returned Lua scalar as the section's result string. Tables and other

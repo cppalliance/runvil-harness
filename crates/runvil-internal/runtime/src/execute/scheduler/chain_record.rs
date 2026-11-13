@@ -116,7 +116,7 @@ pub(in crate::execute::scheduler) struct Running {
 /// an abort. The frame's drop is the teardown boundary on every path that
 /// takes the `Entered`, and it reports `SECTION_FINISHED` only where the
 /// section completed: `end_section`, `apply_jump`, and `finish` arm the
-/// frame first, while the H1 pass's fall-through and scalar return, an
+/// frame first, while the H1 pass's fall-through and `return`, an
 /// abort, and the run's teardown take it unarmed and are deliberately
 /// silent.
 pub(in crate::execute::scheduler) struct Entered {

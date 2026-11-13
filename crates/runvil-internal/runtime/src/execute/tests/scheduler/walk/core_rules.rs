@@ -211,6 +211,36 @@ fn entering_the_same_section_twice_takes_two_ids() {
 }
 
 #[test]
+fn a_return_with_no_value_fires_section_finished_for_the_section_it_ends() {
+    // The section completed at its `return`, so its armed frame drop fires
+    // SECTION_FINISHED, and no later section starts.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Boundaries\n\n\
+        ## One\n\n\
+        ```lua\nreturn\n```\n\n\
+        ## Two\n\n\
+        ```lua\nerror('a return must end the chain before fall-through')\n```\n";
+    let trace = scheduler_scenario(md).run();
+
+    assert_eq!(trace.text(), "done");
+    let started = detail::SECTION_STARTED.to_string();
+    let finished = detail::SECTION_FINISHED.to_string();
+    let succeeded = detail::LUA_CHUNK_SUCCEEDED.to_string();
+    let reported: Vec<(String, String)> = sequence(&trace)
+        .into_iter()
+        .filter(|(_, event)| [&started, &finished, &succeeded].contains(&event))
+        .collect();
+    assert_eq!(
+        reported,
+        vec![
+            ("One".to_owned(), started),
+            ("One".to_owned(), succeeded),
+            ("One".to_owned(), finished),
+        ]
+    );
+}
+
+#[test]
 fn fall_through_fires_section_finished_before_the_next_section_starts() {
     // Each entered section's armed frame drop fires SECTION_FINISHED at the
     // fall-through, before the next section's SECTION_STARTED.

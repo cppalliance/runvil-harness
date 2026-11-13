@@ -482,7 +482,8 @@ fn stash_failure_capture(lua: &Lua) -> Result<Function> {
 /// Returns the shim's block guard for a VM whose shim install already ran.
 ///
 /// The Engine creates every block coroutine from the guard and resumes it
-/// first with the block function: the guard runs the block under `xpcall`
+/// first with the block function and the ran-off marker, which the guard
+/// passes to the block: the guard runs the block under `xpcall`
 /// (yields pass through), stashes a raised value and the raise-point
 /// traceback for [`take_failure`] from the message handler, and re-raises
 /// the same value, so a shim's structured error table reaches the Engine

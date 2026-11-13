@@ -11,8 +11,10 @@
 -- `end_load(finished)` takes that mark back and reports how the load
 -- ended; `swap_prose(template, line)` installs a block's own lazy `prose`
 -- over its template, which starts on `line`, and returns the read it
--- replaced; `restore_prose(saved)` puts that read back; and `error_value`
--- builds the structured error table.
+-- replaced; `restore_prose(saved)` puts that read back; `error_value`
+-- builds the structured error table; and `ran_off` is the marker a block
+-- called with it returns when it runs off its end, and never when it
+-- executes a `return`.
 --
 -- `require` is Lua rather than an Engine function, so the blocks run
 -- inside the calling block's coroutine and a block's suspending call is an
@@ -20,7 +22,7 @@
 -- through to-be-closed variables rather than a protected call, so a raised
 -- value passes through untouched and the block guard still records the
 -- raise point.
-local resolve, begin_load, end_load, swap_prose, restore_prose, error_value = ...
+local resolve, begin_load, end_load, swap_prose, restore_prose, error_value, ran_off = ...
 
 -- Captured at install, so author code that rebinds a global cannot move
 -- them.
@@ -70,15 +72,22 @@ local restoring = {
   __close = function(scope) restore_prose(scope.saved) end,
 }
 
--- The first block that returns a value other than nil ends the library
--- with it; a library whose blocks all fall through hands back `true`.
--- Each block reads its own `prose` while it runs.
+-- A block that runs off its end lets the next block run. The first block
+-- that executes a `return` ends the library with the first value it
+-- returned, or with `true` when that is nil or the `return` gave no
+-- value; a library whose blocks all run off their ends hands back `true`.
+-- The marker is a light userdata, which `==` compares by identity with no
+-- metamethod, whatever the returned value is. Each block reads its own
+-- `prose` while it runs.
 local function run(blocks, templates, lines)
   for index = 1, #blocks do
     local scope <close> =
       setmetatable({ saved = swap_prose(templates[index], lines[index]) }, restoring)
-    local value = blocks[index]()
-    if value ~= nil then return value end
+    local value = blocks[index](ran_off)
+    if value ~= ran_off then
+      if value == nil then return true end
+      return value
+    end
   end
   return true
 end

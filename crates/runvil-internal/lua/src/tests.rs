@@ -36,6 +36,7 @@ use crate::walk_budget::DEFAULT_LUA_MEMORY_BYTES;
 pub(crate) mod recording;
 
 mod argv;
+mod block_endings;
 mod budgets;
 mod cancellation;
 mod diagnostics;
@@ -242,7 +243,8 @@ fn run_with(source: &str, access: &ScopedAccess) -> Result<LuaOutcome> {
     )
 }
 
-/// Runs one chunk on an existing VM and unwraps the scalar return, failing
+/// Runs one chunk on an existing VM and unwraps the text it returned,
+/// `None` for a chunk that ran off its end or returned no text, failing
 /// the test on a `jump` transfer.
 fn run_scalar(
     vm: &SectionVm,
@@ -251,6 +253,7 @@ fn run_scalar(
     section: &str,
 ) -> Result<Option<String>> {
     match vm.run_chunk(program, emitter, section)? {
+        LuaBlockResult::RanOff => Ok(None),
         LuaBlockResult::Returned(value) => Ok(value),
         LuaBlockResult::Jump(path, _) => Err(crate::error::make_lua_runtime_error(format!(
             "unexpected jump to {path}"

@@ -4,7 +4,10 @@
 //! loads its compiled blocks with the library's environment
 //! ([`library_env`](crate::library_env)), and runs them
 //! in order inside the calling block's coroutine, so a library block's
-//! suspending calls are ordinary yields of that block. The loader is Lua
+//! suspending calls are ordinary yields of that block. A block that runs
+//! off its end lets the next one run, and the first block that executes a
+//! `return` ends the load with its value, or with `true` for nil or no
+//! value. The loader is Lua
 //! (`__impl_require.lua`), because a Rust function cannot call one that
 //! yields; the Rust helpers here resolve a library, load its blocks, track
 //! which library is loading, step the depth counter `jump` reads, report
@@ -25,7 +28,7 @@ use serde_json::Value as Json;
 
 use crate::error::{self, Error, Result};
 use crate::error_value::install_error_value;
-use crate::program::LuaProgram;
+use crate::program::{LuaProgram, ran_off_marker};
 use crate::prose::ProseState;
 use crate::section::Library;
 
@@ -92,6 +95,7 @@ where
             swap_prose,
             restore_prose,
             error_value,
+            ran_off_marker(),
         ))
         .map_err(error::make_lua_error)?;
     lua.globals()

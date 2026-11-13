@@ -1,8 +1,9 @@
 //! One chain's step to its next suspension point: resume a suspended
 //! coroutine with its delivered answer, or advance the walk, then apply the
 //! block coroutine's outcome: park a yielded chain on its request's
-//! dispatch, advance or finish a completed block, and report the chunk's
-//! closing observation boundary.
+//! dispatch, move past a block that ran off its end, end the chain at a
+//! block that executed a `return`, and report the chunk's closing
+//! observation boundary.
 
 use std::num::NonZeroU32;
 
@@ -18,7 +19,7 @@ use crate::{Result, error};
 
 use super::chain::ChainStep;
 use super::chain_record::{Entered, Running};
-use super::{ChainIndex, ChainOps, Scheduler};
+use super::{ChainIndex, ChainOps, GENERIC_COMPLETION, Scheduler};
 
 /// What a Lua block's coroutine step leaves the chain to do, settled under
 /// the borrow of its entered section so the action can touch the
@@ -32,9 +33,10 @@ enum Settled {
     /// The block jumped to the section path, from the `jump` call on
     /// the prompt line, when known.
     Jump(String, Option<NonZeroU32>),
-    /// The block returned a scalar.
-    Returned(String),
-    /// The block returned no value; the section's next block is next.
+    /// The block executed a `return`, which ends the chain: the returned
+    /// value as text, or `None` when the `return` gave nil or no value.
+    Returned(Option<String>),
+    /// The block ran off its end; the section's next block is next.
     Advanced,
 }
 
@@ -104,11 +106,11 @@ fn settle_block(
             emitter.report(name, event_lifecycle::LUA_CHUNK_SUCCEEDED);
             match done {
                 LuaBlockResult::Jump(path, line) => Ok(Settled::Jump(path, line)),
-                LuaBlockResult::Returned(Some(value)) => {
+                LuaBlockResult::Returned(value) => {
                     // The H1 pass's final `var` read-back runs here
                     // exactly as the walk reads it on every exit, so a
                     // reassigned `var` global fails the run instead of
-                    // returning the value.
+                    // returning, whether or not the `return` gave a value.
                     if is_h1 {
                         entered
                             .frame
@@ -117,7 +119,7 @@ fn settle_block(
                     }
                     Ok(Settled::Returned(value))
                 }
-                LuaBlockResult::Returned(None) => {
+                LuaBlockResult::RanOff => {
                     entered.block = entered.block.next();
                     Ok(Settled::Advanced)
                 }
@@ -232,8 +234,8 @@ impl Scheduler {
 
     /// Acts on a settled Lua block for chain `id`: dispatches a suspended
     /// block's request or answers it on the spot, moves the walk for a
-    /// jump, ends the chain or the run for a scalar return, and requeues
-    /// the chain for its section's next block.
+    /// jump, ends the chain or the run for a `return`, and requeues the
+    /// chain for its section's next block when the block ran off its end.
     fn apply_settled(
         &mut self,
         id: ChainIndex,
@@ -253,16 +255,20 @@ impl Scheduler {
                 self.ready.push_back(id);
             }
             Settled::Returned(value) if is_h1 => {
-                // A scalar return from the H1 pass short-circuits the
-                // whole run: the frame drops unarmed - the pass never
-                // fires SECTION_FINISHED - and the run ends here, so the
-                // pass's live tasks end under the chain-end rules as at
-                // any chain end.
+                // A `return` from the H1 pass short-circuits the whole
+                // run: the frame drops unarmed - the pass never fires
+                // SECTION_FINISHED - and the run ends here, so the pass's
+                // live tasks end under the chain-end rules as at any chain
+                // end. A `return` that gave no value ends the run with the
+                // generic completion, as a root walk that ends with none
+                // does.
                 self.chains[id].entered = None;
-                return Ok(ChainStep::RunEnded(self.settle_owned_tasks(id, Ok(value))));
+                let text = value.unwrap_or_else(|| GENERIC_COMPLETION.to_owned());
+                return Ok(ChainStep::RunEnded(self.settle_owned_tasks(id, Ok(text))));
             }
-            // A scalar return ends the chain it fired in.
-            Settled::Returned(value) => return Ok(self.finish(id, Ok(Some(value)))),
+            // A `return` ends the chain it fired in, with the value it
+            // gave or with none.
+            Settled::Returned(value) => return Ok(self.finish(id, Ok(value))),
             Settled::Advanced => self.ready.push_back(id),
         }
         Ok(ChainStep::Continue)

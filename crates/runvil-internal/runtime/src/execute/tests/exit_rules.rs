@@ -1,6 +1,7 @@
-//! Exit rules: the section walk's (fall-through, explicit return, the
-//! generic result, H1-only prompts, the version gate, a caller code ending
-//! the run as an internal error, cross-section store persistence) and the
+//! Exit rules: the section walk's (fall-through, explicit return, a
+//! `return` that gives no value, the generic result, H1-only prompts, the
+//! version gate, a caller code ending the run as an internal error,
+//! cross-section store persistence) and the
 //! `models.loop` shim's (the terminal reply, the model's clean empty exit
 //! after tool work, and the empty rounds that raise `empty_model_reply`).
 
@@ -46,6 +47,97 @@ fn explicit_return_stops_fall_through() {
 fn generic_result_when_nothing_produced() {
     let trace = Scenario::new(one_section("local x = 1")).run();
     assert_eq!(trace.text(), "done");
+}
+
+// --- A `return` ends the chain, whatever it gives ---
+
+/// A prompt whose first section runs the block `first` and then a block
+/// that raises, and whose second section raises, so a run of it completes
+/// only when nothing runs after `first`.
+fn nothing_runs_after(first: &str) -> String {
+    PromptSource::new()
+        .prose(
+            "First",
+            &format!("```lua\n{first}\n```\n\n```lua\nerror('a later block must not run')\n```"),
+        )
+        .section("Second", "error('a later section must not run')")
+        .build()
+}
+
+#[test]
+fn a_return_with_no_value_ends_the_run_with_the_generic_result() {
+    // Each block executes a `return` that gives nil or no value. The run
+    // ends there, as it does at any `return`, and with no text to report
+    // its result is the generic one.
+    for ending in [
+        "return",
+        "return nil",
+        "return nil, 'a second value is dropped'",
+        "do return end",
+        "local ready = false\nif not ready then return end\nerror('the rest of the block must not run')",
+        "local missing\nreturn missing",
+        "local function nothing() end\nreturn nothing()",
+    ] {
+        let trace = Scenario::new(nothing_runs_after(ending)).run();
+        assert_eq!(trace.text(), "done", "{ending:?}");
+    }
+}
+
+#[test]
+fn a_return_of_an_engine_call_that_gives_no_value_ends_the_run() {
+    let trace = Scenario::new(nothing_runs_after("return store.write('note.txt', 'kept')")).run();
+    assert_eq!(trace.text(), "done");
+    assert_eq!(
+        trace.read("note.txt").expect("read"),
+        "kept",
+        "the call ran before the return ended the chain"
+    );
+}
+
+#[test]
+fn a_return_of_the_loop_ends_the_run_with_the_generic_result() {
+    // `models.loop` gives no value, so a block that returns it ends the
+    // chain with no text.
+    let source = nothing_runs_after("messages:user('ask the model')\nreturn models.loop()");
+    let trace = loop_scenario(source)
+        .chat(&ScriptedChat::new(vec![text_finish("all done", "stop")]))
+        .run();
+    assert_eq!(trace.text(), "done");
+    assert_eq!(trace.turns(), 1, "the loop ran its round before the return");
+}
+
+#[test]
+fn a_block_that_runs_off_its_end_lets_the_next_block_and_section_run() {
+    // A `return` the block never executes ends nothing.
+    let source = PromptSource::new()
+        .prose(
+            "First",
+            "```lua\nif false then return end\nvar.order = 'one'\n```\n\n\
+             ```lua\nvar.order = var.order .. ',two'\n```",
+        )
+        .section("Second", "return var.order .. ',three'")
+        .build();
+    assert_eq!(Scenario::new(source).run().text(), "one,two,three");
+}
+
+#[test]
+fn a_return_inside_a_function_does_not_end_the_chain() {
+    let source = prompt(
+        "",
+        &[
+            (
+                "First",
+                "local function bare() return end
+                 local function none() return nil end
+                 bare()
+                 local nothing = none()
+                 pcall(function() return 'caught' end)
+                 var.reached = 'first'",
+            ),
+            ("Second", "return var.reached .. ' then second'"),
+        ],
+    );
+    assert_eq!(Scenario::new(source).run().text(), "first then second");
 }
 
 #[test]

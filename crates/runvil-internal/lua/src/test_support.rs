@@ -17,10 +17,10 @@ use crate::argv::Argv;
 use crate::bindings::{RosterEntry, ToolBinding, ToolSet};
 use crate::coro::MODEL_TOOL_CALL_REGISTRY;
 use crate::error::{self, Error, Result, UNNAMED_FILE};
-use crate::program::LuaProgram;
+use crate::program::{LuaProgram, ran_off_marker};
 use crate::protocol::{Answer, render_envelope};
 use crate::scope::Offers;
-use crate::section::{LuaBlockResult, scalar_return};
+use crate::section::{LuaBlockResult, block_result};
 use crate::vm::{InjectFailure, SectionVm, Uninjected};
 
 /// A per-thread tally of live section VMs.
@@ -179,8 +179,11 @@ impl SectionVm {
     /// production drives blocks through
     /// [`start_block_coro`](Self::start_block_coro). Store and
     /// `log` reports go to the emitter captured by
-    /// [`install_engine_globals`](Self::install_engine_globals); a nil or
-    /// absent top-level return produces [`LuaBlockResult::Returned`]`(None)`.
+    /// [`install_engine_globals`](Self::install_engine_globals). The chunk
+    /// is called with the ran-off marker, as a block coroutine calls it, so
+    /// a chunk that runs off its end produces [`LuaBlockResult::RanOff`]
+    /// and a top-level `return` of nil or of no value produces
+    /// [`LuaBlockResult::Returned`]`(None)`.
     /// A recorded jump wins over the chunk's own error, which is the jump's
     /// transfer marker. When the chunk may call `call` or `jump`, those
     /// must already be installed.
@@ -210,12 +213,12 @@ impl SectionVm {
 
     fn run_loaded(&self, program: &LuaProgram) -> Result<LuaBlockResult> {
         self.clear_jump()?;
-        let result = program.load(self.lua())?.call(());
+        let result = program.load(self.lua())?.call(ran_off_marker());
         if let Some((path, line)) = self.take_jump()? {
             return Ok(LuaBlockResult::Jump(path, line));
         }
         let returned = result.map_err(|error| self.map_chunk_failure(program, &error))?;
-        Ok(LuaBlockResult::Returned(scalar_return(returned)?))
+        block_result(returned)
     }
 
     /// Returns the shared tool set and the live section offers.

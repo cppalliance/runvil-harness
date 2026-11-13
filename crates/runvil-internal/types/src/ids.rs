@@ -241,7 +241,7 @@ impl RoundId {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum AbandonReason {
-    /// The owner ended normally, by returning a scalar or finishing its
+    /// The owner ended normally, by executing a `return` or finishing its
     /// walk, or the idle cap closed it as if it had returned its latest
     /// reply, and it left the task live. A returning owner's outcome
     /// becomes the `tasks_live` error unless the task was idle after a

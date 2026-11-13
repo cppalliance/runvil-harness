@@ -9,9 +9,9 @@ use super::{JUMP_SLOT_POISONED, Jump, SectionVm};
 use crate::coro::{StashedFailure, block_guard, take_failure};
 use crate::error::{self, Error, Result, prompt_file, set_call_line};
 use crate::error_value::{ErrorKind, error_kind};
-use crate::program::LuaProgram;
+use crate::program::{LuaProgram, ran_off_marker};
 use crate::protocol::{Answer, Request, Retained, YieldParse, render_envelope};
-use crate::section::{LuaBlockResult, scalar_return};
+use crate::section::{LuaBlockResult, block_result};
 
 impl SectionVm {
     /// Takes any recorded jump: its target and the prompt line of the
@@ -50,7 +50,8 @@ impl SectionVm {
     /// A coroutine that returns ends the block: a recorded jump takes
     /// precedence over the chunk's own error, genuine failures map through
     /// `LuaProgram::map_runtime_error_among` with the VM's loaded library
-    /// programs, and the scalar-return rule applies to the return values.
+    /// programs, and the return values say whether the block ran off its
+    /// end or executed a `return`, and what that `return` gave.
     /// A coroutine that yields suspends with the shim's request table; the
     /// driver resumes it with
     /// [`resume_block_coro_answer`](Self::resume_block_coro_answer). The
@@ -59,12 +60,15 @@ impl SectionVm {
     /// driver owns the chunk observation boundaries.
     ///
     /// The coroutine body is the shim's block guard, resumed first with
-    /// the block function: the guard runs the block under `xpcall`, whose
+    /// the block function and the ran-off marker, which the guard calls
+    /// the block with: the guard runs the block under `xpcall`, whose
     /// handler stashes a failure and its raise-point traceback, and
     /// re-raises the same value, so a structured error table a shim raised
     /// reaches the Engine as the universal error it stands for rather than
     /// only as mlua's stringification, and a Lua-raised error keeps the
-    /// author's frames for the prompt-line mapping.
+    /// author's frames for the prompt-line mapping. A block
+    /// [`LuaProgram::compile`] built returns the marker only when it runs
+    /// off its end.
     ///
     /// # Errors
     /// Returns an `Internal` failure if the jump slot is poisoned, or a
@@ -81,7 +85,7 @@ impl SectionVm {
             .create_thread(guard)
             .map_err(error::make_lua_error)?;
         self.cancel_hook.install_on_thread(&thread)?;
-        let result = thread.resume::<MultiValue>(function);
+        let result = thread.resume::<MultiValue>((function, ran_off_marker()));
         match self.step_block_coro(thread, result)? {
             Ok(step) => Ok(step),
             Err(error) => Err(self.block_failure(program, &error)?),
@@ -154,9 +158,10 @@ impl SectionVm {
 
     /// Steps a resumed block coroutine: a yield suspends it with the
     /// shim's request table, a recorded jump takes precedence over the
-    /// chunk's own error, which is the jump's own transfer marker, and a
-    /// return applies the scalar-return rule. Any other end is the block's
-    /// failure, left for the caller to classify.
+    /// chunk's own error, which is the jump's own transfer marker, and
+    /// what the coroutine returned says whether the block ran off its end
+    /// or executed a `return`. Any other end is the block's failure, left
+    /// for the caller to classify.
     fn step_block_coro(
         &self,
         thread: Thread,
@@ -173,9 +178,7 @@ impl SectionVm {
                     return Ok(Ok(CoroStep::Done(LuaBlockResult::Jump(path, line))));
                 }
                 match result {
-                    Ok(returned) => Ok(Ok(CoroStep::Done(LuaBlockResult::Returned(
-                        scalar_return(returned)?,
-                    )))),
+                    Ok(returned) => Ok(Ok(CoroStep::Done(block_result(returned)?))),
                     Err(error) => Ok(Err(error)),
                 }
             }
@@ -297,7 +300,8 @@ pub enum CoroStep {
     /// The coroutine suspended on a shim yield; the yielded values are
     /// the request table.
     Yielded(Thread, MultiValue),
-    /// The coroutine ended (return, jump, or error); a recorded jump wins
-    /// over the chunk's own error, and the scalar-return rule applies.
+    /// The coroutine ended without failing: the block ran off its end,
+    /// executed a `return`, or jumped. A recorded jump wins over the
+    /// chunk's own error.
     Done(LuaBlockResult),
 }

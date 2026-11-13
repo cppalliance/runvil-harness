@@ -182,6 +182,32 @@ fn an_h1_scalar_return_still_reads_var_back() {
 }
 
 #[test]
+fn an_h1_return_with_no_value_still_reads_var_back() {
+    // The read-back runs for a `return` that gives no value as it does for
+    // one that gives a scalar, so the reassigned `var` fails the run
+    // instead of ending it with the generic completion.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Reassigned Var\n\n\
+        ```lua\n\
+        var = 5\n\
+        return\n\
+        ```\n";
+    let trace = h1_scenario(md).run();
+
+    let error = trace.error();
+    assert_eq!(error.code, ErrorCode::LuaRuntime, "{error}");
+    assert!(
+        error.to_string().contains("global was reassigned"),
+        "the read-back failure must name the cause: {error}"
+    );
+    assert_eq!(
+        error.at,
+        at_line(10),
+        "the read-back fails on the returning block's line: {error:?}"
+    );
+}
+
+#[test]
 fn an_h1_argv_read_back_failure_is_placed_on_the_pass_last_lua_block() {
     // The pass falls through, so its block index is past its last block:
     // the failure lands on the last Lua block's first line.

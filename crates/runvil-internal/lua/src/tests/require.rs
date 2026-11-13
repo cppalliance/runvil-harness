@@ -85,11 +85,13 @@ where
     (vm, calls)
 }
 
-/// Runs `source` as a block coroutine to its end and returns its scalar.
+/// Runs `source` as a block coroutine to its end and returns the text it
+/// returned, `None` for a block that ran off its end or returned no text.
 fn returned(vm: &SectionVm, source: &str) -> Option<String> {
     match vm.start_block_coro(&program(source)) {
+        Ok(CoroStep::Done(LuaBlockResult::RanOff)) => None,
         Ok(CoroStep::Done(LuaBlockResult::Returned(value))) => value,
-        other => panic!("the block must return, got {other:?}"),
+        other => panic!("the block must end without a jump or a failure, got {other:?}"),
     }
 }
 
@@ -129,7 +131,7 @@ fn require_hands_back_the_first_returned_value_of_any_type() {
 }
 
 #[test]
-fn a_block_without_a_value_lets_the_next_block_run() {
+fn a_block_that_runs_off_its_end_lets_the_next_block_run() {
     let (vm, _) = require_vm(
         vec![
             (
@@ -139,23 +141,121 @@ fn a_block_without_a_value_lets_the_next_block_run() {
                     "/later",
                     &[
                         "first = 'ran'",
-                        "return nil",
-                        "return first .. ' then third'",
+                        "second = first .. ' then second'",
+                        "return second .. ' then third'",
                     ],
                 ),
             ),
             (
                 "/silent",
-                library("silent", "/silent", &["quiet = 1", "return nil"]),
+                library("silent", "/silent", &["quiet = 1", "quiet = quiet + 1"]),
             ),
         ],
         &null_emitter(),
     );
     let value = returned(
         &vm,
-        "return (require '/later') .. '|' .. tostring(require '/silent')",
+        "return (require '/later') .. '|' .. tostring(require '/silent') .. '|' .. quiet",
     );
-    assert_eq!(value.as_deref(), Some("ran then third|true"));
+    assert_eq!(
+        value.as_deref(),
+        Some("ran then second then third|true|2"),
+        "a library whose blocks all run off their ends gives true"
+    );
+}
+
+#[test]
+fn the_first_return_ends_the_load_and_later_blocks_do_not_run() {
+    let (vm, _) = require_vm(
+        vec![(
+            "/a",
+            library(
+                "a",
+                "/a",
+                &[
+                    "reached = 'first'",
+                    "reached = 'second'\nreturn 'value of second'",
+                    "reached = 'third'\nerror('the third block must not run')",
+                ],
+            ),
+        )],
+        &null_emitter(),
+    );
+    let value = returned(&vm, "return (require '/a') .. '|' .. reached");
+    assert_eq!(value.as_deref(), Some("value of second|second"));
+}
+
+#[test]
+fn a_return_with_no_value_ends_the_load_with_true() {
+    // Each second block executes a `return` that gives nil or no value.
+    // The load ends there, as it does for any `return`, and the library's
+    // value is `true`, as for a library with no `return` at all.
+    for ending in [
+        "return nil",
+        "return",
+        "do return end",
+        "if reached then return end",
+        "local function nothing() end\nreturn nothing()",
+        "return nil, 'a second value is dropped'",
+    ] {
+        let (vm, _) = require_vm(
+            vec![(
+                "/a",
+                library(
+                    "a",
+                    "/a",
+                    &[
+                        "reached = 'first'",
+                        ending,
+                        "reached = 'third'\nerror('the third block must not run')",
+                    ],
+                ),
+            )],
+            &null_emitter(),
+        );
+        let value = returned(
+            &vm,
+            "local value = require '/a'\nreturn tostring(value) .. '|' .. reached",
+        );
+        assert_eq!(value.as_deref(), Some("true|first"), "{ending:?}");
+    }
+}
+
+#[test]
+fn a_return_inside_a_library_function_does_not_end_the_load() {
+    let (vm, _) = require_vm(
+        vec![(
+            "/a",
+            library(
+                "a",
+                "/a",
+                &[
+                    "local function early() return end\nearly()\nreached = 'first'",
+                    "return reached .. ' then second'",
+                ],
+            ),
+        )],
+        &null_emitter(),
+    );
+    let value = returned(&vm, "return require '/a'");
+    assert_eq!(value.as_deref(), Some("first then second"));
+}
+
+#[test]
+fn a_saved_true_from_a_return_with_no_value_comes_back_without_a_rerun() {
+    let (vm, _) = require_vm(
+        vec![(
+            "/a",
+            library("a", "/a", &["loads = (loads or 0) + 1\nreturn nil"]),
+        )],
+        &null_emitter(),
+    );
+    let value = returned(
+        &vm,
+        "local first, second = require '/a', require '/a'\n\
+         return tostring(first) .. ':' .. tostring(second) .. ':' .. loads",
+    );
+    assert_eq!(value.as_deref(), Some("true:true:1"));
 }
 
 #[test]

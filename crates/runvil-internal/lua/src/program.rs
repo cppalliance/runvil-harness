@@ -1,8 +1,9 @@
 //! Compiled Lua chunks: bytecode compilation with debug info and chunk-line to prompt-line mapping.
 
+use std::ffi::c_void;
 use std::num::NonZeroU32;
 
-use mlua::{Function, Lua, LuaOptions, StdLib};
+use mlua::{Function, LightUserData, Lua, LuaOptions, StdLib, Value};
 use runvil_types::error::ErrorCode;
 
 use crate::chunk_line::{PROMPT_CHUNK_PREFIX, compile_line, map_chunk_line_to_absolute};
@@ -15,8 +16,47 @@ use crate::error::{
 /// no line moves. Lua compiles no tail call inside a to-be-closed
 /// variable's scope, so a main chunk's `return f()` keeps the author's
 /// frame on the stack for the call line to be read from; a nil
-/// to-be-closed value is never closed.
+/// to-be-closed value is never closed. The scope covers the `do` block
+/// [`RAN_OFF_OPENER`] opens, so the author's `return f()` inside it is no
+/// tail call either.
 const FRAME_GUARD: &str = "local __runvil_site <close> = nil; ";
+
+/// What a prompt block's source compiles behind, after [`FRAME_GUARD`] and
+/// on the same first line: the `do` that [`RAN_OFF_TRAILER`] closes. Lua
+/// takes a `return` only as the last statement of its block, so the
+/// trailer can follow a source that ends in one only from outside a block
+/// of the source's own.
+const RAN_OFF_OPENER: &str = "do ";
+
+/// What a prompt block's source compiles in front of, on a line of its own
+/// because a source can end in a line comment: the end of the `do` block
+/// and a return of the chunk's arguments. The Engine calls a block with
+/// the [`ran_off_marker`], so a block that runs off its end returns the
+/// marker, and a block that executes a `return` of its own never reaches
+/// this one.
+const RAN_OFF_TRAILER: &str = "\nend return ...";
+
+/// The byte whose address the [`ran_off_marker`] holds. Nothing reads it.
+static RAN_OFF: u8 = 0;
+
+/// The value the Engine passes to every prompt block as its one argument,
+/// which the block returns only by running off its end: a light userdata
+/// that holds the address of a private static, so no value a prompt can
+/// build equals it.
+pub(crate) fn ran_off_marker() -> Value {
+    Value::LightUserData(LightUserData(
+        std::ptr::from_ref(&RAN_OFF).cast_mut().cast::<c_void>(),
+    ))
+}
+
+/// Whether `value` is the [`ran_off_marker`].
+pub(crate) fn is_ran_off(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::LightUserData(pointer)
+            if std::ptr::eq(pointer.0.cast_const().cast::<u8>(), &raw const RAN_OFF)
+    )
+}
 
 /// The fixed temporary VM a chunk compiles in.
 fn compiler() -> mlua::Result<Lua> {
@@ -32,6 +72,27 @@ fn compile_chunk(lua: &Lua, source: &str, chunk_name: &str) -> mlua::Result<Vec<
     // Keep debug info so runtime errors report the chunk name and line
     // (`dump(true)` strips them and leaves `?:` in the traceback).
     Ok(function.dump(false))
+}
+
+/// Compiles a prompt block's `source` in `lua` under `chunk_name`, twice.
+///
+/// The first compile takes the source as written, behind [`FRAME_GUARD`]
+/// alone, and its bytecode is dropped: it checks that the source is a
+/// whole chunk, so its failure is the block's diagnostic, and it refuses a
+/// source such as `end do`, which compiles only between
+/// [`RAN_OFF_OPENER`] and [`RAN_OFF_TRAILER`]. The second compile takes
+/// the source between the two, and its bytecode is the block's. Neither
+/// addition holds a line break before the source, so a line of the block
+/// is the same chunk line in both.
+fn compile_block(lua: &Lua, source: &str, chunk_name: &str) -> mlua::Result<Vec<u8>> {
+    lua.load(format!("{FRAME_GUARD}{source}"))
+        .set_name(chunk_name)
+        .into_function()?;
+    compile_chunk(
+        lua,
+        &format!("{FRAME_GUARD}{RAN_OFF_OPENER}{source}{RAN_OFF_TRAILER}"),
+        chunk_name,
+    )
 }
 
 /// Compiled Lua 5.5 source that can be loaded into multiple process-local VMs.
@@ -84,14 +145,21 @@ impl LuaProgram {
     /// renders as `[string "line 120"]`: no two blocks of one prompt start
     /// on the same line, and the name never reaches the length at which Lua
     /// cuts it. The chunk compiles behind a statement on its first line
-    /// that keeps a main-chunk tail call from dropping the author's frame;
-    /// [`source`](Self::source) is the source as given.
+    /// that keeps a main-chunk tail call from dropping the author's frame,
+    /// and inside a `do` block followed by a return of the chunk's
+    /// arguments, so a block called with the Engine's marker returns the
+    /// marker when it runs off its end and its own values when it executes
+    /// a `return`. The source is checked as written first, so a failure
+    /// reads as it does for the source alone, and no line of the block
+    /// moves. [`source`](Self::source) is the source as given.
     ///
     /// # Errors
     /// Returns a `LuaCompile` failure when `source` is not syntactically
-    /// valid: its message names the region and holds the Lua diagnostic,
-    /// its `Section` fact names the region, it is located on the line of
-    /// `file` the diagnostic names, and its author prose names what failed.
+    /// valid, or compiles alone and exceeds one of Lua's limits inside the
+    /// `do` block: its message names the region and holds the Lua
+    /// diagnostic, its `Section` fact names the region, it is located on
+    /// the line of `file` the diagnostic names, and its author prose names
+    /// what failed.
     /// Returns an `Internal` failure located at this crate's Rust source,
     /// whose message holds the `mlua` error's text, if the temporary
     /// compiler VM cannot be created.
@@ -102,11 +170,10 @@ impl LuaProgram {
         source_line: NonZeroU32,
     ) -> Result<Self> {
         let chunk_name = format!("{PROMPT_CHUNK_PREFIX}{source_line}");
-        let guarded = format!("{FRAME_GUARD}{source}");
         let bytecode = compiler()
             .map_err(|error| error::make_internal_error(error.to_string()))
             .and_then(|lua| {
-                compile_chunk(&lua, &guarded, &chunk_name).map_err(|error| {
+                compile_block(&lua, source, &chunk_name).map_err(|error| {
                     let diagnostic = match &error {
                         mlua::Error::SyntaxError { message, .. } => message.clone(),
                         other => other.to_string(),
@@ -170,7 +237,11 @@ impl LuaProgram {
     /// Loads the compiled function into `lua` without executing it.
     ///
     /// The bytecode is loaded only into a VM in the same process and is never
-    /// exposed as a persistence format.
+    /// exposed as a persistence format. A prompt block's function returns
+    /// its arguments when it runs off its end, so a caller that needs to
+    /// tell that from a `return` calls it with the Engine's marker, as
+    /// [`SectionVm::start_block_coro`](crate::SectionVm::start_block_coro)
+    /// does.
     ///
     /// # Errors
     /// Returns a `LuaRuntime` failure if the VM rejects the internally
@@ -264,15 +335,17 @@ impl LuaProgram {
 mod tests {
     //! Tests for the compile path's location, the runtime mapping's location
     //! and author prose, a quota refusal's among them, the typed failures the
-    //! mapping keeps, and the prompt line a block's chunk position names.
+    //! mapping keeps, the prompt line a block's chunk position names, and
+    //! what a block called with the ran-off marker returns: the marker when
+    //! it runs off its end, and its own values when it executes a `return`.
 
     use std::num::NonZeroU32;
 
-    use mlua::Lua;
+    use mlua::{Lua, MultiValue};
     use runvil_types::error::{ErrorCode, ErrorFact, SourceLoc};
     use serde_json::Value;
 
-    use super::LuaProgram;
+    use super::{FRAME_GUARD, LuaProgram, is_ran_off, ran_off_marker};
     use crate::chunk_line::{
         compile_line, first_prompt_line, map_chunk_line_to_absolute, prompt_line,
     };
@@ -362,6 +435,187 @@ mod tests {
         assert!(
             raw.to_string().contains("[string \"line 30\"]:2: boom"),
             "the guard adds no line: {raw}"
+        );
+    }
+
+    /// What `source`, compiled as a block, returns when it is called in
+    /// `lua` with the ran-off marker, as the Engine calls a block.
+    fn called(lua: &Lua, source: &str) -> MultiValue {
+        compiled(source, 1)
+            .load(lua)
+            .expect("the bytecode loads")
+            .call(ran_off_marker())
+            .expect("the block runs")
+    }
+
+    /// Whether `source`, compiled as a block, runs off its end: called with
+    /// the marker, it returns the marker and nothing else.
+    fn runs_off(source: &str) -> bool {
+        let returned = called(&Lua::new(), source);
+        returned.len() == 1 && returned.iter().all(is_ran_off)
+    }
+
+    #[test]
+    fn only_the_marker_itself_is_the_ran_off_marker() {
+        assert!(is_ran_off(&ran_off_marker()));
+        assert!(
+            !is_ran_off(&mlua::Value::NULL),
+            "`json.null` is another light userdata"
+        );
+        assert!(!is_ran_off(&mlua::Value::Nil));
+        assert!(!is_ran_off(&mlua::Value::Boolean(true)));
+    }
+
+    #[test]
+    fn a_source_that_compiles_only_inside_the_do_block_is_refused_as_written() {
+        // Between `do` and `end` each of these is balanced Lua. Alone, each
+        // closes a block it never opened, and that is the diagnostic.
+        for source in ["end do", "end\ndo", "local x = 1 end do x = 2"] {
+            let error = LuaProgram::compile(source, FILE, REGION, line(11))
+                .expect_err("the block must not compile");
+            assert_eq!(error.code, ErrorCode::LuaCompile, "{source:?}");
+            assert!(
+                error
+                    .message
+                    .contains("[string \"line 11\"]:1: <eof> expected near 'end'"),
+                "{source:?} fails as the source alone does: {}",
+                error.message
+            );
+            assert_eq!(
+                error.at,
+                Some(SourceLoc::line(FILE, line(11))),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_block_with_no_return_runs_off_its_end_whatever_it_ends_in() {
+        for source in [
+            "",
+            "\n",
+            "-- only a comment",
+            "local x = 1",
+            "local x = 1 -- a comment on the last line",
+            "local x = 1\n-- a comment line last\n",
+            "local x = 1;",
+            "--[[ a long comment ]]",
+            "if false then return end",
+            "if false then return 'never' end",
+            "local function f() return 'inside' end\nf()",
+            "for i = 1, 3 do local _ = i end",
+        ] {
+            assert!(runs_off(source), "{source:?} returns the marker");
+        }
+    }
+
+    #[test]
+    fn a_label_at_a_blocks_end_still_takes_a_goto_from_before_a_local() {
+        // The label is a void statement at the end of its block, so the
+        // local's scope ends before it, in the `do` block as in the chunk.
+        assert!(runs_off("goto done\nlocal x = 1\n::done::"));
+        assert!(runs_off("goto done\nlocal x = 1\n::done:: ;"));
+    }
+
+    #[test]
+    fn an_executed_return_never_reaches_the_marker() {
+        let lua = Lua::new();
+        for source in [
+            "return",
+            "return;",
+            "do return end",
+            "if true then return end",
+            "local function f() end\nreturn f()",
+            "for _ = 1, 3 do return end",
+        ] {
+            assert!(
+                called(&lua, source).is_empty(),
+                "{source:?} returns no value at all"
+            );
+        }
+        let nil = called(&lua, "return nil");
+        assert!(
+            nil.len() == 1 && nil.iter().all(mlua::Value::is_nil),
+            "`return nil` returns one nil"
+        );
+        let pair = called(&lua, "return nil, 'text'");
+        assert_eq!(pair.len(), 2, "`return nil, 'text'` returns both values");
+        for (source, expected) in [
+            ("return 'text'", "text"),
+            (
+                "local x = 'early'\nif x then return x end\nreturn 'late'",
+                "early",
+            ),
+            ("return 7 -- a comment after the return", "7"),
+        ] {
+            let returned = called(&lua, source);
+            let text = returned
+                .iter()
+                .next()
+                .and_then(|value| value.to_string().ok());
+            assert_eq!(text.as_deref(), Some(expected), "{source:?}");
+            assert!(!returned.iter().any(is_ran_off), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn a_block_that_returns_its_argument_reads_as_one_that_ran_off() {
+        // The marker reaches the block as its one argument, which is the
+        // only way a block can name it.
+        assert!(runs_off("return ..."));
+    }
+
+    #[test]
+    fn a_failure_on_a_blocks_last_line_keeps_its_line_before_the_trailer() {
+        let lua = Lua::new();
+        for (source, expected) in [
+            ("error('boom')", "[string \"line 30\"]:1: boom"),
+            ("local x = 1\nerror('boom')", "[string \"line 30\"]:2: boom"),
+            (
+                "local x = 1\n\nerror('boom') -- last",
+                "[string \"line 30\"]:3: boom",
+            ),
+        ] {
+            let raw = raised(&compiled(source, 30), &lua);
+            assert!(raw.to_string().contains(expected), "{source:?}: {raw}");
+        }
+    }
+
+    /// `depth` nested `do` blocks around one statement.
+    fn nested(depth: usize) -> String {
+        format!(
+            "{}local x = 1 {}",
+            "do ".repeat(depth),
+            "end ".repeat(depth)
+        )
+    }
+
+    #[test]
+    fn a_source_at_luas_nesting_limit_fails_to_compile_inside_the_do_block() {
+        // The `do` block is one more level, so the deepest source Lua
+        // compiles alone is one level too deep as a block.
+        let alone = |depth: usize| {
+            Lua::new()
+                .load(format!("{FRAME_GUARD}{}", nested(depth)))
+                .into_function()
+                .is_ok()
+        };
+        let deepest = (1..1_000)
+            .take_while(|&depth| alone(depth))
+            .last()
+            .expect("Lua compiles one `do` block");
+        assert!(deepest < 999, "Lua limits how deep blocks nest");
+        assert!(
+            LuaProgram::compile(&nested(deepest - 1), FILE, REGION, line(11)).is_ok(),
+            "one level under the limit compiles as a block"
+        );
+        let error = LuaProgram::compile(&nested(deepest), FILE, REGION, line(11))
+            .expect_err("the deepest source alone is too deep as a block");
+        assert_eq!(error.code, ErrorCode::LuaCompile);
+        assert_eq!(
+            error.at.as_ref().map(|at| at.file.as_str()),
+            Some(FILE),
+            "the failure is placed in the prompt file"
         );
     }
 

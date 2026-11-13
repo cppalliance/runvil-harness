@@ -1,7 +1,8 @@
 //! The H1 pass: the prompt's H1 blocks run first as section 0, the
 //! driver loop's first chain, under the walk's rules with these deltas:
 //! the frame takes the root chain's entry 0 and fires no section
-//! observations, a scalar return short-circuits the run, a block's
+//! observations, a `return` short-circuits the run, with the value it gave
+//! or with the generic completion when it gave none, a block's
 //! `LuaRuntime` failure is the prompt's failed hard gate, mapped to a
 //! `RequirementsUnmet` failure where it failed, and the pass's end hands
 //! off to the root walk. The frame's own deltas, writable `argv` among

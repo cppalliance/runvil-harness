@@ -177,8 +177,9 @@ impl Scheduler {
     /// takes none of them: it ends the run before the delivery match. The
     /// frame is armed for completion only when the chain is not H1.
     ///
-    /// `outcome` is the chain's end: a scalar return's value, `None` for a
-    /// walk that ran off its slice's last section, or the chain's failure.
+    /// `outcome` is the chain's end: the text a `return` gave, `None` for
+    /// a `return` that gave nil or no value and for a walk that ran off its
+    /// slice's last section, or the chain's failure.
     pub(super) fn finish(&mut self, id: ChainIndex, outcome: Result<Option<String>>) -> ChainStep {
         let prompt = self.prompt();
         let chain = &mut self.chains[id];
@@ -186,7 +187,8 @@ impl Scheduler {
         let parent = chain.kind.parent();
         let is_task = matches!(chain.kind, ChainKind::Task);
         // `None` when the chain ended by exhausting its slice: the last
-        // section's frame already dropped at the fall-through.
+        // section's frame already dropped at the fall-through. A chain
+        // that ended at a `return` still holds the frame it returned in.
         let mut entered = chain.entered.take();
         // Taken now, dropped last: the VM's store closures hold their own
         // Arc clones of the capability, so the identity's last reference
@@ -195,13 +197,14 @@ impl Scheduler {
         let access = chain.access.take();
         // The H1 pass never arms completion: SECTION_FINISHED is a
         // walked section's boundary, not the setup pass's. Its completion
-        // paths (fall-through, scalar return) handle the frame themselves;
+        // paths (fall-through, a `return`) handle the frame themselves;
         // this guard keeps an H1 frame that reaches here - an error path -
         // unarmed.
         let is_h1 = chain.kind.is_h1();
         let outcome = outcome.and_then(|returned| {
-            // A chain ending mid-section (a scalar return) reads its final
-            // var back before teardown, exactly as a completed section does
+            // A chain ending mid-section (a `return`, with a value or
+            // without) reads its final var back before teardown, exactly as
+            // a completed section does
             // at fall-through (the walk rolls it forward; a call chain
             // or a task chain discards its clone), and arms the completion
             // flag so the frame's drop fires SECTION_FINISHED. A failure -
@@ -219,7 +222,8 @@ impl Scheduler {
             }
             let text = match returned {
                 Some(value) => value,
-                // A walk that ran off its slice produced no scalar result:
+                // A walk that ran off its slice, or a `return` that gave
+                // nil or no value, produced no text:
                 // the top-level chain falls back to the shared generic
                 // completion; a call chain or a task chain to the empty
                 // string.

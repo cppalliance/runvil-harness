@@ -278,7 +278,9 @@ local function store_request(store_op, fields)
 end
 
 -- The block guard: the Engine runs every block coroutine through it so a
--- raised value is seen before mlua stringifies it. The raw `xpcall` is
+-- raised value is seen before mlua stringifies it. The Engine resumes it
+-- with the block and the marker a block returns when it runs off its end,
+-- and the guard calls the block with that marker. The raw `xpcall` is
 -- yieldable, so the block's shim yields pass straight through; a return
 -- passes through unchanged; a failure is stashed for the Engine (which reads
 -- it back as the structured error when it is one of our tables) and
@@ -301,8 +303,8 @@ local function guard_outcome(ok, ...)
   error((...), 0)
 end
 
-local function guard(block)
-  return guard_outcome(raw_xpcall(block, guard_handler))
+local function guard(block, ...)
+  return guard_outcome(raw_xpcall(block, guard_handler, ...))
 end
 
 local function store_write(path, contents)

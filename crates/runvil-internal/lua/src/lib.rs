@@ -20,9 +20,11 @@
 //! `markdown.select`), and writes their sources back as the text they
 //! were read from (`markdown.render`).
 //!
-//! The chunk's top-level return value becomes the section's result (the finish
-//! case of the exit rule). The `var` table is read back afterward as JSON for
-//! prose substitution.
+//! A chunk that executes a top-level `return` ends the chain it runs in, and
+//! the returned value, when it has one, becomes the chain's result (the
+//! finish case of the exit rule). A chunk that runs off its end lets the
+//! section's next block run. The `var` table is read back afterward as JSON
+//! for prose substitution.
 //!
 //! The `store` table is a deterministic Engine global (like `var`), always
 //! present and independent of tool scoping. Its methods are backed by the

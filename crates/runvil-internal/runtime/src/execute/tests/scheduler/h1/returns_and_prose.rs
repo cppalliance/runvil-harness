@@ -1,6 +1,6 @@
-//! H1-only prompts and H1 prose: an H1-only return or fall-through, a
-//! scalar H1 return short-circuiting the walk, and H1 prose read only
-//! through an explicit infer.
+//! H1-only prompts and H1 prose: an H1-only return or fall-through, an
+//! H1 return short-circuiting the walk whether or not it gives a value,
+//! and H1 prose read only through an explicit infer.
 
 use super::*;
 
@@ -40,6 +40,46 @@ fn h1_scalar_return_short_circuits_the_walk() {
     let trace = h1_scenario(md).run();
 
     assert_eq!(trace.text(), "early");
+}
+
+#[test]
+fn an_h1_return_with_no_value_ends_the_run_with_the_generic_result() {
+    // Any `return` from the H1 pass ends the whole run, so neither a later
+    // H1 block nor a section runs, and a `return` that gives no value ends
+    // it with the shared generic completion.
+    for ending in [
+        "return",
+        "return nil",
+        "if true then return end",
+        "return store.write('h1.txt', 'kept')",
+    ] {
+        let md = format!(
+            "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+             # Short Circuit\n\n\
+             ```lua\n{ending}\n```\n\n\
+             ```lua\nerror('a later H1 block must not run')\n```\n\n\
+             ## Never\n\n\
+             ```lua\nerror('the walk must not start after an H1 return')\n```\n"
+        );
+        let trace = h1_scenario(&md).run();
+
+        assert_eq!(trace.text(), "done", "{ending:?}");
+    }
+}
+
+#[test]
+fn an_h1_block_that_runs_off_its_end_hands_off_to_the_walk() {
+    // A `return` the H1 block never executes ends nothing: the pass falls
+    // through its blocks and the walk starts.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Hand Off\n\n\
+        ```lua\nif false then return end\nvar.h1 = 'first'\n```\n\n\
+        ```lua\nvar.h1 = var.h1 .. ',second'\n```\n\n\
+        ## Result\n\n\
+        ```lua\nreturn var.h1 .. ',walk'\n```\n";
+    let trace = h1_scenario(md).run();
+
+    assert_eq!(trace.text(), "first,second,walk");
 }
 
 #[test]
