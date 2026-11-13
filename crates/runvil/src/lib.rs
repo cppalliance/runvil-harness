@@ -114,7 +114,9 @@ pub mod plugin {
     pub use runvil_plugin::ServiceId;
     pub use runvil_plugin::ServiceKey;
     pub use runvil_plugin::TOKIO_RUNTIME;
+    pub use runvil_plugin::Tool;
     pub use runvil_plugin::ToolContext;
+    pub use runvil_plugin::Tools;
 }
 
 pub mod effect {
