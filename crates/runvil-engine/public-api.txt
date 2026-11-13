@@ -331,7 +331,6 @@ pub fn runvil_engine::ErrorCode::from_tag(tag: &str) -> core::option::Option<run
 pub fn runvil_engine::Prompt::file(&self) -> &str
 pub fn runvil_engine::Prompt::frontmatter(&self) -> &runvil_engine::prompt::Frontmatter
 pub fn runvil_engine::Prompt::parse(finder: &dyn runvil_engine::PromptFinder, name: &str) -> core::result::Result<runvil_engine::Prompt, runvil_engine::Error>
-pub fn runvil_engine::Prompt::title(&self) -> &str
 pub fn runvil_engine::PromptFinder::find(&self, name: &str) -> core::result::Result<alloc::string::String, runvil_engine::Error>
 pub fn runvil_engine::Run::deliver(&mut self, text: alloc::string::String) -> alloc::vec::Vec<runvil_engine::event::Event>
 pub fn runvil_engine::Run::new(prompt: alloc::sync::Arc<runvil_engine::Prompt>, args: &str, params: runvil_engine::RunParams) -> runvil_engine::Run

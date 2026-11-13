@@ -10,7 +10,6 @@ fn pre_canceled_fanout_returns_canceled() {
     // A fanout entered under an already-canceled handle cancels the run
     // instead of running the arms.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'alpha', 'beta'})\n\
@@ -35,7 +34,6 @@ fn model_required_when_arm_infer_has_no_binding() {
     // run has no role map and nothing filled in, so the model set stays
     // empty - the scheduler scenario pre-fills a default binding.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         tasks.fanout('Worker', {'alpha'})\n\
@@ -63,7 +61,6 @@ fn a_library_required_in_an_arm_sees_the_arm_item() {
     // reads the arm's `item`; a load that ran before the arm installs
     // `item`, or in an environment of its own, would capture nil.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'alpha'})\n\
@@ -97,7 +94,6 @@ fn a_jump_inside_a_fanout_arm_drives_a_child_walk() {
     // the jump not-found; one that started the walk elsewhere would break
     // the order log.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'alpha'})\n\
@@ -135,7 +131,6 @@ fn a_jump_from_an_arm_to_a_worker_child_walks_the_child_slice() {
     // clears the arm's at-worker state, so the child walk runs as plain
     // sections), and the walk falls through to the target's child siblings.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'alpha'})\n\
@@ -175,7 +170,6 @@ fn fanout_hash_collection_iterates_in_sorted_key_order() {
     // slots in key order on every run. A shim that walked `pairs` order
     // would place `zeta` first on some runs and fail the fixed expectation.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', { zeta = 1, alpha = 2, mid = 3 })\n\
@@ -200,7 +194,6 @@ fn fanout_results_are_sealed_against_writes_and_metatable_replacement() {
     // `__tostring` so the hardened `table.concat` renders the result. The
     // fields and `tostring` read as before.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'alpha', 'beta'})\n\

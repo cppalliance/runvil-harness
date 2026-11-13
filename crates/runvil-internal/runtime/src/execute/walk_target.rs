@@ -17,7 +17,7 @@
 
 use crate::lua::{Library, LibraryBlock, LibraryKey, SectionRead, SectionText};
 use crate::prompt::{Block, Prompt, Section};
-use crate::section_path::{self, Lookup, Origin};
+use crate::section_path::{self, Lookup};
 use crate::section_pos::{SectionIndex, SectionPos, SlicePath};
 use crate::{Result, error};
 
@@ -35,11 +35,11 @@ use crate::{Result, error};
 pub(super) fn read_section(
     path: &str,
     prompt: &Prompt,
-    origin: Origin<'_>,
+    origin: &SectionPos,
     from: Option<&LibraryKey>,
 ) -> Result<SectionRead> {
     let library = from.map(library_position).transpose()?;
-    let origin = library.as_ref().map_or(origin, Origin::Section);
+    let origin = library.as_ref().unwrap_or(origin);
     let pos = match section_path::find(path, prompt, origin)? {
         Lookup::Found(pos) => pos,
         Lookup::Missing(error) => return Ok(SectionRead::Missing(error)),
@@ -70,15 +70,14 @@ fn found_section<'p>(prompt: &'p Prompt, pos: &SectionPos) -> Result<&'p Section
 pub(super) struct JumpTarget {
     /// The target's position.
     pub(super) pos: SectionPos,
-    /// Whether the target is a direct child of a walked caller, so a jump
+    /// Whether the target is a direct child of the caller, so a jump
     /// to it starts a child-level walk.
     pub(super) descends: bool,
 }
 
 /// Resolves the relative `path` and classifies the target: a direct child
-/// of a walked section starts a child-level walk, and anything else is a
-/// section of the caller's own slice. The H1's children are the top-level
-/// sections, where the walk already runs, so its targets never descend.
+/// of the caller starts a child-level walk, and a sibling is a
+/// section of the caller's own slice.
 ///
 /// The path starts at the library `from` names, when a library's code
 /// made the request, and otherwise at `origin`, the section that is
@@ -92,13 +91,13 @@ pub(super) struct JumpTarget {
 pub(super) fn resolve_jump_target(
     path: &str,
     prompt: &Prompt,
-    origin: Origin<'_>,
+    origin: &SectionPos,
     from: Option<&LibraryKey>,
 ) -> Result<JumpTarget> {
     let library = from.map(library_position).transpose()?;
-    let origin = library.as_ref().map_or(origin, Origin::Section);
+    let origin = library.as_ref().unwrap_or(origin);
     let pos = section_path::resolve_neighbor(path, prompt, origin)?;
-    let descends = matches!(origin, Origin::Section(caller) if caller.slice != pos.slice);
+    let descends = origin.slice != pos.slice;
     Ok(JumpTarget { pos, descends })
 }
 

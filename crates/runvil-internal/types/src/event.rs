@@ -13,7 +13,8 @@
 //! sites.
 //!
 //! Every variant includes two coordinates before its payload: `section`
-//! (the reporting H2 heading or agent name) and `provenance` (the
+//! (the reporting section's heading, empty for the preamble, or the
+//! prompt's name for a run boundary) and `provenance` (the
 //! [`Provenance`] replay key: the nearest enclosing task and the item's
 //! position within it). A caller can key every event by `provenance`
 //! alone, without inspecting the payload.
@@ -21,7 +22,8 @@
 //! # Sensitivity
 //! Lifecycle variants have no payload beyond their coordinates and, for
 //! the library loads, the library's path, all author-controlled
-//! (`section` is a heading's text and `library` a path made of them);
+//! (`section` is a heading's text or the prompt's name, and `library` a
+//! path made of headings);
 //! the exception is
 //! `ModelMetadataDegraded`, whose message may quote values from a
 //! backend's response. Content variants hold model-, tool-, or
@@ -71,8 +73,9 @@ macro_rules! events {
             $(
                 $(#[$variant_meta])*
                 $variant {
-                    /// The reporting scope: the prompt's H2 heading text,
-                    /// or an agent's name.
+                    /// The reporting scope: a section's heading text,
+                    /// which is empty for the preamble, or the prompt's
+                    /// name for a run boundary.
                     section: String,
                     /// The replay key: the nearest enclosing task and this
                     /// event's position within it.
@@ -150,9 +153,9 @@ events! {
         RunSucceeded {},
         /// A run returned an error.
         RunFailed {},
-        /// A top-level section began.
+        /// A section entry began.
         SectionStarted {},
-        /// A top-level section completed successfully.
+        /// A section entry completed successfully.
         SectionFinished {},
         // Lifecycle: model turns and tool calls.
         /// A model round trip completed successfully.

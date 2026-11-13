@@ -23,7 +23,7 @@ use super::{PLAIN, assert_no_records, bare, completed, recorder, report_of, run_
 const FILES: &str = "---\nname: files\ndescription: d\nrunvil: 0\n\
     input:\n  path: paper.md\n  description: The paper\n\
     output:\n  path: report.md\n  description: The report\n---\n\n\
-    # Title\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     store.write('report.md', 'seen: ' .. store.read('paper.md'))\nreturn 'done'\n```\n";
 
 /// Runs `source` over `vfs` with `input_text` and returns the recorder

@@ -18,7 +18,7 @@ const SPEAKER_PRELUDE: &str = "local pack = ...\n\
 /// its prelude from two sections; the second also tries to replace the
 /// prelude's function and reports whether the table refused.
 const SPEAKS: &str = "---\nname: speaks\ndescription: d\nrunvil: 0\n\
-    uses:\n  - tests/speaker\n---\n\n# Title\n\n\
+    uses:\n  - tests/speaker\n---\n\n\
     ## First\n\n```lua\nspeaker.say('one')\n```\n\n\
     ## Second\n\n```lua\n\
     local sealed = not pcall(function() speaker.say = nil end)\n\
@@ -61,8 +61,8 @@ async fn a_preludes_tool_calls_are_recorded_as_script_calls_from_the_section_tha
     assert_eq!(
         effects,
         [
-            script_call("one", "First", "0.1"),
-            script_call("two", "Second", "0.2")
+            script_call("one", "First", "0.0"),
+            script_call("two", "Second", "0.1")
         ],
         "each prelude call is one recorded ToolCall effect naming its caller and section"
     );
@@ -73,7 +73,7 @@ async fn preludes_run_in_the_prompts_declaration_order_not_the_registry_order() 
     let packs = ["tests/first", "tests/second"].map(|fqn| echo_pack(fqn, Some("shared = 1\n")));
     let host = Packs::new(registry(&packs));
     let declares_second_first = "---\nname: order\ndescription: d\nrunvil: 0\n\
-        uses:\n  - tests/second\n  - tests/first\n---\n\n# Title\n\n## Only\n\n```lua\nreturn 'ran'\n```\n";
+        uses:\n  - tests/second\n  - tests/first\n---\n\n## Only\n\n```lua\nreturn 'ran'\n```\n";
     let error = drive_over(declares_second_first, host)
         .await
         .expect_err("the two preludes collide");

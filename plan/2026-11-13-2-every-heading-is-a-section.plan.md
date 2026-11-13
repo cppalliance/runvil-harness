@@ -4,40 +4,40 @@ overview: "Remove every H1 special case from the Engine: a prompt needs no headi
 todos:
   - id: plan-copy
     content: "runvil-harness: on `master`, copy this plan to `plan/2026-11-13-2-every-heading-is-a-section.plan.md` before any other change"
-    status: in_progress
+    status: completed
   - id: argv-read-only
     content: "runvil-lua and runvil-runtime: delete the writable `argv` mode, the read-back, and `with_walk_state`; new refusal texts; drop the repair tests; run every check in AGENTS.md; make commit 1 with the `Plan:` trailer"
-    status: pending
+    status: completed
   - id: parser
     content: "runvil-prompt: no required H1, top level is the shallowest heading, `build_preamble`, one block builder with a location label, delete `title` and `h1_blocks`, `PromptSource` without a title"
-    status: pending
+    status: completed
   - id: runtime
     content: "runvil-runtime and runvil-types: one root chain from the first top-level entry; delete `scheduler/h1.rs`, `ChainKind::H1`, `new_h1`, `Origin`, the gate remap, and the `reassign` functions; frontmatter `name` in place of the title; rewrite the H1 comments and docs"
-    status: pending
+    status: completed
   - id: tests
     content: "All crates: remove the title from builders and 357 inline prompts (scratch script, then by hand), fix line numbers, root entry ids and names, turn the H1 test files into preamble test files, and add the new parser and run tests"
-    status: pending
+    status: completed
   - id: prompts-api
     content: "runvil-harness: 24 prompt files, `orphan-heading.md` in place of `missing-h1.md`, the examples and the bench, `prompt/README.md`, and both `public-api.txt` listings through `xtask api --bless`"
-    status: pending
+    status: completed
   - id: verify-code
     content: "runvil-harness: run every check in AGENTS.md and the two sweeps; hold the commit"
-    status: pending
+    status: completed
   - id: guide-checker
     content: "Scratch: grow the return-rule guide checker to parse every guide example, run the ones that need no inputs, report leftover titles, and check anchors"
-    status: pending
+    status: completed
   - id: design
     content: "runvil-design: bring the six decision pages, the counts in `decisions/README.md`, and the language spec in line; one commit"
-    status: pending
+    status: completed
   - id: guide
     content: "runvil-docs: rewrite the 17 chapters by the example rules and the fixed anchors, one subagent per chapter, with every changed value from the built Engine; run the checker and the site build; one commit"
-    status: pending
+    status: completed
   - id: small-docs
     content: "runvil and runvil-classroom: the `greet` sample in `README.md` and in `runvil-vision.md`; one commit each"
-    status: pending
+    status: completed
   - id: commit
     content: "runvil-harness: mark the plan copy's todos done, record in it what the build found, and make commit 2 on `master` with the `Plan:` trailer"
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -269,3 +269,44 @@ Before each Harness commit, every command in [AGENTS.md](runvil-harness/AGENTS.m
 - **Wording**, over the added lines: `no longer`, `formerly`, `previously`, `used to`, `legacy`, `deprecat`, `migrat`.
 
 A remaining `H1` is a heading level in a parser message, a Markdown block kind, or HTML.
+
+## What the build found
+
+The design held, and no step found a fault in the Engine. These points differ from the plan above, or add to it.
+
+Engine:
+
+- **One code path runs every section.** The only place that tests for the preamble is the wording of a path that misses, in `make_not_found_error`. The run tests listed above pass on it.
+- **The wording branch covers both relative forms.** A miss from the preamble ends ``the preamble has no child `X` `` or ``the preamble has no sibling `X` ``. A miss on a path from the top ends ``the top level has no section `X` ``.
+- **`start` is deleted.** The plan said `start` in `drive.rs` would always start the root walk. It had one line left, so `step` calls `start_root_walk` itself.
+- **Two more functions went into their one caller, and one lost a parameter.** `start_root_chain` in `chain.rs` and `SectionContext::assemble` each had one caller left. `make_requirements_unmet_error` lost its `cause` parameter, which only the gate remap passed.
+- **A `SectionPos` stands where `Origin` stood.** `section_path.rs` has the free functions `child` and `sibling`, and `resolve_neighbor`, `find`, `read_section`, and `resolve_jump_target` take a `&SectionPos`. A jump descends when the target's sibling list differs from the origin's.
+- **The parser checks the fences before it builds the tree.** `parse_body` calls `first_fence_violation` right after `collect_headings`. It writes `top.saturating_sub(1)` where the plan showed `top - 1`.
+- **A prompt with no section returns `done`.** A body of prose alone parses to an empty section list, the root walk finds no section to enter, and the run ends with `done`.
+- **`sys.section_count` counts the preamble only when it is a section.** A preamble with Lua above two headings gives 3, and prose above the same two headings gives 2.
+- **Several H1 headings are siblings.** `# A` then `# B` runs both, with the ids `0.0` and `0.1`.
+- **`getmetatable(argv)` returns the string `argv is read-only`**, since commit 1.
+
+Messages:
+
+- **An unclosed fence names its place.** In the preamble the message is ``preamble prologue `lua` fence is not closed``, and under a heading it is ``section `S` prologue `lua` fence is not closed``.
+- **A first heading that is deeper than a later one names the top level as its missing parent.** `## Run` above `# Late` fails with ``section `Run` is an orphan H2 heading with no parent H1``, at the line of `## Run`. An H3 in that place gives `orphan H3 heading with no parent H1`.
+- **A name that two headings share gets a line number in its label.** The parser's heading list holds every heading, so `# X` above `## X` labels the blocks of the first as ``section `X` (line 7) prologue``. A name that one heading has gets no line number.
+- **A preamble error reads like a section error.** `error('x')` on line 9 of a preamble fails with the code `lua_runtime` and a message that starts `preamble prologue:9:` and ends `(at probe.md:9)`.
+
+Tests and checks:
+
+- **The script removed 334 title lines**, the number the plan gave for the two common shapes. The others were edited by hand.
+- **`preamble/pass.rs` is named `preamble/entry.rs`.** The other test files kept their names with `preamble` in place of `h1`.
+- **The whole workspace runs 3,633 tests, all passing.** Every check listed under Verification passed on the final tree, and both sweeps found no hit.
+- **Removed files** are `scheduler/h1.rs` and the fixture `missing-h1.md`. Both were moved to `cabinet/_trash/`.
+
+Documents:
+
+- **The guide checker ran outside this repository**, in a scratch program built on `runvil-engine`. It found 540 examples in the 17 chapters. Of the 25 that fail to parse, 24 teach a parse error and one is a Markdown sample that is no prompt. 329 return their documented value with no input. The others need an argument string, a model reply, a tool, or a store file, and the chapter work ran those one by one with the input each chapter names.
+- **The checker prints a failed run's message and not its error code.** The codes in the guide follow the Engine's own tests, such as `a_preamble_lua_error_ends_the_run_as_lua_runtime`.
+- **The guide links resolve.** The checker found 2,131 links in 30 files and no broken one, and `cargo xtask site --books-only` built both books with the three new anchors in them.
+- **Six examples keep a first heading that has children and no Lua, or a first heading deeper than a later one.** Each teaches a nesting rule or is a Markdown sample for `markdown.parse`.
+- **A gap that this plan left open:** chapter 5 lists `sys.execution`, and a read of it raises `unknown sys field 'execution'`. `prompt-language.md` already lists it under its gaps.
+- **The design pages** have 9 questions each for the prompt language and the Engine, and 121 in all. The spec's `tools.bind` and `tools.always` changed only the name of the place, from H1 to the preamble.
+- **Commits.** `3d45fa68` here is commit 1. `runvil-design` commit `dafbff7`, `runvil-docs` commit `c03ec91`, `runvil` commit `1f5d6dc4c`, and `runvil-classroom` commit `1f7dbc9` hold the document changes. Each is local on `master`.

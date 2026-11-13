@@ -8,7 +8,7 @@ use std::num::NonZeroU32;
 
 use runvil_types::error::Error;
 
-use crate::{Block, Prompt, Section};
+use crate::{Prompt, Section};
 
 /// Gives a parse failure the Engine raises about a parsed prompt the
 /// prompt's frontmatter `name` as its `Name` fact, its place in the
@@ -18,13 +18,8 @@ pub fn with_prompt_context(error: Error, name: &str, file: &str) -> Error {
     crate::error::with_prompt_context(error, Some(name), file)
 }
 
-/// Returns the ordered live Lua and prose blocks from the H1.
-#[must_use]
-pub fn h1_blocks(prompt: &Prompt) -> &[Block] {
-    &prompt.h1_blocks
-}
-
-/// Returns the top-level H2 sections in file order.
+/// Returns the top-level sections in file order: the preamble first, when
+/// the prompt has one, then each heading at the body's shallowest level.
 #[must_use]
 pub fn sections(prompt: &Prompt) -> &[Section] {
     &prompt.sections

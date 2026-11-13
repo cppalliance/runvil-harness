@@ -24,7 +24,6 @@ use crate::scripted::{Held, HeldTimer, ScriptedBroker, held_broker};
 /// for it, and returns how the wait ended, the reply, and the message.
 const STOPS_TIMED_JOIN: &str = "---\nname: timed\ndescription: d\nrunvil: 0\n\
     ---\n\n\
-    # Timed\n\n\
     ## Main\n\n```lua\n\
     local child = tasks.spawn('../Child')\n\
     local ok, err = pcall(tasks.join_any, { child }, { timeout = 30 })\n\
@@ -39,7 +38,6 @@ const STOPS_TIMED_JOIN: &str = "---\nname: timed\ndescription: d\nrunvil: 0\n\
 /// the child's report of how its round ended.
 const STOPS_BEFORE_A_STEP: &str = "---\nname: before-step\ndescription: d\nrunvil: 0\n\
     ---\n\n\
-    # BeforeStep\n\n\
     ## Main\n\n```lua\n\
     local child = tasks.spawn('../Child')\n\
     store.write('note.md', 'kept')\n\
@@ -52,13 +50,11 @@ const STOPS_BEFORE_A_STEP: &str = "---\nname: before-step\ndescription: d\nrunvi
 /// A prompt that hands the operator's next message to one model round.
 const RECEIVES_THEN_INFERS: &str = "---\nname: receives-infers\ndescription: d\nrunvil: 0\n\
     uses:\n  - user\n---\n\n\
-    # ReceivesInfers\n\n\
     ## Only\n\n```lua\nreturn models.infer((tasks.receive()))\n```\n";
 
 /// A prompt that writes a store file, then runs one model round.
 const WRITES_THEN_INFERS: &str = "---\nname: writes-infers\ndescription: d\nrunvil: 0\n\
     ---\n\n\
-    # WritesInfers\n\n\
     ## Only\n\n```lua\nstore.write('note.md', 'kept')\nreturn models.infer('after')\n```\n";
 
 /// A store whose every write raises a stop through the control the

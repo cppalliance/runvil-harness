@@ -24,7 +24,7 @@ use crate::support::{Offline, launch, no_packs};
 const RECEIVES: &str = concat!(
     "---\nname: receives\ndescription: Reads the operator's next message\nrunvil: 0\n",
     "uses:\n  - user\n",
-    "---\n\n# Receives\n\n## Only\n\n```lua\n",
+    "---\n\n## Only\n\n```lua\n",
     "return tasks.receive()\n",
     "```\n",
 );
@@ -33,7 +33,7 @@ const RECEIVES: &str = concat!(
 /// when the round fails.
 const PATIENT: &str = concat!(
     "---\nname: patient\ndescription: Waits on the model\nrunvil: 0\n",
-    "---\n\n# Patient\n\n## Only\n\n```lua\n",
+    "---\n\n## Only\n\n```lua\n",
     "local writer = models.get('default')\n",
     "local ok, err = pcall(models.infer, writer, 'Take your time.')\n",
     "return ok and 'answered' or err.kind\n",
@@ -43,7 +43,7 @@ const PATIENT: &str = concat!(
 /// Runs one section round and returns the model's reply.
 const CHATS: &str = concat!(
     "---\nname: chats\ndescription: Says hello to the model\nrunvil: 0\n",
-    "---\n\n# Chats\n\n## Only\n\n```lua\n",
+    "---\n\n## Only\n\n```lua\n",
     "messages:user('Hello, desk.')\n",
     "models.loop(models.get('default'))\n",
     "return messages[#messages].content\n",

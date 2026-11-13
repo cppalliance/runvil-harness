@@ -15,7 +15,7 @@ const SHOUTS: &str = concat!(
     "---\nname: shouts\ndescription: Shouts its input\nrunvil: 0\n",
     "input: { path: line.txt, description: The line to shout }\n",
     "output: { path: shout.txt, description: The shouted line }\n",
-    "---\n\n# Shouts\n\n## Only\n\n```lua\n",
+    "---\n\n## Only\n\n```lua\n",
     "store.write('shout.txt', string.upper(store.read('line.txt')))\n",
     "```\n",
 );

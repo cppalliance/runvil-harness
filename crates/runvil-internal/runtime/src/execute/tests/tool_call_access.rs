@@ -143,7 +143,6 @@ fn files_answers(
 #[test]
 fn a_tool_reads_a_file_the_chain_wrote_just_before_the_call() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fork\n\n\
         ## Only\n\n\
         ```lua\n\
         store.write('before.txt', 'chain wrote this')\n\
@@ -162,7 +161,6 @@ fn a_tool_reads_a_file_the_chain_wrote_just_before_the_call() {
 #[test]
 fn the_chain_reads_a_file_the_tool_wrote() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Join\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.call('test/tools/files', { write = 'after.txt', text = 'tool wrote this' })\n\
@@ -181,7 +179,6 @@ fn a_tool_in_a_spawned_task_forks_from_the_task_and_the_owner_reads_its_write_af
     // orders before it; the owner reads the tool's write once the task is
     // joined, which carries the call's join with it.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Task\n\n\
         ## Main\n\n\
         ```lua\n\
         local t = tasks.spawn('../Worker')\n\
@@ -208,7 +205,6 @@ fn a_tool_in_a_spawned_task_forks_from_the_task_and_the_owner_reads_its_write_af
 #[test]
 fn a_tool_that_writes_and_is_answered_dropped_is_still_joined() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Dropped\n\n\
         ## Only\n\n\
         ```lua\n\
         local ok, err = pcall(tools.call, 'test/tools/files', { write = 'dropped.txt', text = 'tool wrote this' })\n\
@@ -226,7 +222,6 @@ fn an_access_kept_past_its_answer_is_refused() {
     // The driver keeps the first call's access and writes through it while
     // performing the second call, with the run's scope still open.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Kept\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.call('test/tools/files', { write = 'first.txt', text = 'first call' })\n\
@@ -255,7 +250,6 @@ fn a_canceled_tasks_tool_call_is_joined_and_its_later_writes_are_refused() {
     // wrote before the cancel; the tool's write once the owner has returned,
     // while the run waits only on the held answer, is refused.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Cancel\n\n\
         ## Main\n\n\
         ```lua\n\
         local a = tasks.spawn('../Task')\n\

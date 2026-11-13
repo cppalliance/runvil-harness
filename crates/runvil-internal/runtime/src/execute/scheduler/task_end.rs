@@ -10,8 +10,7 @@
 //! ends without counting as leaked. Tasks survive a section's fall-through
 //! and a `jump` - those move the walk within one chain - and end with the
 //! chain itself: the root walk, a `call` child, or another task (a fanout
-//! arm among them). The H1 hand-off reassigns the pass's tasks to the walk
-//! (see the `h1` module).
+//! arm among them).
 //!
 //! The idle cap bounds the tasks a run holds idle, each keeping its Lua VM:
 //! a reply past [`RunLimits::max_idle_tasks`](crate::execute::RunLimits::max_idle_tasks)
@@ -293,19 +292,5 @@ impl Scheduler {
         for owner in self.tasks.live_owners() {
             self.abandon_owned_tasks(owner, reason);
         }
-    }
-
-    /// Moves every task `from` owns to `to`: the H1 hand-off, so a task the
-    /// pass spawned is waited on, inspected, canceled, or leaked by the
-    /// walk exactly as if the walk had spawned it. The pass's admission
-    /// accounting moves with the owner links: the slots the pass's tasks
-    /// hold count against the walk from here, under the limit the walk
-    /// inherited from the pass.
-    pub(super) fn reassign_tasks(&mut self, from: ChainIndex, to: ChainIndex) {
-        self.tasks.reassign(from, to);
-        // An effect-backed task's effect is awaited under its owner in the
-        // effect table; the pass awaits no effect of its own at the
-        // hand-off, so every effect-table entry under it is such a task's.
-        self.effects.reassign(from, to);
     }
 }

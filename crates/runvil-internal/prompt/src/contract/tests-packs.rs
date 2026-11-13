@@ -90,7 +90,7 @@ fn the_map_form_of_an_entry_is_refused_naming_both_entry_forms() {
         "  - ref: web\n    optional: true\n",
         "  - ref: web\n    config: { depth: 1 }\n",
     ] {
-        let src = format!("---\nname: x\ndescription: d\nuses:\n{entry}---\n\n# T\n\n## S\n\np\n");
+        let src = format!("---\nname: x\ndescription: d\nuses:\n{entry}---\n\n## S\n\np\n");
         let error = parse_err(&src);
         assert_eq!(
             error.code,

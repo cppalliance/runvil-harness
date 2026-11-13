@@ -12,7 +12,6 @@ fn a_return_inside_a_child_walk_ends_the_whole_chain() {
     // A return inside a jump-started child-level walk ends the whole
     // chain, not just the child level - the parent walk never resumes.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Return\n\n\
         ## A\n\n\
         ```lua\njump('X')\n```\n\n\
         ### X\n\n\
@@ -34,7 +33,6 @@ fn a_return_with_no_value_inside_a_child_walk_ends_the_whole_chain() {
     // scalar does: neither the child level's next section nor the parent
     // walk runs, and the root chain ends with the generic completion.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Return\n\n\
         ## A\n\n\
         ```lua\njump('X')\n```\n\n\
         ### X\n\n\
@@ -58,7 +56,6 @@ fn a_return_with_no_value_inside_a_chain_ends_the_chain_and_its_call_returns_nil
     // section after it do not run, the chain has no text, so the caller's
     // `call` returns nil, and the outer walk continues.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Scoped\n\n\
         ## A\n\n\
         ```lua\n\
         local r = call('../Sub')\n\
@@ -88,7 +85,6 @@ fn a_return_with_no_value_inside_a_called_child_walk_returns_to_the_caller() {
     // call chain, not the child level, so `### S2` and `## After` do not
     // run and the caller goes on with nil.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # CallDescend\n\n\
         ## Main\n\n\
         ```lua\nreturn 'main:' .. tostring(call('../Sub'))\n```\n\n\
         ## Sub\n\n\
@@ -111,7 +107,6 @@ fn a_called_chain_with_no_text_gives_its_call_nil_and_an_empty_text_gives_a_stri
     // first two chains have no text, so `call` returns nil, and the third
     // has one, so `call` returns it.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Values\n\n\
         ## Main\n\n\
         ```lua\n\
         local quiet, bare, empty = call('Quiet'), call('Bare'), call('Empty')\n\
@@ -131,7 +126,6 @@ fn a_called_chain_with_no_text_gives_its_call_nil_and_an_empty_text_gives_a_stri
 #[test]
 fn a_call_with_no_text_reads_as_false_and_takes_a_fallback() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fallback\n\n\
         ## Main\n\n\
         ```lua\n\
         local seen = 'no text'\n\
@@ -154,7 +148,6 @@ fn returning_a_call_with_no_text_ends_the_chain_with_no_text() {
     // too, so its own caller gets nil, and the main walk, which returns
     // that call in turn, ends the run with the generic completion.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Passed On\n\n\
         ## Main\n\n\
         ```lua\n\
         store.write('seen.txt', tostring(call('Middle')))\n\
@@ -179,7 +172,6 @@ fn concatenating_a_call_with_no_text_fails_on_the_callers_line() {
     // The call's value is nil, so the author's concatenation is a Lua
     // error where the call is written, and it names the nil.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Concat\n\n\
         ## Main\n\n\
         ```lua\n\
         local prefix = 'got: '\n\
@@ -201,7 +193,7 @@ fn concatenating_a_call_with_no_text_fails_on_the_callers_line() {
             .contains("attempt to concatenate a nil value"),
         "the failure names the nil: {error}"
     );
-    assert_eq!(error.at, crate::test_support::at_line(13), "{error:?}");
+    assert_eq!(error.at, crate::test_support::at_line(11), "{error:?}");
 }
 
 #[test]
@@ -210,7 +202,6 @@ fn a_task_and_an_arm_that_return_a_call_with_no_text_have_empty_text() {
     // it ends the worker with no text, which a task and an arm still
     // report as the empty string.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Workers\n\n\
         ## Main\n\n\
         ```lua\n\
         local results = tasks.join({ tasks.spawn('Worker') })\n\
@@ -238,7 +229,6 @@ fn a_task_and_an_arm_that_return_no_value_succeed_with_empty_text() {
     // A task chain and a fanout arm end at the worker's `return` too: each
     // succeeds with the empty string, and nothing after the `return` runs.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Workers\n\n\
         ## Main\n\n\
         ```lua\n\
         local results = tasks.join({ tasks.spawn('../Worker') })\n\
@@ -269,7 +259,6 @@ fn jump_inside_call_is_contained_in_the_chain() {
     // the jumper and the target do not run, and the target's reply returns
     // to the caller.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Contained\n\n\
         ## Main\n\n\
         ```lua\n\
         local r = call('../Sub')\n\
@@ -296,7 +285,6 @@ fn jump_inside_a_call_chain_moves_within_the_chain() {
     // contained chain - the walk continues from the jump target under the
     // normal rules, and the chain's final reply is the call's return value.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Move\n\n\
         ## A\n\n\
         ```lua\n\
         local r = call('../Sub')\n\
@@ -331,7 +319,6 @@ fn call_chain_jumps_to_a_child_and_returns_the_chain_result() {
     // the chain's final text back to A, and the outer walk continues at B,
     // never having moved.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Chain\n\n\
         ## A\n\n\
         ```lua\n\
         store.append('order.txt', 'A1\\n')\n\
@@ -371,7 +358,6 @@ fn the_outer_walk_never_moves_during_a_contained_chain() {
     // the chain ends, the outer walk resumes at the section after the
     // caller.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Outer\n\n\
         ## A\n\n\
         ```lua\n\
         call('../Sub')\n\
@@ -404,7 +390,6 @@ fn a_return_inside_a_chain_ends_the_chain_not_the_run() {
     // returned value is the call's return, the chain's remaining sections
     // do not run, and the outer walk continues.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Scoped\n\n\
         ## A\n\n\
         ```lua\n\
         local r = call('../Sub')\n\
@@ -434,7 +419,6 @@ fn call_to_a_child_starts_a_contained_chain() {
     // falls through to the target's following siblings under the same rules
     // as any walk, and the chain's final reply is the call's return value.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ChildExecute\n\n\
         ## Main\n\n\
         ```lua\n\
         local r = call('Sub')\n\
@@ -469,7 +453,6 @@ fn a_jump_descent_does_not_consume_call_depth() {
     // exactly nine section entries - a descent that wrongly consumed depth
     // would trip the cap one entry earlier.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Depth\n\n\
         ## Main\n\n\
         ```lua\njump('X')\n```\n\n\
         ### X\n\n\
@@ -489,7 +472,7 @@ fn a_jump_descent_does_not_consume_call_depth() {
         error
             == &crate::test_support::with_author_prose(
                 crate::error::make_call_depth_exceeded_error(8),
-                19
+                17
             ),
         "the depth cap must fail the run on X's call line, got {error:?}"
     );
@@ -502,12 +485,11 @@ fn a_jump_descent_does_not_consume_call_depth() {
 
 #[test]
 fn a_chain_started_past_index_0_names_its_start_section_before_its_first_entry() {
-    // A jump out of H1, a `call`, and a spawn start their chain at the
-    // target's index, so the chain's reports before its first entry name
-    // the target, not the slice's first section. An index past the slice
-    // names the prompt's title.
+    // A `call` and a spawn start their chain at the target's index, so the
+    // chain's reports before its first entry name the target, not the
+    // slice's first section. An index past the slice names the prompt by
+    // its frontmatter `name`.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n\
         ## A\n\n\
         ```lua\nreturn 'a'\n```\n\n\
         ## B\n\n\
@@ -526,7 +508,7 @@ fn a_chain_started_past_index_0_names_its_start_section_before_its_first_entry()
         scheduler
             .name_before_first_entry_for_test(2)
             .expect("the chain starts"),
-        "Title",
-        "a chain started past the slice names the prompt's title"
+        "t",
+        "a chain started past the slice names the prompt's frontmatter `name`"
     );
 }

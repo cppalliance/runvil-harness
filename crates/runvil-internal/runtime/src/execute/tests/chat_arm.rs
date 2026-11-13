@@ -199,7 +199,7 @@ fn an_out_of_scope_tool_name_fails_the_round_with_out_of_scope_tool() {
         .run();
     assert_eq!(
         trace.text(),
-        "out_of_scope_tool|rogue|prompt:14: tool \"rogue\" is not in this section's scope; \
+        "out_of_scope_tool|rogue|prompt:12: tool \"rogue\" is not in this section's scope; \
          aliases this section offers: [\"echo\"]"
     );
     let events = trace.events();
@@ -227,7 +227,7 @@ fn an_out_of_scope_tool_name_fails_the_round_with_out_of_scope_tool() {
         trace.error(),
         &placed(
             crate::error::make_out_of_scope_tool_error("rogue", false, &["echo".to_owned()], false),
-            14
+            12
         )
     );
 }

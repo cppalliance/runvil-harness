@@ -235,7 +235,7 @@ fn sys_id_counts_the_sections_one_chain_enters_across_a_jump_into_a_child_level(
             ),
         ],
     );
-    assert_eq!(Scenario::new(source).run().text(), "0.1\n0.2\n0.3\n0.4\n");
+    assert_eq!(Scenario::new(source).run().text(), "0.0\n0.1\n0.2\n0.3\n");
 }
 
 /// `call()` on a child resolves the target's index within the

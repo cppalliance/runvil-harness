@@ -4,8 +4,6 @@ description: Fanout invoked from the epilog with empty prose
 runvil: 0
 ---
 
-# Fanout Epilog
-
 ## Research
 
 ```lua

@@ -29,7 +29,7 @@ fn a_failed_substitution_in_library_prose_is_placed_on_the_librarys_template_lin
     assert_eq!(error.code, ErrorCode::Substitution, "{error:?}");
     assert_eq!(
         error.at,
-        at_line(18),
+        at_line(16),
         "the placeholder's line in the library, not the caller's `require` line: {error:?}"
     );
 }

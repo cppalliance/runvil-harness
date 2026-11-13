@@ -4,8 +4,6 @@ description: Reading prose with an item substitution outside a fanout arm is an 
 runvil: 0
 ---
 
-# Item Outside Fanout
-
 ## Main
 
 This uses {{ item }} without being inside a fanout arm.

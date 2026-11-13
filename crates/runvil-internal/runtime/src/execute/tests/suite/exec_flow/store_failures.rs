@@ -25,7 +25,7 @@ fn a_caught_store_error_is_a_store_table_with_reason_fields_and_prose() {
         assert(err.code == 'not_found', 'code is not_found, got ' .. tostring(err.code))
         assert(err.reason == 'not_found', 'reason is not_found, got ' .. tostring(err.reason))
         assert(err.path == 'missing.txt', 'the path field names the file')
-        assert(tostring(err) == 'prompt:12: {}', 'tostring is the prose, got ' .. tostring(err))
+        assert(tostring(err) == 'prompt:10: {}', 'tostring is the prose, got ' .. tostring(err))
         store.write('a.txt', 'na na na')
         local ok2, err2 = pcall(function() store.str_replace('a.txt', 'na', 'la') end)
         assert(ok2 == false, 'the ambiguous anchor fails')
@@ -33,7 +33,7 @@ fn a_caught_store_error_is_a_store_table_with_reason_fields_and_prose() {
         assert(err2.anchor == 'na', 'the anchor field names the anchor')
         assert(type(err2.count) == 'number' and err2.count % 1 == 0, 'count is an integer')
         assert(err2.count == 3, 'count is the match count')
-        assert(tostring(err2) == 'prompt:20: {}', 'tostring is the prose, got ' .. tostring(err2))
+        assert(tostring(err2) == 'prompt:18: {}', 'tostring is the prose, got ' .. tostring(err2))
         return 'ok'",
         ErrorCode::NotFound.prose(),
         ErrorCode::Anchor.prose()
@@ -62,7 +62,7 @@ fn a_store_view_failure_is_placed_on_the_store_calls_line() {
         })
         .expect_err("a handle that declares no store has no store view");
     assert_eq!(error.code, ErrorCode::NoStore, "{error:?}");
-    assert_eq!(error.at, at_line(13), "{error:?}");
+    assert_eq!(error.at, at_line(11), "{error:?}");
 }
 
 /// A caught `store.read` failure names the read's own line, which the read's
@@ -79,7 +79,7 @@ fn a_caught_store_read_failure_names_its_calls_file_and_line() {
     );
     assert_eq!(
         Scenario::new(source).run().text(),
-        format!("prompt:13: {}", ErrorCode::NotFound.prose())
+        format!("prompt:11: {}", ErrorCode::NotFound.prose())
     );
 }
 
@@ -117,20 +117,20 @@ fn an_uncaught_store_failure_ends_the_run_as_a_store_error() {
     );
 }
 
-/// An uncaught store failure in the H1 pass ends the run with the store's
-/// code: the H1 blocks run through the same coroutine machinery as any
-/// section.
+/// An uncaught store failure in the preamble ends the run with the store's
+/// code: the preamble is a section, and its store calls fail as any
+/// section's do.
 #[test]
-fn an_uncaught_store_failure_in_h1_ends_the_run_as_a_store_error() {
+fn an_uncaught_store_failure_in_the_preamble_ends_the_run_as_a_store_error() {
     let source = PromptSource::new()
-        .h1("return store.read('missing.txt')")
+        .preamble("return store.read('missing.txt')")
         .prose("Only", "Done.");
     let trace = Scenario::new(source.build()).run();
     let error = trace.error();
     assert_eq!(
         error.code,
         ErrorCode::NotFound,
-        "the H1 failure is a store error: {error:?}"
+        "the preamble's failure is a store error: {error:?}"
     );
 }
 

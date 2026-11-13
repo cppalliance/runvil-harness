@@ -95,7 +95,7 @@ impl Requirements {
         };
         let line = key.and_then(|key| crate::prompt::detail::key_line(prompt, key));
         Some(place(
-            error::make_requirements_unmet_error(&notice, None),
+            error::make_requirements_unmet_error(&notice),
             prompt.file(),
             line,
         ))

@@ -108,10 +108,10 @@ fn an_unsupported_version_names_the_major_only_in_its_message() {
 }
 
 #[test]
-fn a_refusal_notice_is_the_prose_and_the_whole_message_without_a_cause() {
+fn a_refusal_notice_is_the_prose_and_the_whole_message() {
     let notice = "the environment cannot satisfy this prompt:\n- role 'strong': requires a \
                   context of at least 200000 tokens; the model filling it provides 32000";
-    let error = make_requirements_unmet_error(notice, None);
+    let error = make_requirements_unmet_error(notice);
     assert_eq!(error.code, ErrorCode::RequirementsUnmet);
     assert_eq!(
         (error.message.as_str(), error.prose.as_str()),

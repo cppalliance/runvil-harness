@@ -4,8 +4,9 @@
 use runvil_engine::Prompt;
 use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::{Effect, EffectAnswer};
+use runvil_engine::event::Event;
 
-use super::support::{Scenario, TestResult, note, prompt, shout, text};
+use super::support::{Scenario, TestResult, note, preamble, prompt, shout, text};
 
 #[path = "../../examples/greeter.rs"]
 #[expect(
@@ -23,10 +24,42 @@ const REPLY: &str = "
 ";
 
 #[test]
-fn the_smallest_greeter_parses_and_its_title_is_the_h1_text() {
+fn the_smallest_greeter_parses_and_a_caller_reads_its_file_and_frontmatter_name() -> TestResult {
     let source = note("'hello'");
-    let parsed = Prompt::parse(&|_: &str| Ok(source.clone()), "prompt");
-    assert!(parsed.is_ok_and(|prompt| prompt.title() == "Greeter"));
+    let parsed = Prompt::parse(&|_: &str| Ok(source.clone()), "prompt")?;
+    assert_eq!(parsed.file(), "prompt");
+    assert_eq!(parsed.frontmatter().name(), "greeter");
+    Ok(())
+}
+
+#[test]
+fn a_body_of_one_lua_fence_and_no_heading_runs_and_returns_its_value() -> TestResult {
+    let trace = Scenario::default().run(&preamble("return 'hello'", &[]))?;
+    assert_eq!(trace.text()?, "hello");
+    Ok(())
+}
+
+#[test]
+fn a_preamble_runs_first_and_the_run_falls_through_to_the_section_below_it() -> TestResult {
+    let greet = "return var.order .. ', then Greet'";
+    let source = preamble("var.order = 'the preamble'", &[("Greet", greet)]);
+    let trace = Scenario::default().run(&source)?;
+    assert_eq!(trace.text()?, "the preamble, then Greet");
+
+    let started: Vec<_> = trace
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Event::SectionStarted { section, .. } => Some(section.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        started,
+        ["", "Greet"],
+        "the preamble's entry reports the empty section name"
+    );
+    Ok(())
 }
 
 #[test]

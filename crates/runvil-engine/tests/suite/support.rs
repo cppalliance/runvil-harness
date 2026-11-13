@@ -41,21 +41,25 @@ impl Tool {
 }
 
 /// The prompt `greeter`: fixed frontmatter, then the `front` lines, then
-/// `# Greeter` and one `lua`-fenced `## heading` section per entry. Every
-/// line is trimmed, so `front` and each body can be indented raw strings.
+/// one `lua`-fenced `## heading` section per entry. Every line is trimmed,
+/// so `front` and each body can be indented raw strings.
 pub(super) fn prompt(front: &str, sections: &[(&str, &str)]) -> String {
     let mut source = String::from(
         "---\nname: greeter\ndescription: A prompt the facade suite builds.\nrunvil: 0\n",
     );
     push_trimmed(&mut source, front);
-    source.push_str("---\n\n# Greeter\n");
-    for (heading, lua) in sections {
-        source.push_str("\n## ");
-        source.push_str(heading);
-        source.push_str("\n\n```lua\n");
-        push_trimmed(&mut source, lua);
-        source.push_str("```\n");
-    }
+    source.push_str("---\n");
+    push_sections(&mut source, sections);
+    source
+}
+
+/// The prompt `greeter` with a preamble: fixed frontmatter, then `lua` in
+/// one fence above the first heading, then the sections as [`prompt`]
+/// writes them.
+pub(super) fn preamble(lua: &str, sections: &[(&str, &str)]) -> String {
+    let mut source = prompt("", &[]);
+    push_fence(&mut source, lua);
+    push_sections(&mut source, sections);
     source
 }
 
@@ -67,6 +71,22 @@ pub(super) fn note(value: &str) -> String {
     greeter(&format!(
         "store.write('note.md', {value})\nreturn store.read('note.md')"
     ))
+}
+
+fn push_sections(source: &mut String, sections: &[(&str, &str)]) {
+    for (heading, lua) in sections {
+        source.push_str("\n## ");
+        source.push_str(heading);
+        source.push('\n');
+        push_fence(source, lua);
+    }
+}
+
+/// A blank line, then `lua` in one fence.
+fn push_fence(source: &mut String, lua: &str) {
+    source.push_str("\n```lua\n");
+    push_trimmed(source, lua);
+    source.push_str("```\n");
 }
 
 fn push_trimmed(source: &mut String, text: &str) {

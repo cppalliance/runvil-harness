@@ -10,9 +10,9 @@ use crate::execute::tests::context::Recorder;
 /// What a caught refusal of a section that offers both `dup/a/b` and
 /// `dup/a.b`, whose default wire names are both `dup_a_b`, renders: its
 /// kind and the prose of a broken tool-set rule, placed on the line of the
-/// [`failing_round`] loop after a three-line section, prompt line 22.
+/// [`failing_round`] loop after a three-line section, prompt line 20.
 fn dup_clash() -> String {
-    format!("internal:prompt:22: {}", ErrorCode::ToolSetsInvalid.prose())
+    format!("internal:prompt:20: {}", ErrorCode::ToolSetsInvalid.prose())
 }
 
 /// One section's Lua that offers `offer`, then runs one loop round whose
@@ -92,7 +92,7 @@ fn a_catalog_tool_whose_default_name_is_invalid_fails_only_the_sections_that_off
     assert_eq!(
         rig.trace().text(),
         format!(
-            "internal:prompt:22: {}|9lives/fetch: x",
+            "internal:prompt:20: {}|9lives/fetch: x",
             ErrorCode::ToolSchemaInvalid.prose()
         ),
         "the section that offers the tool fails, and a script still calls it by id"
@@ -140,7 +140,7 @@ fn the_offer_hint_names_a_catalog_tool_by_its_own_wire_name_only() {
     assert_eq!(
         own,
         refused(
-            12,
+            10,
             "tools.offer: no Pack named \"echo\" in this run; declare it under uses: to \
              require it, or offer it only when tools.packs.get(\"echo\") returns it (did you \
              mean 'tools/echo'?)"
@@ -171,7 +171,7 @@ fn the_scope_gate_says_a_name_exists_only_for_a_catalog_tools_own_wire_name() {
         if error
             == &placed(
                 crate::error::make_out_of_scope_tool_error(name, true, &offered, false),
-                14,
+                12,
             )
         {
             true
@@ -180,7 +180,7 @@ fn the_scope_gate_says_a_name_exists_only_for_a_catalog_tools_own_wire_name() {
                 error,
                 &placed(
                     crate::error::make_out_of_scope_tool_error(name, false, &offered, false),
-                    14
+                    12
                 )
             );
             false

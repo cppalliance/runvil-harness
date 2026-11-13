@@ -24,7 +24,6 @@ const MODEL: &str = "scripted-model";
 /// first, then the section's own round over its message list.
 const INFERS_THEN_CHATS: &str = "---\nname: rounds\ndescription: infers then chats\n\
     runvil: 0\n---\n\n\
-    # Rounds\n\n\
     ## Only\n\n```lua\n\
     local inferred = models.infer('infer round')\n\
     messages:user('chat round')\n\

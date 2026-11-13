@@ -38,7 +38,7 @@ pub struct RunParams {
     /// untrusted-envelope nonce and every other in-run random choice.
     pub(super) seed: RunSeed,
     /// When the run began, as the caller stamped it: rendered as `sys.when`
-    /// in every section, the H1 pass included.
+    /// in every section.
     pub(super) started_at: Timestamp,
     /// Whether the run reports raw model-round bodies as events; set by `with_report_debug`.
     pub(super) report_debug: bool,

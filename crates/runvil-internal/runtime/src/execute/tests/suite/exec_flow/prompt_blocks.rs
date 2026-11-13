@@ -1,11 +1,13 @@
 //! The selector forms of `prompt.section` and `prompt.section_or` in a
 //! running prompt: one block of a section's own content, read from a
-//! section, from one level down, from any depth, from the H1 body, and
+//! section, from one level down, from any depth, from the preamble, and
 //! from a library.
 //!
 //! Each prompt probes expressions where they are written. A probe appends
 //! one line to `probe.txt`: the value's JSON text, `nil`, or `raises: `
 //! and the error's text. The last section returns the file.
+
+use runvil_types::error::ErrorCode;
 
 use super::*;
 
@@ -55,7 +57,6 @@ fn assert_probes(source: &str, expected: &[&str]) {
 fn report(write: &str, template: &str) -> String {
     format!(
         "---\nname: report\ndescription: Write one report per topic\nrunvil: 0\n---\n\n\
-         # Report\n\n\
          ## Write\n\n\
          ```lua\n{write}\n```\n\n\
          ### house_style\n\n\
@@ -106,7 +107,7 @@ fn a_section_reads_one_block_of_a_child_a_sibling_or_any_section() {
             r#""Fill in this outline.\n\n```markdown\n# Title\n\n## Summary\n```""#,
             r##""# Title\n\n## Summary""##,
             // A line of the prompt file.
-            "25",
+            "23",
             r#""markdown""#,
             r#""Fill in this outline.""#,
             r#""markdown""#,
@@ -169,7 +170,6 @@ fn shared_template(research: &str, worker: &str) -> String {
     format!(
         "---\nname: shared-template\ndescription: Two workers read one template\nrunvil: 0\n\
          ---\n\n\
-         # Shared template\n\n\
          ## Research\n\n\
          ```lua\n{research}\n```\n\n\
          ### Worker\n\n\
@@ -215,10 +215,9 @@ fn a_shared_section_has_one_path_at_every_depth() {
 }
 
 #[test]
-fn one_title_under_two_parents_is_one_section_from_each_and_one_from_the_top() {
+fn one_name_under_two_parents_is_one_section_from_each_and_one_from_the_top() {
     let source = format!(
         "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-         # H1\n\n\
          ```lua\n{}\n```\n\n\
          ## H2\n\n\
          ```lua\n{}\n```\n\n\
@@ -233,7 +232,7 @@ fn one_title_under_two_parents_is_one_section_from_each_and_one_from_the_top() {
                 r#"prompt.section("/H2/Items", "list").items"#,
                 r#"prompt.section("Items")"#,
                 r#"prompt.section_or("Items")"#,
-                r#"prompt.section("H3")"#,
+                r#"prompt.section("../H3")"#,
             ],
             "local probed = true",
         ),
@@ -257,9 +256,9 @@ fn one_title_under_two_parents_is_one_section_from_each_and_one_from_the_top() {
     assert_probes(
         &source,
         &[
-            // From the H1 body.
+            // From the preamble.
             r#"["a","b"]"#,
-            "raises: section `Items` not found: the top level has no section `Items`",
+            "raises: section `Items` not found: the preamble has no child `Items`",
             "nil",
             r#""""#,
             // From H2.
@@ -316,13 +315,19 @@ fn a_library_reads_blocks_of_its_own_sections_and_of_its_users_through_g() {
 }
 
 #[test]
-fn an_uncaught_strict_read_in_the_h1_body_fails_the_gate_before_any_section_runs() {
+fn an_uncaught_strict_read_in_the_preamble_fails_the_run_before_the_next_section_runs() {
     let source = PromptSource::new()
-        .h1("local template = prompt.section('/Templates', 'fence markdown').text")
+        .preamble("local template = prompt.section('/Templates', 'fence markdown').text")
         .section("Main", "store.write('ran.txt', 'yes')\nreturn 'ran'")
         .prose("Templates", "No fence here.");
     let trace = Scenario::new(source.build()).run();
-    let rendered = trace.error().to_string();
+    let error = trace.error();
+    assert_eq!(
+        error.code,
+        ErrorCode::LuaRuntime,
+        "the preamble's failure is a Lua error like any section's: {error:?}"
+    );
+    let rendered = error.to_string();
     assert!(
         rendered.contains(
             "prompt.section: no block in section `/Templates` matches selector \"fence markdown\""
@@ -331,7 +336,7 @@ fn an_uncaught_strict_read_in_the_h1_body_fails_the_gate_before_any_section_runs
     );
     assert!(
         trace.read("ran.txt").is_err(),
-        "no section runs after a failed gate"
+        "no section runs after the preamble fails"
     );
 }
 
@@ -342,7 +347,6 @@ fn an_uncaught_strict_read_in_the_h1_body_fails_the_gate_before_any_section_runs
 fn the_items_of_a_sections_list_follow_the_block_rules() {
     let source = format!(
         "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-         # H1\n\n\
          ## Main\n\n\
          ```lua\n{}\n```\n\n\
          ### Bullets\n\n\

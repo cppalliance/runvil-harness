@@ -51,8 +51,6 @@ fn verify_minimal(prompt: &Prompt) {
     assert_eq!(prompt.frontmatter().name(), "test");
     assert_eq!(prompt.frontmatter().description(), "minimum valid");
     assert_eq!(prompt.frontmatter().runvil(), Some(0));
-    assert_eq!(prompt.title(), "Test");
-    assert!(detail::h1_blocks(prompt).is_empty());
     assert_eq!(detail::sections(prompt).len(), 1);
     let entry = detail::entry(prompt).expect("fixture has sections");
     assert_eq!(entry.name(), "Run");
@@ -69,8 +67,11 @@ fn verify_require_library(prompt: &Prompt) {
         "Exercise a required library section and nested author prose"
     );
     assert_eq!(prompt.frontmatter().runvil(), Some(0));
-    assert_eq!(prompt.title(), "Require Library");
-    assert_eq!(detail::sections(prompt).len(), 3);
+    assert_eq!(
+        detail::sections(prompt).len(),
+        3,
+        "the prose above the first heading is commentary, not a section"
+    );
 
     let prepare = &detail::sections(prompt)[0];
     assert_eq!(prepare.name(), "Prepare");
@@ -119,8 +120,11 @@ fn verify_prologue_prose_epilog(prompt: &Prompt) {
         prompt.frontmatter().max_tool_iterations(),
         NonZeroU32::new(3)
     );
-    assert_eq!(prompt.title(), "Phase Boundaries");
-    assert_eq!(detail::sections(prompt).len(), 2);
+    assert_eq!(
+        detail::sections(prompt).len(),
+        2,
+        "the prose above the first heading is commentary, not a section"
+    );
 
     let transform = detail::entry(prompt).expect("fixture has sections");
     assert_eq!(transform.name(), "Transform");

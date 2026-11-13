@@ -28,7 +28,7 @@ const PROMPT: &str = "prompt.md";
 fn prompt(lua: &str) -> String {
     format!(
         "---\nname: fixture\ndescription: calls the fixture's tools\nrunvil: 0\n\
-         uses:\n  - fixture/test\n---\n\n# Fixture\n\n## Only\n\n```lua\n{lua}\n```\n"
+         uses:\n  - fixture/test\n---\n\n## Only\n\n```lua\n{lua}\n```\n"
     )
 }
 

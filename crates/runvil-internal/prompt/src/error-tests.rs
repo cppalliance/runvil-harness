@@ -18,15 +18,18 @@ const FILE: &str = "agents/demo.md";
 #[track_caller]
 fn failure_of(src: &str) -> Error {
     match Prompt::parse(&|_: &str| Ok(src.to_owned()), FILE) {
-        Ok(prompt) => panic!("expected a failure, parsed `{}`", prompt.title()),
+        Ok(prompt) => panic!(
+            "expected a failure, parsed `{}`",
+            prompt.frontmatter().name()
+        ),
         Err(error) => error,
     }
 }
 
-/// The prompt `x` with the section `S` holding `content`, which starts on
-/// file line 10.
+/// The prompt `x` with the section `S` holding `content`: the heading is
+/// on file line 6 and `content` starts on file line 8.
 fn in_section(content: &str) -> String {
-    format!("---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\n{content}")
+    format!("---\nname: x\ndescription: d\n---\n\n## S\n\n{content}")
 }
 
 /// The prose of a failure with `code` and `message` located at `line`.
@@ -37,7 +40,7 @@ fn prose_at(code: ErrorCode, line: u32, message: &str) -> String {
 #[test]
 fn a_yaml_failure_is_frontmatter_invalid_at_its_line_and_column() {
     let yaml = "name: x\ndescription: d\nuses:\n  - not a Pack id\n";
-    let error = failure_of(&format!("---\n{yaml}---\n\n# T\n\n## S\n\np\n"));
+    let error = failure_of(&format!("---\n{yaml}---\n\n## S\n\np\n"));
     let Err(cause) = serde_yaml_ng::from_str::<Frontmatter>(yaml) else {
         panic!("the frontmatter must not decode");
     };
@@ -56,7 +59,7 @@ fn a_yaml_failure_is_frontmatter_invalid_at_its_line_and_column() {
 fn a_failure_with_no_line_names_only_the_file_in_its_prose() {
     // A flow mapping declares `uses` on no line of its own, so the refusal
     // has no line to point at.
-    let error = failure_of("---\n{ name: x, description: d, uses: [web, web] }\n---\n\n# T\n");
+    let error = failure_of("---\n{ name: x, description: d, uses: [web, web] }\n---\n");
     assert_eq!(error.code, ErrorCode::FrontmatterInvalid);
     assert_eq!(
         error.message,
@@ -75,49 +78,49 @@ fn a_failure_with_no_line_names_only_the_file_in_its_prose() {
 fn a_failure_that_knows_its_line_is_located_on_it() {
     let prologue = in_section("```lua\nreturn 1\n");
     let epilog = in_section("Prose.\n\n```lua\nreturn 1\n");
-    let h1 = "---\nname: x\ndescription: d\n---\n\n# T\n\n```lua\nreturn 1\n";
+    let preamble = "---\nname: x\ndescription: d\n---\n\n```lua\nreturn 1\n";
     for (src, code, message, line) in [
         (
-            "# T\n\n## S\n\np\n",
+            "## S\n\np\n",
             ErrorCode::FrontmatterInvalid,
             "file must begin with a --- frontmatter delimiter",
             1,
         ),
         (
-            "---\nname: x\ndescription: d\n\n# T\n",
+            "---\nname: x\ndescription: d\n\n## S\n",
             ErrorCode::FrontmatterInvalid,
             "frontmatter was not closed with ---",
             1,
         ),
         (
-            "---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\np\n\n# U\n",
+            "---\nname: x\ndescription: d\n---\n\n## S\n\np\n\n# U\n",
             ErrorCode::StructureInvalid,
-            "prompt must contain exactly one H1 title, found 2 at lines 6, 12",
-            12,
+            "section `S` is an orphan H2 heading with no parent H1",
+            6,
         ),
         (
             "---\nname: x\ndescription: d\n---\n\n#\n\n## S\n\np\n",
             ErrorCode::StructureInvalid,
-            "prompt H1 title must not be empty",
+            "an H1 section heading must not be empty",
             6,
         ),
         (
             prologue.as_str(),
             ErrorCode::FenceInvalid,
             "section `S` prologue `lua` fence is not closed",
-            10,
+            8,
         ),
         (
             epilog.as_str(),
             ErrorCode::FenceInvalid,
             "section `S` epilog `lua` fence is not closed",
-            12,
+            10,
         ),
         (
-            h1,
+            preamble,
             ErrorCode::FenceInvalid,
-            "section `T` prologue `lua` fence is not closed",
-            8,
+            "preamble prologue `lua` fence is not closed",
+            6,
         ),
     ] {
         let error = failure_of(src);
@@ -149,7 +152,7 @@ fn a_refused_uses_list_names_its_reason_and_the_pack_id() {
         ),
     ] {
         let error = failure_of(&format!(
-            "---\nname: x\ndescription: d\nuses: {entries}\n---\n\n# T\n\n## S\n\np\n"
+            "---\nname: x\ndescription: d\nuses: {entries}\n---\n\n## S\n\np\n"
         ));
         assert_eq!(error.code, ErrorCode::FrontmatterInvalid, "{entries}");
         assert_eq!(error.message, message);
@@ -176,15 +179,15 @@ fn a_refused_uses_list_names_its_reason_and_the_pack_id() {
 #[test]
 fn a_duplicate_sibling_is_structure_invalid_at_its_heading() {
     let error = failure_of(&in_section("a\n\n## S\n\nb\n"));
-    let message = "duplicate sibling section name `S`: first declared at line 8, again at line \
-                   12; sibling section names must be unique";
+    let message = "duplicate sibling section name `S`: first declared at line 6, again at line \
+                   10; sibling section names must be unique";
     assert_eq!(error.code, ErrorCode::StructureInvalid);
     assert_eq!(error.message, message);
-    assert_eq!(location(&error), Some((FILE, 12, 1, 13, 1)));
+    assert_eq!(location(&error), Some((FILE, 10, 1, 11, 1)));
     assert_eq!(error.facts, BTreeMap::from([(ErrorFact::Name, "x".into())]));
     assert_eq!(
         error.prose,
-        prose_at(ErrorCode::StructureInvalid, 12, message)
+        prose_at(ErrorCode::StructureInvalid, 10, message)
     );
 }
 
@@ -193,20 +196,20 @@ fn a_fence_violation_names_the_rule_it_breaks() {
     let opener = "`lua` fence opening line must be exactly ```lua";
     let label = "unrecognized fence label `Lua`; the only Lua fence label is `lua`";
     for (content, rule, message, line, end_column) in [
-        ("```Lua\nreturn 1\n```\n", "label", label, 10, 7),
-        ("~~~lua\nreturn 1\n~~~\n", "opener", opener, 10, 7),
+        ("```Lua\nreturn 1\n```\n", "label", label, 8, 7),
+        ("~~~lua\nreturn 1\n~~~\n", "opener", opener, 8, 7),
         (
             "```lua\nvar.a = 1\n  ```\n",
             "closer",
             "`lua` fence closing line must be exactly ```",
-            12,
+            10,
             6,
         ),
         (
             "Prose.\n\n    ```lua\n    return 1\n    ```\n",
             "lookalike",
             opener,
-            12,
+            10,
             11,
         ),
     ] {
@@ -234,24 +237,24 @@ fn a_fence_violation_names_the_rule_it_breaks() {
 
 #[test]
 fn a_lua_compile_failure_is_located_at_the_line_its_diagnostic_names() {
-    // The block's source starts on file line 11, and the compiler reports
-    // its second line, file line 12.
+    // The block's source starts on file line 9, and the compiler reports
+    // its second line, file line 10.
     let source = "local a = 1\nlocal b =";
     let error = failure_of(&in_section(&format!("```lua\n{source}\n```\n")));
-    let start = NonZeroU32::new(11).expect("11 is non-zero");
+    let start = NonZeroU32::new(9).expect("9 is non-zero");
     let Err(compiled) = LuaProgram::compile(source, FILE, "section `S` prologue", start) else {
         panic!("the block must not compile");
     };
     let message = compiled.to_string();
     assert!(
-        message.contains("[string \"line 11\"]:2:"),
+        message.contains("[string \"line 9\"]:2:"),
         "the diagnostic names the chunk line: {message}"
     );
     assert_eq!(error.code, ErrorCode::LuaCompile);
     assert_eq!(error.message, message);
-    assert_eq!(location(&error), Some((FILE, 12, 1, 13, 1)));
+    assert_eq!(location(&error), Some((FILE, 10, 1, 11, 1)));
     assert_eq!(error.facts, BTreeMap::from([(ErrorFact::Name, "x".into())]));
-    assert_eq!(error.prose, prose_at(ErrorCode::LuaCompile, 12, &message));
+    assert_eq!(error.prose, prose_at(ErrorCode::LuaCompile, 10, &message));
 }
 
 #[test]

@@ -25,7 +25,7 @@ const GREET: &str = concat!(
     "---\nname: greet\ndescription: Greets the operator by name\nrunvil: 0\n",
     "input: { path: name.txt, description: The operator's name }\n",
     "output: { path: reply.txt, description: The greeting }\n",
-    "---\n\n# Greet\n\n## Answer\n\n```lua\n",
+    "---\n\n## Answer\n\n```lua\n",
     "store.write('reply.txt', 'Hello, ' .. store.read('name.txt') .. '.')\n",
     "```\n",
 );

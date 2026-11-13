@@ -1,6 +1,6 @@
 //! Checks the strict `lua` fence rule and splits content into Lua and prose blocks.
 //!
-//! H1 and section content is an alternating sequence of `lua` fences and
+//! A section's content is an alternating sequence of `lua` fences and
 //! prose. [`Prompt::parse`](crate::Prompt::parse) states the strict fence
 //! rule. This module finds the first fence or line in the body that breaks
 //! its Label, Opener, Closer, or Lookalike case, so the parse can reject it,
@@ -297,7 +297,8 @@ fn pending_prose<'a>(content: &'a str, segment: Range<usize>, rules: &[Range<usi
 /// first exact closing line after an exact opener is the line the Markdown
 /// parser closes the fence on.
 ///
-/// `content` starts on file line `content_abs_line`.
+/// `content` starts on file line `content_abs_line`, and `location` names
+/// its section in a failure, such as ``section `Main` `` or `preamble`.
 ///
 /// # Errors
 /// Returns a `FenceInvalid` failure on its opening line when an exact `lua`
@@ -306,7 +307,7 @@ fn pending_prose<'a>(content: &'a str, segment: Range<usize>, rules: &[Range<usi
 /// source.
 pub(crate) fn split_section_blocks<'a>(
     content: &'a str,
-    section: &str,
+    location: &str,
     content_abs_line: u32,
 ) -> Result<Vec<RawBlock<'a>>> {
     let openings = exact_lua_openings(content);
@@ -332,10 +333,10 @@ pub(crate) fn split_section_blocks<'a>(
             ));
         };
         // An unclosed fence runs to the end of its content, so it is always the last block.
-        let location = if index == 0 && opening == leading_start {
-            format!("section `{section}` prologue `lua`")
+        let fence = if index == 0 && opening == leading_start {
+            format!("{location} prologue `lua`")
         } else {
-            format!("section `{section}` epilog `lua`")
+            format!("{location} epilog `lua`")
         };
         let before = position::newlines_before(content, opening);
         let opening_line = before
@@ -343,7 +344,7 @@ pub(crate) fn split_section_blocks<'a>(
             .ok()
             .and_then(|&newlines| content_abs_line.checked_add(newlines))
             .and_then(NonZeroU32::new);
-        let (source, rest) = extract_exact_fence(after_open, &location, opening_line)?;
+        let (source, rest) = extract_exact_fence(after_open, &fence, opening_line)?;
         let fence_end = content.len() - rest.len();
 
         if !(pos == 0 && opening == leading_start) {

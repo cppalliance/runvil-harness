@@ -218,7 +218,7 @@ fn a_script_calls_an_offered_tool_by_its_object_and_by_its_id_without_offering_i
         tool: ToolId::parse("tools/echo").expect("valid id"),
         alias: "tools/echo".to_owned(),
         args: json!({ "value": value }),
-        origin: ToolCallOrigin::new("Only", ToolCaller::Script).with_entry("0.1"),
+        origin: ToolCallOrigin::new("Only", ToolCaller::Script).with_entry("0.0"),
     };
     assert_eq!(rig.issued(), vec![call("a"), call("b")]);
 }
@@ -245,7 +245,7 @@ fn rounds_and_calls(records: &[EffectRecord]) -> (Vec<Vec<String>>, Vec<EffectRe
 /// walk enters, on the default loop model.
 fn model_origin(section: &str) -> ToolCallOrigin {
     ToolCallOrigin::new(section, ToolCaller::Model)
-        .with_entry("0.1")
+        .with_entry("0.0")
         .with_model(loop_model_name("default"))
 }
 
@@ -322,10 +322,10 @@ fn a_script_offers_an_extra_packs_tools_after_checking_packs_get() {
 }
 
 #[test]
-fn the_pack_objects_and_the_adhoc_pack_are_installed_in_the_h1_vm() {
+fn the_preamble_reads_the_pack_objects_and_the_empty_adhoc_pack() {
     let source = PromptSource::new()
         .front("uses: [tools]")
-        .h1(
+        .preamble(
             "return tostring(tools.packs.get('tools').required) .. '|' .. \
              tools.packs.extras()[1].name .. '|' .. \
              tostring(tools.get('gh/search').pack == tools.packs.get('gh')) .. '|' .. \
@@ -340,7 +340,7 @@ fn the_pack_objects_and_the_adhoc_pack_are_installed_in_the_h1_vm() {
     assert_eq!(
         rig.trace().text(),
         "true|gh|true|0",
-        "the H1 pass reads the Pack objects, the empty adhoc Pack included"
+        "the preamble reads the Pack objects, the empty adhoc Pack included"
     );
 }
 

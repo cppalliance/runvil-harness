@@ -89,7 +89,7 @@ fn a_light_userdata_compactor_is_named_userdata_as_lua_names_it() {
         trace.text(),
         format!(
             "userdata|lua|{}|1",
-            refused(16, "compactor must be a function, got userdata")
+            refused(14, "compactor must be a function, got userdata")
         )
     );
     assert_eq!(gateway.call_count(), 0, "no round runs");
@@ -122,7 +122,7 @@ fn the_arity_error_still_raises_when_the_author_has_rebound_error() {
     );
     assert_eq!(
         trace.text(),
-        refused(14, "models.loop takes (compactor?) or (model, compactor?)")
+        refused(12, "models.loop takes (compactor?) or (model, compactor?)")
     );
     assert!(trace.effects().is_empty(), "no round runs");
 }
@@ -138,14 +138,14 @@ fn an_empty_list_raises_before_any_round() {
     let trace = loop_scenario(source).chat(&gateway).run();
     assert_eq!(
         trace.text(),
-        format!("lua:{}", refused(12, "messages must not be empty"))
+        format!("lua:{}", refused(10, "messages must not be empty"))
     );
     assert_eq!(gateway.call_count(), 0, "the refused call sends no request");
 }
 
 #[test]
 fn an_uncaught_loop_arity_error_fails_the_run_naming_the_authors_prompt_line() {
-    // The loop block opens at prompt line 12, so its second line is 13.
+    // The loop block opens at prompt line 10, so its second line is 11.
     let gateway = ScriptedChat::new(vec![text("unreachable")]);
     let source = one_section(
         "messages:user('hello')
@@ -165,7 +165,7 @@ fn an_uncaught_loop_arity_error_fails_the_run_naming_the_authors_prompt_line() {
         "the runtime error keeps the shim's message: {message}"
     );
     assert!(
-        message.contains("section `Only` prologue:13: in"),
+        message.contains("section `Only` prologue:11: in"),
         "the runtime error names the author's prompt line: {message}"
     );
     assert_eq!(gateway.call_count(), 0, "no round runs");
@@ -221,7 +221,7 @@ fn a_returning_compactor_that_shrank_nothing_raises_the_exact_exhaustion_text() 
     assert_eq!(
         trace.text(),
         format!(
-            "context_exhausted|prompt:13: {}|1",
+            "context_exhausted|prompt:11: {}|1",
             ErrorCode::ContextExhausted.prose()
         )
     );

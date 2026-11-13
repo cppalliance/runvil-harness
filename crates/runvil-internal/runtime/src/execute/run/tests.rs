@@ -217,9 +217,8 @@ fn a_timer_effect_records_its_duration_in_seconds() {
 
 /// A prompt with one section whose only Lua block is `body`, Pack-free.
 fn prompt_of(body: &str) -> Arc<Prompt> {
-    let source = format!(
-        "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n# Run\n\n## Only\n\n```lua\n{body}\n```\n"
-    );
+    let source =
+        format!("---\nname: t\ndescription: d\nrunvil: 0\n---\n\n## Only\n\n```lua\n{body}\n```\n");
     let prompt =
         Prompt::parse(&|_: &str| Ok(source.clone()), "prompt").expect("the run test prompt parses");
     Arc::new(prompt)

@@ -547,7 +547,7 @@ pub(crate) fn take_failure(lua: &Lua) -> Result<StashedFailure> {
 /// claims-model conflict through any of them ends the run with a
 /// make_determinism_error violation that `pcall` cannot catch.
 ///
-/// The executor's section setup and live H1 setup are the only callers.
+/// The executor's section setup is the only caller.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure if the shim install never ran on this VM, the

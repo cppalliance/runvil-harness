@@ -1,13 +1,11 @@
 ---
 name: log_checkpoints
-description: Record deterministic checkpoints across H1, prologue, and epilog phases
+description: Record deterministic checkpoints across the preamble, prologue, and epilog phases
 runvil: 0
 ---
 
-# Log Checkpoints
-
 ```lua
-log("H1 ran")
+log("preamble ran")
 ```
 
 ## Prepare

@@ -54,7 +54,6 @@ fn provenance_seq_is_strictly_increasing_within_one_task_across_a_fanout() {
     // an arm's events must never borrow the walk's counter.
     let gateway = ScriptedChat::new(vec![text("A"), text("B"), text("C")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'a', 'b', 'c'})\n\
@@ -126,7 +125,6 @@ fn a_call_child_reports_under_its_callers_task() {
     // A `call` blocks its caller, so the two never interleave: the child's
     // events continue the caller's one sequence under task `0`.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Call\n\n\
         ## Outer\n\n\
         ```lua\nreturn call('../Inner')\n```\n\n\
         ## Inner\n\n\
@@ -168,11 +166,11 @@ fn the_run_forwards_every_buffered_event_to_the_callers_observer_in_order() {
     let observed = sequence(&trace);
     assert_eq!(
         observed.first(),
-        Some(&("Test prompt".to_owned(), detail::RUN_STARTED.to_string()))
+        Some(&("t".to_owned(), detail::RUN_STARTED.to_string()))
     );
     assert_eq!(
         observed.last(),
-        Some(&("Test prompt".to_owned(), detail::RUN_SUCCEEDED.to_string()))
+        Some(&("t".to_owned(), detail::RUN_SUCCEEDED.to_string()))
     );
     let first_started = observed
         .iter()

@@ -162,7 +162,7 @@ async fn records_are_events_then_effects_then_answers_per_step() {
             "tool": "tests/runner/wait",
             "alias": "tests/runner/wait",
             "args": {},
-            "origin": { "section": "Only", "caller": "script", "entry": "0.1" }
+            "origin": { "section": "Only", "caller": "script", "entry": "0.0" }
         } })
     );
     assert_eq!(

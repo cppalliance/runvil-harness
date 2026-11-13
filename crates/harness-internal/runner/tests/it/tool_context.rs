@@ -20,7 +20,7 @@ const WRITTEN: &str = "written through the context";
 /// returning its answer beside the file it wrote.
 const CALLS_RECORD: &str = "---\nname: calls-record\ndescription: d\nrunvil: 0\n\
     uses:\n  - tests/context\n---\n\n\
-    # Title\n\n## Only\n\n```lua\nlocal caller = tools.call('context/record')\n\
+    ## Only\n\n```lua\nlocal caller = tools.call('context/record')\n\
     return caller .. '|' .. store.read('from-tool.md')\n```\n";
 
 /// The fixture Pack `context`: one tool, `context/record`, which writes

@@ -36,7 +36,6 @@ fn loops_offering(tools: &[&str]) -> String {
     format!(
         "---\nname: loops\ndescription: d\nrunvil: 0\nuses:\n{packs}\
          ---\n\n\
-         # Loops\n\n\
          ## Only\n\n```lua\n{offers}messages:user('hold')\n\
          local ok, err = pcall(models.loop)\n\
          return tostring(ok) .. ':' .. err.kind\n```\n"
@@ -77,7 +76,6 @@ async fn settle() {
 /// round.
 const CANCELS_A_HOLDER: &str = "---\nname: cancels\ndescription: d\nrunvil: 0\n\
     uses:\n  - tests/harness\n---\n\n\
-    # Cancels\n\n\
     ## Main\n\n```lua\n\
     local t = tasks.spawn('../Child')\n\
     models.infer('wait')\n\

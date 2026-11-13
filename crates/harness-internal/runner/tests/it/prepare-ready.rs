@@ -54,16 +54,16 @@ const SLOWER: &str = "runvil/slower";
 /// A prompt declaring `slow` and calling its tool once by id.
 const CALLS_SLOW: &str = "---\nname: calls-slow\ndescription: d\nrunvil: 0\n\
     uses:\n  - slow\n---\n\n\
-    # Title\n\n## Only\n\n```lua\nreturn tools.call('slow/echo', { value = 'hi' })\n```\n";
+    ## Only\n\n```lua\nreturn tools.call('slow/echo', { value = 'hi' })\n```\n";
 
 /// A prompt declaring `slow` and calling nothing.
 const DECLARES_SLOW: &str = "---\nname: declares-slow\ndescription: d\nrunvil: 0\n\
-    uses:\n  - slow\n---\n\n# Title\n\n## Only\n\n```lua\nreturn 'ran'\n```\n";
+    uses:\n  - slow\n---\n\n## Only\n\n```lua\nreturn 'ran'\n```\n";
 
 /// A Pack-free prompt returning how many undeclared tools the run
 /// offers.
 const COUNTS_OFFERED: &str = "---\nname: counts\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     local count = 0\n\
     for _, pack in ipairs(tools.packs.extras()) do count = count + #pack.tools end\n\
     return count .. ' offered'\n```\n";
@@ -257,7 +257,7 @@ async fn an_undeclared_pack_whose_ready_fails_leaves_the_run_going_without_its_t
 #[tokio::test]
 async fn an_undeclared_pack_whose_ready_fails_raises_its_reason_when_the_prompt_offers_it() {
     let offers_slow = "---\nname: offers-slow\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n## Only\n\n```lua\ntools.offer('slow')\nreturn 'offered'\n```\n";
+        ## Only\n\n```lua\ntools.offer('slow')\nreturn 'offered'\n```\n";
     let (host, _moves, _startup) = slow_host(Phase::Failed("the fixture server is down"));
     let message = drive_over(offers_slow, host)
         .await
@@ -293,7 +293,7 @@ async fn an_undeclared_third_party_pack_that_never_gets_ready_holds_no_run_up() 
 #[tokio::test]
 async fn an_undeclared_builtin_with_no_tools_has_an_object_the_prompt_can_offer() {
     let reads_stub = "---\nname: reads-stub\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n## Only\n\n```lua\n\
+        ## Only\n\n```lua\n\
         local stub = tools.packs.get('subagents')\n\
         tools.offer('subagents')\n\
         return stub.name .. ':' .. #stub.tools\n```\n";
@@ -336,7 +336,7 @@ async fn a_refusal_after_a_cancel_cut_the_wait_short_ends_the_run_canceled_with_
     let (host, _moves, startup) = slow_host(Phase::Starting);
     let recorder = recorder();
     let declares_slow_and_web = "---\nname: slow-and-web\ndescription: d\nrunvil: 0\n\
-        uses:\n  - slow\n  - web\n---\n\n# Title\n\n## Only\n\nDone.\n";
+        uses:\n  - slow\n  - web\n---\n\n## Only\n\nDone.\n";
     let harness = launch(host, Unused, declares_slow_and_web, setup_over(&recorder));
     let control = harness.control();
     let (report, ()) = tokio::time::timeout(PATIENCE, async {

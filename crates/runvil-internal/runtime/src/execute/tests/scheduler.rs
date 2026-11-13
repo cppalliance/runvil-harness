@@ -1,4 +1,4 @@
-//! Scheduler-side tests, split by seam into the `walk`, `h1`, `fanout`,
+//! Scheduler-side tests, split by seam into the `walk`, `preamble`, `fanout`,
 //! `concurrency`, `chain_model`, `fanout_model`, and `failures` submodules.
 //! The model sets `default_models` and `three_models`, their scenarios
 //! `scheduler_scenario` and `chain_scenario`, the section builder `sections`,
@@ -53,9 +53,12 @@ pub(super) fn chain_scenario(md: &str) -> Scenario {
     Scenario::new(md).models(three_models())
 }
 
-/// A prompt with the given sections, each `(heading, lua)`, under one title.
+/// A prompt with the given sections, each `(heading, lua)`, where the
+/// heading is written as given, such as `## A`. An empty heading writes
+/// its Lua with no heading line, so a first entry with one is the
+/// preamble.
 pub(super) fn sections(sections: &[(&str, &str)]) -> String {
-    let mut md = String::from("---\nname: t\ndescription: d\nrunvil: 0\n---\n\n# Chain\n\n");
+    let mut md = String::from("---\nname: t\ndescription: d\nrunvil: 0\n---\n\n");
     for (heading, lua) in sections {
         md.push_str(heading);
         md.push_str("\n\n```lua\n");
@@ -158,5 +161,5 @@ mod concurrency;
 mod failures;
 mod fanout;
 mod fanout_model;
-mod h1;
+mod preamble;
 mod walk;

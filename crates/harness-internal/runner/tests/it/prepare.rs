@@ -46,16 +46,16 @@ mod user;
 /// A prompt declaring `web` as a required Pack that no
 /// Host here installs.
 const NEEDS_WEB: &str = "---\nname: needs-web\ndescription: d\nrunvil: 0\n\
-    uses:\n  - web\n---\n\n# Title\n\n## Only\n\nDone.\n";
+    uses:\n  - web\n---\n\n## Only\n\nDone.\n";
 
 /// A Pack-free prompt whose one section returns a constant.
 const PLAIN: &str = "---\nname: plain\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n## Only\n\n```lua\nreturn 'plain'\n```\n";
+    ## Only\n\n```lua\nreturn 'plain'\n```\n";
 
 /// A prompt declaring the fixture Pack and calling its tool once by id.
 const CALLS_ECHO: &str = "---\nname: calls-echo\ndescription: d\nrunvil: 0\n\
     uses:\n  - tests/tools\n---\n\n\
-    # Title\n\n## Only\n\n```lua\nreturn tools.call('tools/echo', { value = 'hi' })\n```\n";
+    ## Only\n\n```lua\nreturn tools.call('tools/echo', { value = 'hi' })\n```\n";
 
 /// An empty in-memory recorder.
 fn recorder() -> Arc<MemoryRecorder> {
@@ -315,7 +315,7 @@ async fn a_pinned_timer_stamps_the_runs_start() {
 /// ended.
 const LOOPS_ON_ECHO: &str = "---\nname: loops\ndescription: d\nrunvil: 0\n\
     uses:\n  - tests/tools\n---\n\n\
-    # Title\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     tools.offer('tools/echo')\nmessages:user('go')\n\
     local ok, err = pcall(models.loop)\nreturn tostring(ok) .. '|' .. err.kind\n```\n";
 
@@ -513,7 +513,7 @@ async fn the_tool_performer_sends_the_effect_to_the_pack_its_id_names() {
 #[tokio::test]
 async fn a_script_reaches_an_undeclared_runvil_packs_tool_by_full_id_without_its_prelude() {
     let undeclared = "---\nname: undeclared\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n## Only\n\n```lua\n\
+        ## Only\n\n```lua\n\
         return tools.call('extra/echo', { value = 'hi' }) .. '|' .. type(extra)\n```\n";
     let extra = echo_pack("runvil/extra", Some("extra = {}\n"));
     assert_eq!(
@@ -526,7 +526,7 @@ async fn a_script_reaches_an_undeclared_runvil_packs_tool_by_full_id_without_its
 #[tokio::test]
 async fn an_undeclared_third_party_pack_is_not_in_the_run() {
     let undeclared = "---\nname: undeclared\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n## Only\n\n```lua\n\
+        ## Only\n\n```lua\n\
         local ok = pcall(tools.call, 'tools/echo', { value = 'hi' })\n\
         return tostring(ok) .. '|' .. tostring(tools.packs.get('tools'))\n```\n";
     assert_eq!(
@@ -539,7 +539,7 @@ async fn an_undeclared_third_party_pack_is_not_in_the_run() {
 #[tokio::test]
 async fn a_bare_entry_another_vendor_answers_is_refused_naming_its_fqn() {
     let declares_bare = "---\nname: bare\ndescription: d\nrunvil: 0\n\
-        uses:\n  - tools\n---\n\n# Title\n\n## Only\n\nDone.\n";
+        uses:\n  - tools\n---\n\n## Only\n\nDone.\n";
     assert_eq!(
         refusal(drive_over(declares_bare, building(TOOLS)).await),
         "the environment cannot satisfy this prompt:\n\
@@ -552,7 +552,7 @@ async fn a_bare_entry_another_vendor_answers_is_refused_naming_its_fqn() {
 #[tokio::test]
 async fn the_packs_split_by_declaration_and_a_script_calls_an_extras_tool_object() {
     let offering = "---\nname: offering\ndescription: d\nrunvil: 0\n\
-        uses:\n  - tests/tools\n---\n\n# Title\n\n## Only\n\n```lua\n\
+        uses:\n  - tests/tools\n---\n\n## Only\n\n```lua\n\
         local declared = tools.packs.get('tools')\n\
         local extras = tools.packs.extras()\n\
         local extra = extras[1].tools[1]\n\

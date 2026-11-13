@@ -52,7 +52,7 @@ fn model_calling_an_offered_but_unscoped_tool_is_a_hard_error() {
                 &["scoped".to_owned()],
                 false
             ),
-            14
+            12
         )
     );
     let message = error.to_string();
@@ -90,7 +90,7 @@ fn model_calling_an_advertised_tool_by_canonical_id_gets_no_not_offered_suffix()
                 &["scoped".to_owned()],
                 false
             ),
-            14
+            12
         )
     );
     let message = error.to_string();
@@ -126,7 +126,7 @@ fn model_calling_a_defined_but_unoffered_adhoc_tool_gets_no_not_offered_suffix()
                 &["scoped".to_owned()],
                 false
             ),
-            15
+            13
         )
     );
     assert!(
@@ -197,7 +197,7 @@ fn with_dynamic_offers_a_name_outside_both_sets_fails_listing_only_the_static_se
         trace.error(),
         &placed(
             crate::error::make_out_of_scope_tool_error("rogue", false, &aliases, true),
-            18
+            16
         )
     );
     let message = trace.error().to_string();
@@ -255,7 +255,7 @@ fn a_static_tool_wearing_a_discovery_wire_name_does_not_claim_a_dynamic_set() {
                 &["GetDynamicTools".to_owned(), "CallDynamicTool".to_owned()],
                 false
             ),
-            15
+            13
         )
     );
     let message = error.to_string();
@@ -289,7 +289,7 @@ fn model_calling_pure_unknown_tool_is_a_hard_error() {
                 &["echo".to_owned()],
                 false
             ),
-            14
+            12
         )
     );
     assert!(

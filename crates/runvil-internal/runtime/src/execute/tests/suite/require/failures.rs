@@ -81,7 +81,7 @@ fn a_path_that_names_no_section_or_is_not_from_the_top_raises_when_the_call_runs
     };
     assert!(
         typo.contains("section `/helpres` not found: the top level has no section `helpres`"),
-        "a misspelled title names where the walk stopped: {typo}"
+        "a misspelled name says where the lookup stopped: {typo}"
     );
     assert!(
         deeper.contains("section `/other/deeper` not found: `/other` has no child `deeper`"),
@@ -180,8 +180,6 @@ fn a_raise_during_the_load_reports_the_library_line() {
         runvil: 0\n\
         ---\n\
         \n\
-        # Require\n\
-        \n\
         ## Main\n\
         \n\
         ```lua\n\
@@ -196,21 +194,19 @@ fn a_raise_during_the_load_reports_the_library_line() {
         ```\n";
     let message = lua_failure(&require_case(source.to_owned()).run());
     assert!(
-        message.contains("section `lib` prologue:19: load fault"),
-        "the raise names the library block and its prompt line 19: {message}"
+        message.contains("section `lib` prologue:17: load fault"),
+        "the raise names the library block and its prompt line 17: {message}"
     );
 }
 
 #[test]
-fn a_raise_while_a_long_titled_library_loads_reports_the_library_line() {
+fn a_raise_while_a_long_named_library_loads_reports_the_library_line() {
     let source = "\
         ---\n\
         name: t\n\
         description: d\n\
         runvil: 0\n\
         ---\n\
-        \n\
-        # Require\n\
         \n\
         ## Main\n\
         \n\
@@ -226,8 +222,8 @@ fn a_raise_while_a_long_titled_library_loads_reports_the_library_line() {
         ```\n";
     let message = lua_failure(&require_case(source.to_owned()).run());
     assert!(
-        message.contains("section `Shared Research Helper Functions` prologue:19: load fault"),
-        "the raise names the library block and its prompt line 19: {message}"
+        message.contains("section `Shared Research Helper Functions` prologue:17: load fault"),
+        "the raise names the library block and its prompt line 17: {message}"
     );
 }
 
@@ -239,8 +235,6 @@ fn a_raise_from_a_library_function_called_later_reports_the_library_line() {
         description: d\n\
         runvil: 0\n\
         ---\n\
-        \n\
-        # Require\n\
         \n\
         ## Main\n\
         \n\
@@ -258,11 +252,11 @@ fn a_raise_from_a_library_function_called_later_reports_the_library_line() {
         ```\n";
     let message = lua_failure(&require_case(source.to_owned()).run());
     assert!(
-        message.contains("section `lib` prologue:20: later fault"),
-        "the raise names the library block and its prompt line 20: {message}"
+        message.contains("section `lib` prologue:18: later fault"),
+        "the raise names the library block and its prompt line 18: {message}"
     );
     assert!(
-        message.contains("section `Main` prologue:13:"),
-        "the caller's frame maps to its own prompt line 13: {message}"
+        message.contains("section `Main` prologue:11:"),
+        "the caller's frame maps to its own prompt line 11: {message}"
     );
 }

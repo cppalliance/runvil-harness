@@ -6,7 +6,7 @@ use std::sync::Arc;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use runvil_types::error::{Error, ErrorCode};
 
-use crate::fence::{self, LuaRole, RawBlock};
+use crate::fence::{self, RawBlock};
 use crate::position::{body_text, file_line_of, line_add, newlines_before, nz_source_line};
 use crate::{Block, Result, Section, error};
 use runvil_lua::LuaProgram;
@@ -93,16 +93,18 @@ pub(crate) fn collect_headings(body: &str) -> Result<Vec<Heading<'_>>> {
     Ok(headings)
 }
 
-/// Compiles a prompt body's H1 and section blocks, and builds its section
-/// tree.
+/// The location that names the preamble in its Lua blocks' locations and in
+/// a fence failure, where a heading's section has ``section `name` ``.
+const PREAMBLE_LOCATION: &str = "preamble";
+
+/// Compiles a prompt body's blocks and builds its section tree.
 ///
 /// [`SectionWalker::build_sections`] consumes `headings` from `pos` onward, so
 /// one walker builds one tree.
 pub(crate) struct SectionWalker<'a> {
     /// The prompt body that every heading and block is sliced from.
     shared: &'a Arc<str>,
-    /// The section headings, every heading after the H1 at level 2 or deeper,
-    /// in document order.
+    /// The body's headings, in document order.
     headings: &'a [Heading<'a>],
     /// The file lines before the body, added to a body line to give its file
     /// line.
@@ -130,14 +132,48 @@ impl<'a> SectionWalker<'a> {
         }
     }
 
+    /// Builds the preamble: the content before the body's first heading, as
+    /// a section at `level`, the top level, with an empty name and no
+    /// children. A heading's name is never empty and a path step is never
+    /// empty, so no heading shares the name and no path names the preamble.
+    ///
+    /// Returns `None` when that content holds no `lua` fence: it is then
+    /// commentary, and the prompt has no preamble.
+    ///
+    /// # Errors
+    /// Returns what [`build_sections`](Self::build_sections) returns for a
+    /// section's blocks.
+    pub(crate) fn build_preamble(&self, level: u8) -> Result<Option<Section>> {
+        let body: &str = self.shared;
+        let end = self
+            .headings
+            .first()
+            .map_or(body.len(), |heading| heading.span.start);
+        let content = &body[..end];
+        let blocks = self.build_blocks(content, 1, PREAMBLE_LOCATION)?;
+        if !blocks.iter().any(|block| matches!(block, Block::Lua(_))) {
+            return Ok(None);
+        }
+        let markdown = fence::trim_leading_blank_lines(content).trim_end();
+        Ok(Some(Section {
+            name: String::new(),
+            level,
+            blocks,
+            children: Vec::new(),
+            markdown: body_text(self.shared, markdown)?,
+            markdown_line: file_line_of(self.shared, markdown, self.frontmatter_lines)?,
+        }))
+    }
+
     /// Builds a section tree from the walker's flat, document-ordered headings.
     ///
     /// Recursion consumes headings whose level is deeper than `parent_level`; a
     /// heading at or above `parent_level` belongs to an ancestor and stops the
     /// current level. A heading that skips a level (an orphan deep heading, such
-    /// as an H4 directly under an H2, or an H3 top-level section with no parent
-    /// H2) is rejected: every heading must be exactly one level deeper than its
-    /// parent.
+    /// as an H4 directly under an H2, or a first heading deeper than the
+    /// body's shallowest one) is rejected: every heading must be exactly one
+    /// level deeper than its parent, and a top-level heading one level
+    /// deeper than the `parent_level` the first call is given.
     ///
     /// Each section's checks run in a fixed order that decides which error a
     /// malformed prompt reports: its level, its name, its blocks, its children,
@@ -167,7 +203,7 @@ impl<'a> SectionWalker<'a> {
             let name = self.section_name(h)?;
             let heading_abs_line = line_add(self.frontmatter_lines, h.body_line)?;
             let location = self.section_location(&name, heading_abs_line);
-            let blocks = self.build_heading_blocks(h, &name, &location)?;
+            let blocks = self.build_blocks(h.content, h.content_body_line, &location)?;
             self.pos += 1;
             let children = self.build_sections(level)?;
             self.check_unique_sibling(&sibling_lines, &name, h, heading_abs_line)?;
@@ -188,10 +224,10 @@ impl<'a> SectionWalker<'a> {
 
     /// Rejects an orphan deep heading, one that skips a level.
     ///
-    /// Examples are an H4 under an H2 with no intervening H3, or an H3/H4
-    /// top-level section with no parent H2. Such a heading has no well-defined
-    /// parent, so reject it rather than silently reparenting it to a shallower
-    /// ancestor.
+    /// Examples are an H4 under an H2 with no intervening H3, or an H2 that
+    /// opens a body whose later headings include an H1. Such a heading has
+    /// no well-defined parent, so reject it rather than silently reparenting
+    /// it to a shallower ancestor.
     fn check_child_level(&self, heading: &Heading<'_>, parent_level: u8) -> Result<()> {
         let level = heading.level;
         if level > parent_level + 1 {
@@ -256,20 +292,27 @@ impl<'a> SectionWalker<'a> {
         )
     }
 
-    /// Builds one heading's executable blocks while preserving source positions.
+    /// Builds one section's executable blocks while preserving source
+    /// positions: the one builder a heading's section and the preamble
+    /// share.
     ///
-    /// `location` names the section in each Lua block's location.
-    fn build_heading_blocks(
+    /// `content` is the section's own content, a slice of `shared` that
+    /// starts on the 1-based body line `content_body_line`. `location`
+    /// names the section in each Lua block's location and in a fence
+    /// failure.
+    ///
+    /// # Errors
+    /// Returns the failure for a `lua` fence that is not closed, and what
+    /// [`compile_blocks`](Self::compile_blocks) returns.
+    fn build_blocks(
         &self,
-        heading: &Heading<'_>,
-        name: &str,
+        content: &str,
+        content_body_line: u32,
         location: &str,
     ) -> Result<Vec<Block>> {
-        let content_abs_line = line_add(self.frontmatter_lines, heading.content_body_line)?;
-        let raw_blocks = fence::split_section_blocks(heading.content, name, content_abs_line)?;
-        self.compile_blocks(raw_blocks, content_abs_line, |role| {
-            fence::lua_block_location(location, role)
-        })
+        let content_abs_line = line_add(self.frontmatter_lines, content_body_line)?;
+        let raw_blocks = fence::split_section_blocks(content, location, content_abs_line)?;
+        self.compile_blocks(raw_blocks, content_abs_line, location)
     }
 
     /// Compiles split content into blocks, in source order.
@@ -277,18 +320,18 @@ impl<'a> SectionWalker<'a> {
     /// Every prose block must be a slice of `shared`, which it reads from in
     /// place, and its file line is where that slice starts.
     /// `content_abs_line` is the 1-based file line where the content begins,
-    /// and `location` gives each Lua block's compile location from its role.
+    /// and each Lua block's compile location is `location` and its role.
     ///
     /// # Errors
     /// Returns a Lua compile failure for a block that does not compile, and
     /// an `Internal` failure for a compiler that cannot start, for an
     /// overflowing or zero source line, or for prose that is not a slice of
     /// `shared`.
-    pub(crate) fn compile_blocks(
+    fn compile_blocks(
         &self,
         raw_blocks: Vec<RawBlock<'_>>,
         content_abs_line: u32,
-        location: impl Fn(&LuaRole) -> String,
+        location: &str,
     ) -> Result<Vec<Block>> {
         let mut blocks = Vec::with_capacity(raw_blocks.len());
         for raw in raw_blocks {
@@ -306,7 +349,7 @@ impl<'a> SectionWalker<'a> {
                     let program = LuaProgram::compile(
                         &source,
                         self.file,
-                        &location(&role),
+                        &fence::lua_block_location(location, &role),
                         nz_source_line(abs_line)?,
                     )
                     .map_err(|cause| error::make_lua_error(&cause))?;

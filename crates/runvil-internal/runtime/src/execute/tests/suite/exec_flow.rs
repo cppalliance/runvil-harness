@@ -12,7 +12,7 @@ mod child_walks;
 mod fanout_arms;
 mod fanout_collections;
 mod globals;
-mod h1_control;
+mod preamble_control;
 mod prompt_blocks;
 mod prompt_reads;
 mod run_setup;

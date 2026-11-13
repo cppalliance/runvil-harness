@@ -4,8 +4,6 @@ description: Invalid because a Lua fence opens with `~~~lua` instead of exactly 
 runvil: 0
 ---
 
-# Lua Fence Opener
-
 ~~~lua
 local greeting = "hello"
 ~~~

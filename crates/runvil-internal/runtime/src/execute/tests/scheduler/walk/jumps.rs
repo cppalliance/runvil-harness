@@ -12,7 +12,6 @@ fn jump_transfer_skips_the_jumpers_remaining_blocks() {
     // The jump transfers control and the jumper's remaining blocks never
     // run.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Jump\n\n\
         ## Check\n\n\
         ```lua\n\
         store.write('seen.txt', 'check')\n\
@@ -36,7 +35,6 @@ fn section_cannot_jump_to_itself() {
     // The caller is outside its own visible set, so naming itself as a
     // sibling to `jump` resolves as not-found.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Self\n\n\
         ## Self\n\n\
         ```lua\njump('../Self')\n```\n";
     let trace = scheduler_scenario(md).run();
@@ -52,7 +50,6 @@ fn section_cannot_jump_to_itself() {
 fn jump_to_off_walk_section_runs_it() {
     // A jump addresses an off-walk section directly, so it runs.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Addressed\n\n\
         ## A\n\n\
         ```lua\njump('../B')\n```\n\n\
         ## B\n\n\
@@ -70,7 +67,6 @@ fn var_persists_across_a_jump() {
     // The jumper's `var` writes cross the transfer, and the target's
     // writes roll forward into the fall-through that follows.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Var\n\n\
         ## A\n\n\
         ```lua\n\
         var.from_a = 'a'\n\
@@ -100,7 +96,6 @@ fn a_jump_fires_section_finished_for_the_jumper_before_the_target_starts() {
     // above): a jump is a completion, so the jumper's armed frame drop
     // fires SECTION_FINISHED before the target's SECTION_STARTED.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Boundaries\n\n\
         ## A\n\n\
         ```lua\njump('../B')\n```\n\n\
         ## B\n\n\
@@ -130,7 +125,6 @@ fn an_erroring_section_reports_started_but_not_finished() {
     // A section that errors mid-walk emits SECTION_STARTED and never
     // SECTION_FINISHED - the frame's drop stays unarmed on the error path.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fail\n\n\
         ## Only\n\n\
         ```lua\nerror('expected failure')\n```\n";
     let trace = scheduler_scenario(md).run();
@@ -159,7 +153,6 @@ fn a_failed_jump_resolution_still_finishes_the_jumper() {
     // closes as completed before the path resolves, so SECTION_FINISHED
     // fires for the jumper even when the target does not resolve.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Unresolved\n\n\
         ## A\n\n\
         ```lua\njump('../Missing')\n```\n";
     let trace = scheduler_scenario(md).run();
@@ -179,7 +172,6 @@ fn a_failed_jump_resolution_still_finishes_the_jumper() {
 #[test]
 fn a_jump_to_a_missing_section_fails_on_the_jump_line() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Unresolved\n\n\
         ## A\n\n\
         ```lua\n\
         var.before = true\n\
@@ -191,7 +183,7 @@ fn a_jump_to_a_missing_section_fails_on_the_jump_line() {
     assert!(error.to_string().contains("not found"), "{error}");
     assert_eq!(
         error.at,
-        at_line(13),
+        at_line(11),
         "the `jump` call's line, not the block's first: {error:?}"
     );
 }

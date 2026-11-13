@@ -47,7 +47,7 @@ fn tool_round(offered: &[Offered]) -> Round {
     }
     let source = format!(
         "---\nname: round\ndescription: One tool round.\nrunvil: 0\n\
-         ---\n\n# Round\n\n## Ask\n\n\
+         ---\n\n## Ask\n\n\
          ```lua\n{offers}messages:user('echo once')\n\
          models.loop()\nreturn messages[#messages].content\n```\n"
     );

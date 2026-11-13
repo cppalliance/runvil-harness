@@ -1,7 +1,7 @@
 //! Parses the `args` frontmatter key into typed arg declarations.
 //!
 //! The declaration advertises and documents the prompt's args; it does not
-//! enforce - enforcement belongs to the prompt's H1. There are no freeform
+//! enforce - enforcement belongs to the prompt's own Lua. There are no freeform
 //! prompts: a prompt with no `args:` key gets the default [`ArgsDecl`].
 
 use std::collections::{BTreeMap, btree_map};

@@ -87,7 +87,6 @@ impl TaskRecorder {
 fn spawner_prompt(spawner_body: &str, child_body: &str) -> String {
     format!(
         "---\nname: tasks\ndescription: d\nrunvil: 0\n---\n\n\
-         # Tasks\n\n\
          ## Spawner\n\n\
          ```lua\n{spawner_body}\n```\n\n\
          ## Child\n\n\
@@ -260,7 +259,6 @@ fn spawn_shares_calls_depth_cap() {
     // chain at depth 8 is refused under `call`'s cap, as the spawn's
     // answer, so the deepest chain catches and logs it.
     let md = "---\nname: depth\ndescription: d\nrunvil: 0\n---\n\n\
-        # Depth\n\n\
         ## Alpha\n\n\
         ```lua\n\
         local ok, err = pcall(tasks.spawn, '../Beta')\n\
@@ -289,7 +287,7 @@ fn spawn_shares_calls_depth_cap() {
 
     let records = TaskRecorder::replayed(rig.trace()).records();
     let logged = format!(
-        "prompt:12: {}",
+        "prompt:10: {}",
         authored(ErrorCode::CallDepthExceeded, "recursion exceeded cap of 8")
     );
     let refusals = records

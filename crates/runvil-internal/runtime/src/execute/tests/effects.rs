@@ -88,7 +88,7 @@ fn a_models_loop_round_issues_one_chat_effect_and_one_tool_call_effect_per_call(
         records[0],
         EffectRecord::Render {
             alias: "default".to_owned(),
-            entry: "0.1".to_owned(),
+            entry: "0.0".to_owned(),
             offered: vec![PackToolSets::new(
                 PackId::parse("tools").expect("a valid Pack id"),
                 vec![ToolId::parse("tools/echo").expect("a valid id")],
@@ -109,7 +109,7 @@ fn a_models_loop_round_issues_one_chat_effect_and_one_tool_call_effect_per_call(
             tool: ToolId::parse("tools/echo").expect("a valid id"),
             alias: "echo".to_owned(),
             args: json!({ "value": "hi" }),
-            origin: origin("Only", "0.1", ToolCaller::Model).with_model(loop_model_name("default")),
+            origin: origin("Only", "0.0", ToolCaller::Model).with_model(loop_model_name("default")),
         },
         "the model's call is one tool_call effect naming the bound identity and the model"
     );
@@ -156,7 +156,7 @@ fn a_script_tools_call_issues_exactly_one_tool_call_effect() {
             tool: ToolId::parse("tools/echo").expect("a valid id"),
             alias: "tools/echo".to_owned(),
             args: json!({ "value": "hi" }),
-            origin: origin("Only", "0.1", ToolCaller::Script),
+            origin: origin("Only", "0.0", ToolCaller::Script),
         }]
     );
     assert_round_trips(rig.issued());
@@ -164,7 +164,7 @@ fn a_script_tools_call_issues_exactly_one_tool_call_effect() {
 
 #[test]
 fn a_script_tool_call_records_the_section_that_made_it() {
-    let source = "---\nname: loop\ndescription: d\nrunvil: 0\n---\n\n# Loop\n\n\
+    let source = "---\nname: loop\ndescription: d\nrunvil: 0\n---\n\n\
          ## First\n\n```lua\ntools.offer('tools/echo')\ntools.call('tools/echo', { value = 'a' })\n```\n\n\
          ## Second\n\n```lua\ntools.offer('tools/echo')\n\
          return tools.call('tools/echo', { value = 'b' })\n```\n";
@@ -182,8 +182,8 @@ fn a_script_tool_call_records_the_section_that_made_it() {
     assert_eq!(
         origins,
         vec![
-            origin("First", "0.1", ToolCaller::Script),
-            origin("Second", "0.2", ToolCaller::Script),
+            origin("First", "0.0", ToolCaller::Script),
+            origin("Second", "0.1", ToolCaller::Script),
         ],
         "each call names the section and the entry it was made in"
     );
@@ -223,7 +223,6 @@ fn a_store_operation_issues_exactly_one_store_effect() {
 #[test]
 fn a_timed_wait_issues_exactly_one_timer_effect() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Timer\n\n\
         ## Main\n\n\
         ```lua\n\
         local t = tasks.spawn('../Child')\n\

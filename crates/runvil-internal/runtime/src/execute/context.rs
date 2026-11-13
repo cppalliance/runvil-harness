@@ -73,11 +73,11 @@ struct SharedState {
     cancel: CancelHandle,
     /// The run's tool set: built from the params' catalog at construction
     /// and changed by nothing during the run, so every reader, every
-    /// section VM (H1 included) among them, shares it with no lock and no
+    /// section VM among them, shares it with no lock and no
     /// copy.
     tool_set: Arc<ToolSet>,
     /// The run's model set: filled from the params' role map at
-    /// construction, shared with every section VM (H1 included) and changed
+    /// construction, shared with every section VM and changed
     /// by nothing during the run, so every reader shares it with no lock and
     /// no copy.
     model_set: Arc<ModelSet>,
@@ -85,7 +85,7 @@ struct SharedState {
     /// requires that the params lack, or `None` when they lack nothing.
     refusal: Option<Error>,
     /// The run's `started_at` rendered as RFC 3339, stamped into every
-    /// section's `sys.when`, the H1 pass included.
+    /// section's `sys.when`.
     when: Arc<str>,
     /// The run's application-state snapshot, when the caller supplied one.
     ui: Option<Arc<serde_json::Value>>,
@@ -321,7 +321,8 @@ impl ChainState {
         cap.min(limits.tool_iterations_ceiling).get() as usize
     }
 
-    /// The run's top-level section count, reported as `sys.section_count`.
+    /// The run's top-level section count, the preamble included, reported
+    /// as `sys.section_count`.
     fn section_count(&self) -> usize {
         crate::prompt::detail::sections(&self.shared.prompt).len()
     }
@@ -353,9 +354,9 @@ impl ChainState {
         ctx
     }
 
-    /// The borrowed VM-setup inputs both frame constructors share, sourcing
-    /// the run-wide inputs from this context; the constructor supplies only
-    /// its own deltas: the `sys` JSON, the seed, the chain step's access
+    /// The borrowed VM-setup inputs of one section entry, sourcing
+    /// the run-wide inputs from this context; the frame constructor supplies
+    /// the entry's own: the `sys` JSON, the seed, the chain step's access
     /// capability (the walk's own, a call chain's borrowed parent
     /// capability, a task chain's spawned one) and the handle on the run's
     /// scope, the section's current-model selection, and the section name.
@@ -499,10 +500,7 @@ mod tests {
     use crate::test_support::scenario::{TEST_SEED, test_model_with};
 
     fn test_prompt() -> Prompt {
-        let source = concat!(
-            "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n",
-            "# Title\n\n## Only\n\ndone\n",
-        );
+        let source = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n## Only\n\ndone\n";
         Prompt::parse(&|_: &str| Ok(source.to_owned()), "prompt").expect("the test prompt parses")
     }
 
@@ -523,7 +521,7 @@ mod tests {
     fn root_builds_a_context_over_the_prompt() {
         let prompt = test_prompt();
         let ctx = test_state(&prompt);
-        assert_eq!(ctx.prompt().title(), prompt.title());
+        assert_eq!(ctx.prompt().frontmatter().name(), "t");
     }
 
     #[test]

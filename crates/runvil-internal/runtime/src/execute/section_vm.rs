@@ -1,9 +1,10 @@
-//! The Engine's setup half: one section VM's lifecycle from Engine injection
-//! through the store yield shims' install.
+//! The Engine's section VM setup: one section VM's lifecycle from Engine
+//! injection through the store yield shims' install.
 //!
-//! Both frame constructors run the sequence [`setup_section_vm`] lists. Only
-//! the deltas live at the call site: the constructor builds its own `sys` JSON
-//! (both take the chain's next entry `id`; a task's first entry adds its
+//! The frame constructor runs the sequence [`setup_section_vm`] lists. What
+//! differs from one section entry to the next lives at the call site: the
+//! constructor builds the entry's `sys` JSON
+//! (the chain's next entry `id`; a task's first entry adds its
 //! `index`), picks the [`VmSeed`] (the chain's `var`, plus the item seeded
 //! into this section on a task's first entry), and supplies the `read`
 //! callback behind the `prompt` reads, resolved from its own section, the
@@ -37,16 +38,16 @@ use crate::{Error, Result, error};
 pub(crate) struct VmSeed<'a> {
     /// The chain's current `var`: rolled forward across sections on one
     /// walk, cloned into a `call` chain or a spawned task (a fanout arm
-    /// included); `None`, the H1 pass's frame, seeds an empty table.
+    /// included); `None` seeds an empty table.
     pub(crate) var: Option<&'a serde_json::Value>,
     /// The item seeded into this section, on a spawned task's first entry;
     /// `None` otherwise.
     pub(crate) item: Option<&'a serde_json::Value>,
 }
 
-/// The borrowed inputs one section VM setup shares.
+/// The borrowed inputs of one section VM setup.
 ///
-/// Bundled so each frame constructor threads one linear set of borrows
+/// Bundled so the frame constructor threads one linear set of borrows
 /// into [`setup_section_vm`] rather than a dozen parameters.
 pub(crate) struct SectionVmSetup<'a> {
     /// The run's argument string, installed as the `args` global.
@@ -57,7 +58,7 @@ pub(crate) struct SectionVmSetup<'a> {
     /// The `sys` JSON the frame constructor built for this section entry.
     pub(crate) sys: &'a serde_json::Value,
     /// The chain step's VFS access capability backing the Lua `store`
-    /// table: the root identity the H1 pass and the walk share, a call
+    /// table: the root walk's root identity, a call
     /// chain's borrowed parent capability, or a spawned task's forked one
     /// (a fanout arm included). The store closures share it, so every
     /// store op is attributed to the chain step's identity.

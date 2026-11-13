@@ -32,7 +32,7 @@ const SEED: RunSeed = RunSeed::from_bytes([7; 32]);
 /// once with its tool call kept from the loop: the run waits on an effect
 /// the loop never sees.
 fn lost_run() -> Run {
-    let source = "---\nname: lost\ndescription: d\nrunvil: 0\n---\n\n# Lost\n\n## Only\n\n\
+    let source = "---\nname: lost\ndescription: d\nrunvil: 0\n---\n\n## Only\n\n\
         ```lua\nreturn tools.call('tests/runner/wait')\n```\n";
     let prompt = Prompt::parse(&|_: &str| Ok(source.to_owned()), "prompt");
     let wait = ToolInfo::new(

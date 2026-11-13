@@ -15,7 +15,6 @@ fn jump_to_a_child_starts_the_child_level_walk() {
     // falls through to the target's following siblings; when the level
     // exhausts, the parent walk resumes after the jumper.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Descend\n\n\
         ## A\n\n\
         ```lua\n\
         store.append('order.txt', 'A\\n')\n\
@@ -41,7 +40,6 @@ fn child_walk_recurses_to_h4() {
     // grandchild starts an H4-level walk, and each level's exhaustion
     // resumes its parent after the jumper.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Recurse\n\n\
         ## A\n\n\
         ```lua\n\
         store.append('order.txt', 'A\\n')\n\
@@ -74,7 +72,6 @@ fn a_child_level_that_runs_out_inside_a_call_chain_resumes_after_the_jumper() {
     // out, the chain resumes at `## After`, the jumper's next sibling, and
     // that section's return is the call's answer.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # CallDescend\n\n\
         ## Main\n\n\
         ```lua\nreturn 'main:' .. call('../Sub')\n```\n\n\
         ## Sub\n\n\
@@ -99,7 +96,6 @@ fn a_child_level_that_runs_out_inside_a_task_chain_resumes_after_the_jumper() {
     // resumes at `## After`, and that section's return is the task's
     // result.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # TaskDescend\n\n\
         ## Main\n\n\
         ```lua\n\
         local results = tasks.join({ tasks.spawn('../Worker') })\n\
@@ -125,7 +121,6 @@ fn a_child_level_whose_jumper_was_last_in_its_slice_unwinds_through_a_second_pop
     // the restored level has nothing after the jumper: it runs out in
     // turn, and the root level resumes at `## B`.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # LastJumper\n\n\
         ## A\n\n\
         ```lua\n\
         var.order = 'A'\n\
@@ -153,7 +148,6 @@ fn a_child_level_whose_jumper_was_last_at_the_root_ends_the_chain() {
     // the root level has nothing after the jumper and the walk ends with
     // the generic completion.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # LastAtRoot\n\n\
         ## First\n\n\
         ```lua\nstore.append('order.txt', 'First\\n')\n```\n\n\
         ## Last\n\n\
@@ -177,7 +171,6 @@ fn the_chain_reports_the_section_it_resumes_in_after_a_pop() {
     // After `### X` runs out, the walk resumes at `## B`, and B's chunk
     // reports under B rather than the child the chain just left.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Names\n\n\
         ## A\n\n\
         ```lua\njump('X')\n```\n\n\
         ### X\n\n\
@@ -201,7 +194,6 @@ fn jump_to_an_off_walk_child_runs_it() {
     // An off-walk child stays addressable - a jump to it runs it, and the
     // fall-through that follows skips nothing addressed.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # OffChild\n\n\
         ## A\n\n\
         ```lua\njump('Off')\n```\n\n\
         ### X\n\n\
@@ -223,7 +215,6 @@ fn running_child_addresses_its_own_siblings_and_children() {
     // A running child's visible set is its own siblings plus its own
     // children - it can execute a child and jump to a sibling.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Visible\n\n\
         ## A\n\n\
         ```lua\njump('X')\n```\n\n\
         ### X\n\n\
@@ -248,7 +239,6 @@ fn a_running_child_cannot_jump_to_its_parents_sibling() {
     // A running child cannot jump to a top-level section - its parent's
     // sibling is not its own sibling, so the jump resolves as not-found.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Escape\n\n\
         ## A\n\n\
         ```lua\njump('X')\n```\n\n\
         ### X\n\n\
@@ -269,7 +259,6 @@ fn jump_to_a_niece_errors() {
     // A sibling's child (a niece or nephew) is not in the visible set, so
     // the jump resolves as not-found.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Niece\n\n\
         ## A\n\n\
         ```lua\njump('Niece')\n```\n\n\
         ## B\n\n\
@@ -290,7 +279,6 @@ fn sys_id_counts_the_sections_one_chain_enters_across_a_jump_into_a_child_level(
     // into a child level is the same chain, so it continues the count
     // rather than restarting it.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Ids\n\n\
         ## A\n\n\
         ```lua\n\
         store.append('ids.txt', tostring(sys.id) .. '\\n')\n\
@@ -307,7 +295,7 @@ fn sys_id_counts_the_sections_one_chain_enters_across_a_jump_into_a_child_level(
         ```\n";
     let trace = scheduler_scenario(md).run();
 
-    assert_eq!(trace.text(), "0.1\n0.2\n0.3\n0.4\n");
+    assert_eq!(trace.text(), "0.0\n0.1\n0.2\n0.3\n");
 }
 
 #[test]
@@ -318,7 +306,6 @@ fn a_call_child_takes_ids_nested_under_its_own_chain_distinct_from_the_parent() 
     // they are different chains, and a fanout inside the child nests its
     // arms under the child's chain id, not the root's.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Identity\n\n\
         ## Main\n\n\
         ```lua\n\
         store.append('ids.txt', 'main:' .. sys.id .. '\\n')\n\
@@ -341,7 +328,7 @@ fn a_call_child_takes_ids_nested_under_its_own_chain_distinct_from_the_parent() 
 
     assert_eq!(
         trace.text(),
-        "main:0.1\nsub:0.0.0\narm1:0.0.0.0\narm2:0.0.1.0\nafter:0.1\n",
+        "main:0.0\nsub:0.0.0\narm1:0.0.0.0\narm2:0.0.1.0\nafter:0.0\n",
         "parent entries are `0.N`, the call child's are `0.0.N`, and the \
          child's fanout arms nest under `0.0`"
     );
@@ -353,7 +340,6 @@ fn two_runs_of_the_same_prompt_produce_identical_ids() {
     // so two runs of one prompt allocate the same ids for the walk, a call
     // child, a fanout's arms, and a section entered after both.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Identity\n\n\
         ## Main\n\n\
         ```lua\n\
         local ids = { sys.id }\n\
@@ -381,7 +367,7 @@ fn two_runs_of_the_same_prompt_produce_identical_ids() {
 
     assert_eq!(outputs[0], outputs[1], "two runs allocate the same ids");
     assert_eq!(
-        outputs[0], "0.1,0.0.0,0.1.0,0.2.0,0.3.0,0.4.0,0.2",
+        outputs[0], "0.0,0.0.0,0.1.0,0.2.0,0.3.0,0.4.0,0.1",
         "the walk's entries are `0.N`, and call children and fanout arms \
          share the root's child counter in dispatch order"
     );
@@ -393,7 +379,6 @@ fn walk_never_descends_into_children() {
     // addressed. This is the negative half of the child-descent rule: a
     // fall-through that descended would run the child and trip its error.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # NoDescent\n\n\
         ## A\n\n\
         ```lua\nstore.append('order.txt', 'A\\n')\n```\n\n\
         ### Child\n\n\

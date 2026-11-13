@@ -1,4 +1,4 @@
-//! Tests for live `models.infer` against a scripted gateway, including H1 chunks and required libraries.
+//! Tests for live `models.infer` against a scripted gateway, including preamble blocks and required libraries.
 
 use runvil_prompt::test_support::PromptSource;
 use runvil_types::cancel::CancelHandle;
@@ -6,13 +6,15 @@ use runvil_types::cancel::CancelHandle;
 use super::fixtures::echo_tool;
 use super::*;
 
-/// The prompt whose H1 infers once through the `default` handle into
-/// `var.answer`, which its `Result` section returns.
-fn h1_handle_infer() -> String {
+/// The prompt whose preamble infers once through the `default` handle
+/// into `var.answer`, which its `Result` section returns.
+fn preamble_handle_infer() -> String {
     PromptSource::new()
-        .h1("
+        .preamble(
+            "
             local writer = models.get('default')
-            var.answer = models.infer(writer, 'answer once')")
+            var.answer = models.infer(writer, 'answer once')",
+        )
         .section("Result", "return var.answer")
         .build()
 }
@@ -23,7 +25,7 @@ fn the_callers_client_serves_a_run_the_params_never_name() {
     // scenario, which answers the run's completions with it. Nothing about
     // the gateway crosses the Engine's boundary.
     let gateway = ScriptedChat::new(vec![text("canned answer")]);
-    let trace = Scenario::new(h1_handle_infer())
+    let trace = Scenario::new(preamble_handle_infer())
         .bound()
         .chat(&gateway)
         .run();
@@ -37,25 +39,25 @@ fn the_callers_client_serves_a_run_the_params_never_name() {
 }
 
 #[test]
-fn unread_h1_prose_stays_inert_and_explicit_infer_requires_a_model() {
-    // H1 prose does not drive inference: an unread buffer - even one
-    // whose substitution would fail or stay empty - discards at the pass's
-    // end without requiring a model. Only an explicit `models.infer` of the
-    // prose requires a binding.
+fn unread_preamble_prose_stays_inert_and_explicit_infer_requires_a_model() {
+    // Preamble prose does not drive inference, as in any section: an unread
+    // buffer - even one whose substitution would fail or stay empty - is
+    // discarded at the section's end without requiring a model. Only an
+    // explicit `models.infer` of the prose requires a binding.
     let unread = PromptSource::new()
-        .h1("var.omit = ''")
-        .h1_prose("{{ var.omit }}")
+        .preamble("var.omit = ''")
+        .preamble_prose("{{ var.omit }}")
         .section("Result", "return 'ok'");
     let trace = Scenario::new(unread.build()).run();
     assert_eq!(
         trace.text(),
         "ok",
-        "unread H1 prose must not require a model"
+        "unread preamble prose must not require a model"
     );
 
     let reading = PromptSource::new()
-        .h1_prose("ask")
-        .h1("return models.infer(prose)");
+        .preamble_prose("ask")
+        .preamble("return models.infer(prose)");
     let trace = Scenario::new(reading.build()).run();
     let error = trace.error();
     assert_eq!(
@@ -113,8 +115,7 @@ fn a_library_calls_engine_globals_at_load_time() {
 #[test]
 fn tool_objects_and_roles_reach_section_call_and_fanout_vms() {
     // The offering arrives from the catalog: the Pack installs the tool,
-    // and every section VM reads its tool object by id - H1 never runs a
-    // bind.
+    // and every section VM reads its tool object by id - no Lua binds it.
     let source = PromptSource::new()
         .front("uses: [tools]")
         .section(
@@ -157,9 +158,11 @@ fn nested_lua_infer_emits_a_model_turn_observation() {
     // inference path.
     let gateway = ScriptedChat::new(vec![text("pong")]);
     let source = PromptSource::new()
-        .h1("
+        .preamble(
+            "
             local writer = models.get('default')
-            var.answer = models.infer(writer, 'ping')")
+            var.answer = models.infer(writer, 'ping')",
+        )
         .section("Result", "return var.answer");
     let trace = Scenario::new(source.build()).bound().chat(&gateway).run();
 
@@ -188,9 +191,11 @@ fn nested_lua_infer_emits_a_model_turn_observation() {
 #[test]
 fn canceled_nested_infer_does_not_report_model_turn_failed() {
     let gateway = ScriptedChat::new(vec![text("too late")]);
-    let source = PromptSource::new().h1("
+    let source = PromptSource::new().preamble(
+        "
         local writer = models.get('default')
-        return models.infer(writer, 'must cancel')");
+        return models.infer(writer, 'must cancel')",
+    );
     let cancel = CancelHandle::new();
     let canceller = cancel.clone();
     let mut driving = Scenario::new(source.build())
@@ -227,9 +232,11 @@ fn canceled_nested_infer_does_not_report_model_turn_failed() {
 #[test]
 fn handle_infer_tool_call_violation_uses_entry_point_neutral_wording() {
     let gateway = ScriptedChat::new(vec![calls(&[("call_1", "ghost", "{}")])]);
-    let source = PromptSource::new().h1("
+    let source = PromptSource::new().preamble(
+        "
         local writer = models.get('default')
-        return models.infer(writer, 'answer without tools')");
+        return models.infer(writer, 'answer without tools')",
+    );
     let trace = Scenario::new(source.build()).bound().chat(&gateway).run();
     let rendered = trace.error().to_string();
     assert!(
@@ -243,16 +250,19 @@ fn handle_infer_tool_call_violation_uses_entry_point_neutral_wording() {
 }
 
 #[test]
-fn h1_prose_infers_explicitly_and_var_accumulates_into_the_walk() {
-    // The H1 pass reads its pending buffer only through an explicit
-    // infer, and `var` writes accumulate across the pass into the walk.
+fn preamble_prose_infers_explicitly_and_var_accumulates_into_the_next_section() {
+    // The preamble reads its pending buffer only through an explicit
+    // infer, and `var` writes accumulate across its blocks into the next
+    // section.
     let gateway = ScriptedChat::new(vec![text("final answer")]);
     let source = PromptSource::new()
-        .h1("var.executions = (var.executions or 0) + 1")
-        .h1_prose("Ask for one round.")
-        .h1("
+        .preamble("var.executions = (var.executions or 0) + 1")
+        .preamble_prose("Ask for one round.")
+        .preamble(
+            "
             var.first = models.infer(prose)
-            var.executions = var.executions + 1")
+            var.executions = var.executions + 1",
+        )
         .section("Result", "return var.first .. ':' .. var.executions");
     let trace = Scenario::new(source.build()).bound().chat(&gateway).run();
 
@@ -261,17 +271,17 @@ fn h1_prose_infers_explicitly_and_var_accumulates_into_the_walk() {
 }
 
 #[test]
-fn h1_and_h2_prose_each_infer_explicitly_in_source_order() {
-    // The H1 pass and the H2 section each read their own pending
+fn the_preamble_and_the_next_section_each_infer_their_own_prose_in_source_order() {
+    // The preamble and the section after it each read their own pending
     // buffer into an explicit infer: two completions, in source order.
-    let gateway = ScriptedChat::new(vec![text("h1 reply"), text("h2 reply")]);
+    let gateway = ScriptedChat::new(vec![text("preamble reply"), text("section reply")]);
     let source = PromptSource::new()
-        .h1_prose("h1 prose turn")
-        .h1("var.h1 = models.infer(prose)")
+        .preamble_prose("preamble prose turn")
+        .preamble("var.first = models.infer(prose)")
         .prose(
             "Section Two",
             "
-            h2 prose turn
+            section prose turn
 
             ```lua
             return models.infer(prose)
@@ -279,21 +289,21 @@ fn h1_and_h2_prose_each_infer_explicitly_in_source_order() {
         );
     let trace = Scenario::new(source.build()).bound().chat(&gateway).run();
 
-    assert_eq!(trace.text(), "h2 reply");
+    assert_eq!(trace.text(), "section reply");
     assert_eq!(
         gateway.call_count(),
         2,
-        "the H1 prose and the H2 prose each drive exactly one completion"
+        "the preamble prose and the section prose each drive exactly one completion"
     );
     let requests = gateway.requests();
     let first_prose = requests[0].messages[0].content();
     let second_prose = requests[1].messages[0].content();
     assert!(
-        first_prose.contains("h1 prose turn"),
-        "the first completion is the H1 prose: {first_prose}"
+        first_prose.contains("preamble prose turn"),
+        "the first completion is the preamble prose: {first_prose}"
     );
     assert!(
-        second_prose.contains("h2 prose turn"),
-        "the second completion is the H2 prose: {second_prose}"
+        second_prose.contains("section prose turn"),
+        "the second completion is the section prose: {second_prose}"
     );
 }

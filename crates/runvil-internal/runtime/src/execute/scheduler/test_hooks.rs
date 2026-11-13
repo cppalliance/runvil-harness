@@ -51,7 +51,7 @@ impl Scheduler {
                     self.chains[owner]
                         .access()
                         .expect("the wedged chain holds its access"),
-                    Origin::at("wedge", self.ctx.prompt().title(), 1),
+                    Origin::at("wedge", self.ctx.prompt().frontmatter().name(), 1),
                 )
                 .expect("the wedged chain's access forks");
             let exec = access.id();
@@ -116,9 +116,9 @@ impl Scheduler {
         self.ctx.turns().load(Ordering::Relaxed)
     }
 
-    /// Starts a chain over the top-level slice at `index`, as a jump out
-    /// of the H1 pass starts the walk, and returns the section name the
-    /// chain reports before its first entry.
+    /// Starts a chain over the top-level slice at `index`, as a `call` or
+    /// a spawn starts its chain at its target, and returns the section
+    /// name the chain reports before its first entry.
     ///
     /// # Errors
     /// Returns a store failure when the backend refuses the chain's
@@ -194,7 +194,11 @@ fn start_probe_chain(scheduler: &mut Scheduler, index: usize) -> Result<ChainInd
     let access = scheduler
         .ctx
         .vfs()
-        .acquire(Origin::at("probe", scheduler.ctx.prompt().title(), 1))
+        .acquire(Origin::at(
+            "probe",
+            scheduler.ctx.prompt().frontmatter().name(),
+            1,
+        ))
         .map_err(|cause| crate::error::make_store_error(&cause))?;
     scheduler.start_chain(ChainStart {
         lineage: ChainId::root(),

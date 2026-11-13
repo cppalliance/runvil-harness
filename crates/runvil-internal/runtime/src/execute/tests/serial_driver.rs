@@ -26,7 +26,6 @@ fn model_run(md: &str) -> Run {
 /// own `sys.id` and each arm's result, each arm names its own `sys.id`
 /// and its one model round.
 const FANOUT: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Fanout\n\n\
     ## Parent\n\n\
     ```lua\n\
     store.write('seed.txt', 'planted')\n\
@@ -53,7 +52,8 @@ fn succeeded(events: &[Event]) -> Vec<String> {
 fn the_driver_runs_a_literal_prompt_with_no_effect() {
     // A literal return issues nothing, so the performer never runs, and the
     // events open and close with the run's boundaries.
-    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n# Title\n\n## Only\n\n```lua\nreturn 'hello'\n```\n";
+    let md =
+        "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n## Only\n\n```lua\nreturn 'hello'\n```\n";
     let run = Run::new(Arc::new(parse(md)), "", test_params());
     let (result, events) = drive(run, |_, effect| panic!("no effect is issued: {effect:?}"));
     assert_eq!(text_of(result), "hello");
@@ -70,7 +70,6 @@ fn the_driver_runs_a_literal_prompt_with_no_effect() {
 #[test]
 fn the_driver_performs_store_and_model_effects_and_keeps_the_events_in_order() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n\
         ## Only\n\n\
         ```lua\n\
         store.write('notes.md', 'kept')\n\
@@ -127,7 +126,7 @@ fn a_three_arm_fanout_fed_its_answers_in_reverse_order_packs_results_in_collecti
             panic!("every arm is answered, so the fanout completes: {other:?}")
         }
     };
-    assert_eq!(text_of(result), "0.1|0.0.0=r(a)|0.1.0=r(b)|0.2.0=r(c)");
+    assert_eq!(text_of(result), "0.0|0.0.0=r(a)|0.1.0=r(b)|0.2.0=r(c)");
     assert_eq!(
         succeeded(&events),
         ["0.2", "0.1", "0.0"],
@@ -142,7 +141,7 @@ fn two_runs_under_the_same_params_and_answers_are_identical() {
     // same order with the same provenances, and the same effects.
     let first = drive_batched(model_run(FANOUT), Batching::AllAtOnce);
     let second = drive_batched(model_run(FANOUT), Batching::AllAtOnce);
-    assert_eq!(first.text(), "0.1|0.0.0=r(a)|0.1.0=r(b)|0.2.0=r(c)");
+    assert_eq!(first.text(), "0.0|0.0.0=r(a)|0.1.0=r(b)|0.2.0=r(c)");
     assert_eq!(first.text(), second.text());
     assert_eq!(
         first.events, second.events,

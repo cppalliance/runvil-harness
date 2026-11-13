@@ -61,13 +61,13 @@ fn item_in_walked_prose_is_a_substitution_error() {
     );
 }
 
-/// Each fanout arm seeds `var` from a fresh clone of the caller's `var` (the
-/// walk's H1-seeded value), so an arm reads the caller's entries but sibling
-/// and caller writes never cross arm boundaries.
+/// Each fanout arm seeds `var` from a fresh clone of the caller's `var` (here
+/// the value the preamble wrote), so an arm reads the caller's entries but
+/// sibling and caller writes never cross arm boundaries.
 #[test]
 fn fanout_arms_get_fresh_var_clones() {
     let source = PromptSource::new()
-        .h1("var.from_h1 = 'seeded'")
+        .preamble("var.from_preamble = 'seeded'")
         .section(
             "Parent",
             "
@@ -78,7 +78,7 @@ fn fanout_arms_get_fresh_var_clones() {
         .section(
             "### Worker",
             "
-            assert(var.from_h1 == 'seeded', 'an arm var clones the caller var in')
+            assert(var.from_preamble == 'seeded', 'an arm var clones the caller var in')
             local sibling = item == 'a' and 'b' or 'a'
             assert(var[sibling] == nil, 'each arm gets a fresh clone')
             var[item] = true
@@ -87,16 +87,17 @@ fn fanout_arms_get_fresh_var_clones() {
     assert_eq!(Scenario::new(source.build()).run().text(), "ab");
 }
 
-/// The walk's `var` table persists: H1's writes seed the top-level walk, and
-/// one section's writes reach the next across both fall-through and a jump.
+/// The walk's `var` table persists: the preamble is the walk's first section,
+/// and one section's writes reach the next across both fall-through and a
+/// jump.
 #[test]
 fn var_persists_across_sections_fallthrough_and_jump() {
     let source = PromptSource::new()
-        .h1("var.from_h1 = 'seed'")
+        .preamble("var.from_preamble = 'seed'")
         .section(
             "A",
             "
-            assert(var.from_h1 == 'seed', 'H1 var writes must reach the first H2 section')
+            assert(var.from_preamble == 'seed', 'the preamble var writes must reach the next section')
             var.from_a = 'a'
             jump('../C')",
         )
@@ -104,7 +105,7 @@ fn var_persists_across_sections_fallthrough_and_jump() {
         .section(
             "C",
             "
-            assert(var.from_h1 == 'seed', 'the jump shares the walk var')
+            assert(var.from_preamble == 'seed', 'the jump shares the walk var')
             assert(var.from_a == 'a', 'the jump keeps the jumper writes')
             var.from_c = 'c'",
         )
@@ -112,7 +113,7 @@ fn var_persists_across_sections_fallthrough_and_jump() {
             "D",
             "
             assert(var.from_c == 'c', 'fall-through after the jumped target keeps var')
-            return var.from_h1 .. var.from_a .. var.from_c",
+            return var.from_preamble .. var.from_a .. var.from_c",
         );
     assert_eq!(Scenario::new(source.build()).run().text(), "seedac");
 }
@@ -186,7 +187,7 @@ fn a_var_read_back_failure_at_fall_through_is_placed_on_the_last_lua_block() {
         error.to_string().contains("global was reassigned"),
         "{error}"
     );
-    assert_eq!(error.at, at_line(16), "{error:?}");
+    assert_eq!(error.at, at_line(14), "{error:?}");
 }
 
 /// The `var` read-back at a jump fails on the jumping block, not on the
@@ -213,7 +214,7 @@ fn a_var_read_back_failure_at_a_jump_is_placed_on_the_jumping_block() {
         error.to_string().contains("global was reassigned"),
         "{error}"
     );
-    assert_eq!(error.at, at_line(12), "{error:?}");
+    assert_eq!(error.at, at_line(10), "{error:?}");
 }
 
 /// The `var` read-back at a scalar return fails on the returning block,
@@ -242,7 +243,7 @@ fn a_var_read_back_failure_at_a_return_is_placed_on_the_returning_block() {
         error.to_string().contains("global was reassigned"),
         "{error}"
     );
-    assert_eq!(error.at, at_line(16), "{error:?}");
+    assert_eq!(error.at, at_line(14), "{error:?}");
 }
 
 /// A bare global (`x = 42` without `local`) resolves in prose read through
@@ -350,6 +351,28 @@ fn sys_exposes_section_metadata() {
         ],
     );
     assert_eq!(Scenario::new(source).run().text(), "done");
+}
+
+/// The preamble is a top-level section whose name is the empty string:
+/// `sys.section_name` is `''` there, it takes the root chain's first entry,
+/// and `sys.section_count` counts it with the sections under headings.
+#[test]
+fn sys_names_the_preamble_with_the_empty_string_and_counts_it_as_a_section() {
+    let source = PromptSource::new()
+        .preamble(
+            "
+            assert(sys.section_name == '', 'the preamble has the empty name')
+            assert(sys.id == '0.0', 'the preamble takes entry 0 of the root chain')
+            assert(sys.section_count == 2, 'the count includes the preamble')",
+        )
+        .section(
+            "Alpha",
+            "
+            assert(sys.id == '0.1', 'the section after the preamble takes entry 1')
+            assert(sys.section_count == 2, 'every section reads the same count')
+            return sys.section_name",
+        );
+    assert_eq!(Scenario::new(source.build()).run().text(), "Alpha");
 }
 
 /// `sys` holds no run label: reading `sys.execution` in a section raises

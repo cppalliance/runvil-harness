@@ -29,7 +29,7 @@ fn withdrawals(step: Step) -> (Vec<(EffectId, Effect)>, Vec<EffectId>) {
 
 /// Main spawns Child and waits on one model round while Child parks on a
 /// tool-call batch, then cancels Child and lingers on a second round.
-const CANCELED_CHILD: &str = "---\nname: loop\ndescription: d\nrunvil: 0\n---\n\n# Loop\n\n\
+const CANCELED_CHILD: &str = "---\nname: loop\ndescription: d\nrunvil: 0\n---\n\n\
      ## Main\n\n```lua\n\
      local t = tasks.spawn('../Child')\n\
      models.infer('wait')\n\
@@ -224,7 +224,7 @@ fn the_step_that_decides_the_run_withdraws_every_outstanding_effect() {
 
 /// Main spawns A and then B, each parked on a one-call batch, waits on a
 /// model round, then cancels B before A and lingers on a second round.
-const CANCELED_PAIR: &str = "---\nname: loop\ndescription: d\nrunvil: 0\n---\n\n# Loop\n\n\
+const CANCELED_PAIR: &str = "---\nname: loop\ndescription: d\nrunvil: 0\n---\n\n\
      ## Main\n\n```lua\n\
      local a = tasks.spawn('../A')\n\
      local b = tasks.spawn('../B')\n\
@@ -296,7 +296,7 @@ fn one_step_lists_every_tasks_withdrawn_calls_in_effect_id_order() {
 /// Main spawns Store, Call, and Fast, waits on Fast under a timeout, then
 /// cancels the other two and returns Fast's result, all in the run's first
 /// step.
-const DECIDED_IN_ONE_STEP: &str = "---\nname: loop\ndescription: d\nrunvil: 0\n---\n\n# Loop\n\n\
+const DECIDED_IN_ONE_STEP: &str = "---\nname: loop\ndescription: d\nrunvil: 0\n---\n\n\
      ## Main\n\n```lua\n\
      local stored = tasks.spawn('../Store')\n\
      local called = tasks.spawn('../Call')\n\

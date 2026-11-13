@@ -8,21 +8,18 @@ use super::*;
 
 #[test]
 fn name_and_description_are_sufficient_frontmatter_for_parsing() {
-    let prompt = parse_ok("---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\np\n");
+    let prompt = parse_ok("---\nname: x\ndescription: d\n---\n\n## S\n\np\n");
     assert_eq!(prompt.frontmatter.name(), "x");
 }
 
 #[test]
 fn missing_frontmatter_delimiter_errors() {
-    assert_eq!(
-        parse_err("# T\n\n## S\n\np\n").code,
-        ErrorCode::FrontmatterInvalid
-    );
+    assert_eq!(parse_err("## S\n\np\n").code, ErrorCode::FrontmatterInvalid);
 }
 
 #[test]
 fn an_indented_delimiter_in_a_block_scalar_does_not_close_the_frontmatter() {
-    let src = "---\nname: x\ndescription: |\n  first\n  ---\n  last\n---\n\n# T\n\n## S\n\np\n";
+    let src = "---\nname: x\ndescription: |\n  first\n  ---\n  last\n---\n\n## S\n\np\n";
     let prompt = parse_ok(src);
     assert_eq!(prompt.frontmatter.description(), "first\n---\nlast\n");
 }
@@ -91,10 +88,10 @@ fn max_tool_iterations_accepts_the_upper_boundary() {
 
 #[test]
 fn frontmatter_exposes_runvil_field() {
-    let with = "---\nname: x\ndescription: d\nrunvil: 0\n---\n\n# T\n\n## S\n\np\n";
+    let with = "---\nname: x\ndescription: d\nrunvil: 0\n---\n\n## S\n\np\n";
     assert_eq!(parse_ok(with).frontmatter.runvil(), Some(0));
 
-    let without = "---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\np\n";
+    let without = "---\nname: x\ndescription: d\n---\n\n## S\n\np\n";
     assert_eq!(parse_ok(without).frontmatter.runvil(), None);
 }
 
@@ -127,7 +124,7 @@ fn frontmatter_without_input_output_still_parses() {
 fn runvil_zero_is_accepted() {
     // `runvil: 0` is the active Engine major: it parses and is exposed on
     // the frontmatter.
-    let src = "---\nname: x\ndescription: d\nrunvil: 0\n---\n\n# T\n\n## S\n\np\n";
+    let src = "---\nname: x\ndescription: d\nrunvil: 0\n---\n\n## S\n\np\n";
     assert_eq!(parse_ok(src).frontmatter().runvil(), Some(0));
 }
 
@@ -149,7 +146,7 @@ fn a_key_line_is_the_one_column_0_line_that_declares_the_key() {
         "models: {}\n",              // 12: declared twice
         "max_tool_iterations : 3\n", // 13: a space before the colon
         "- uses: [web]\n",           // 14: a sequence entry
-        "---\n\n# T\n",
+        "---\n",
     );
     let split = crate::frontmatter::split_frontmatter(src).expect("the frontmatter splits");
     let lines: BTreeMap<&str, u32> = split
@@ -172,7 +169,7 @@ fn a_key_line_is_the_one_column_0_line_that_declares_the_key() {
 
 #[test]
 fn a_parsed_prompt_gives_the_engine_the_line_of_each_key_it_declares() {
-    let prompt = parse_ok("---\nname: x\ndescription: d\nrunvil: 0\nuses: [web]\n---\n\n# T\n");
+    let prompt = parse_ok("---\nname: x\ndescription: d\nrunvil: 0\nuses: [web]\n---\n");
     let line = |key| crate::detail::key_line(&prompt, key).map(NonZeroU32::get);
     assert_eq!((line("runvil"), line("uses")), (Some(4), Some(5)));
     assert_eq!(line("models"), None, "an absent key has no line");

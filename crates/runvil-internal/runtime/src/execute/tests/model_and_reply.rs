@@ -105,7 +105,7 @@ fn an_explicit_client_is_used_instead_of_the_environment() {
     assert_eq!(
         run_events(&trace),
         vec![
-            ("Test prompt".to_string(), detail::RUN_STARTED.to_string()),
+            ("t".to_string(), detail::RUN_STARTED.to_string()),
             ("Only".to_string(), detail::SECTION_STARTED.to_string()),
             ("Only".to_string(), detail::LUA_CHUNK_STARTED.to_string()),
             ("Only".to_string(), detail::MODEL_TURN_COMPLETED.to_string(),),
@@ -116,7 +116,7 @@ fn an_explicit_client_is_used_instead_of_the_environment() {
                 detail::LUA_TEARDOWN_SUCCEEDED.to_string(),
             ),
             ("Only".to_string(), detail::SECTION_FINISHED.to_string()),
-            ("Test prompt".to_string(), detail::RUN_SUCCEEDED.to_string()),
+            ("t".to_string(), detail::RUN_SUCCEEDED.to_string()),
         ]
     );
 }
@@ -142,7 +142,7 @@ fn epilog_runs_after_prose_and_can_return() {
     assert_eq!(
         run_events(&trace),
         vec![
-            ("Test prompt".to_string(), detail::RUN_STARTED.to_string()),
+            ("t".to_string(), detail::RUN_STARTED.to_string()),
             ("Only".to_string(), detail::SECTION_STARTED.to_string()),
             ("Only".to_string(), detail::LUA_CHUNK_STARTED.to_string()),
             ("Only".to_string(), detail::MODEL_TURN_COMPLETED.to_string()),
@@ -154,7 +154,7 @@ fn epilog_runs_after_prose_and_can_return() {
                 detail::LUA_TEARDOWN_SUCCEEDED.to_string(),
             ),
             ("Only".to_string(), detail::SECTION_FINISHED.to_string()),
-            ("Test prompt".to_string(), detail::RUN_SUCCEEDED.to_string()),
+            ("t".to_string(), detail::RUN_SUCCEEDED.to_string()),
         ]
     );
 }
@@ -170,8 +170,8 @@ const OFFER_WEB_SEARCH: &str = "
 
 #[test]
 fn offer_over_an_empty_catalog_fails_the_run_loudly() {
-    // A prompt with no H1 Lua goes through the same validated VM over an
-    // empty offering, so the id is rejected.
+    // A prompt with no preamble runs its section over an empty offering,
+    // so the id is rejected.
     let source = PromptSource::new().prose("Only", OFFER_WEB_SEARCH);
     let trace = Scenario::new(source.build()).run();
     let error = trace.error();
@@ -184,11 +184,12 @@ fn offer_over_an_empty_catalog_fails_the_run_loudly() {
 }
 
 #[test]
-fn offer_after_an_h1_helper_fails_the_run_loudly() {
-    // A prompt whose H1 Lua declares nothing runs over the same empty
-    // offering, so tools.offer in a prologue is rejected the same way.
+fn offer_after_a_preamble_helper_fails_the_run_loudly() {
+    // A prompt whose preamble defines only a helper runs over the same
+    // empty offering, so tools.offer in the next section's prologue is
+    // rejected the same way.
     let source = PromptSource::new()
-        .h1("function helper() return 'no declarations' end")
+        .preamble("function helper() return 'no declarations' end")
         .prose("Only", OFFER_WEB_SEARCH);
     let trace = Scenario::new(source.build()).run();
     let error = trace.error();
@@ -254,7 +255,7 @@ fn a_required_helper_survives_prologue_model_and_epilog() {
     assert_eq!(
         run_events(&trace),
         [
-            ("Test prompt".to_owned(), detail::RUN_STARTED.to_string()),
+            ("t".to_owned(), detail::RUN_STARTED.to_string()),
             ("Only".to_owned(), detail::SECTION_STARTED.to_string()),
             ("Only".to_owned(), detail::LUA_CHUNK_STARTED.to_string()),
             (
@@ -275,7 +276,7 @@ fn a_required_helper_survives_prologue_model_and_epilog() {
                 detail::LUA_TEARDOWN_SUCCEEDED.to_string(),
             ),
             ("Only".to_owned(), detail::SECTION_FINISHED.to_string()),
-            ("Test prompt".to_owned(), detail::RUN_SUCCEEDED.to_string()),
+            ("t".to_owned(), detail::RUN_SUCCEEDED.to_string()),
         ]
     );
 }
@@ -306,7 +307,6 @@ fn whitespace_only_prose_skips_model_without_binding() {
     // The source builder trims every line, which would empty the
     // whitespace-only prose under test, so the source is literal.
     let source = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-# Test prompt\n\n\
 ## Only\n\n```lua\n-- prologue\n```\n\n   \n\t\n\n\
 ```lua\nif reply ~= nil then error('whitespace prose must not bind a reply') end\nreturn 'ok'\n```\n";
     assert_eq!(Scenario::new(source).run().text(), "ok");

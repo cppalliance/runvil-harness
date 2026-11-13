@@ -1,8 +1,8 @@
 //! A chain's current model: `models.use` lasts across the chain's sections,
 //! a `call` child and a spawned task start with a copy of the parent's model
 //! taken when they are dispatched, a child's switch never reaches its parent
-//! or its siblings, and the root walk starts on the model the H1 pass ended
-//! on.
+//! or its siblings, and a switch in the preamble lasts into the sections the
+//! root chain enters after it.
 
 use super::*;
 use crate::execute::tests::fixtures::echo_tool;
@@ -92,7 +92,9 @@ fn a_childs_switch_never_reaches_its_parent_or_a_sibling() {
 }
 
 #[test]
-fn a_switch_in_h1_is_the_starting_model_of_the_root_walk() {
+fn a_switch_in_the_preamble_is_still_in_effect_in_the_next_section() {
+    // The preamble and the section after it are entries of one chain, so
+    // the model the preamble chose is the next section's current model.
     let md = sections(&[
         ("", "models.use('strong')"),
         ("## Main", "return models.current().label"),
@@ -102,9 +104,11 @@ fn a_switch_in_h1_is_the_starting_model_of_the_root_walk() {
 }
 
 #[test]
-fn a_switch_in_h1_reaches_the_walk_a_jump_starts() {
+fn a_switch_in_the_preamble_is_still_in_effect_in_the_section_it_jumps_to() {
+    // A jump moves the same chain, so the switch crosses it as it crosses
+    // a fall-through.
     let md = sections(&[
-        ("", "models.use('strong')\njump('Target')"),
+        ("", "models.use('strong')\njump('../Target')"),
         ("## Skipped", "error('the jump must skip this section')"),
         ("## Target", "return models.current().label"),
     ]);

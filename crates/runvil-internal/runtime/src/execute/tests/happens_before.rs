@@ -30,7 +30,6 @@ use super::*;
 /// fanout returns - the fanout's join_any rounds join every arm before
 /// it returns, so the merge reads are ordered after every write.
 const SEVEN_ARM_FANOUT: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Research\n\n\
     ## Parent\n\n\
     ```lua\n\
     local topics = { 'a', 'b', 'c', 'd', 'e', 'f', 'g' }\n\
@@ -54,7 +53,6 @@ const SEVEN_PARTS: &str = "part a\n\npart b\n\npart c\n\npart d\n\npart e\n\npar
 /// merge by index. `tasks.join` delivers every member, so every arm's
 /// write is joined before the merge reads.
 const FREE_FORM: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Research\n\n\
     ## Parent\n\n\
     ```lua\n\
     local topics = { 'a', 'b', 'c', 'd', 'e', 'f', 'g' }\n\
@@ -78,7 +76,6 @@ const FREE_FORM: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
 /// orders them - Summarize is spawned after Gather is joined, so it sees
 /// Gather's files.
 const PIPELINE: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Pipeline\n\n\
     ## Parent\n\n\
     ```lua\n\
     local g = tasks.spawn('Gather')\n\
@@ -103,7 +100,6 @@ const PIPELINE: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
 /// It passes exactly when the file read belongs to the task the wait
 /// returned, and that choice is the recorded nondeterminism.
 const TRACE_5_PASS: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Waits\n\n\
     ## Main\n\n\
     ```lua\n\
     local a = tasks.spawn('../Arm', { item = 'a' })\n\
@@ -124,7 +120,6 @@ const TRACE_5_PASS: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
 /// read always fails with the fatal make_determinism_error violation - in every
 /// interleaving, whichever arm won.
 const TRACE_5_FAIL: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Waits\n\n\
     ## Main\n\n\
     ```lua\n\
     local a = tasks.spawn('../Arm', { item = 'a' })\n\
@@ -140,15 +135,14 @@ const TRACE_5_FAIL: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
     return models.infer('arm ' .. item)\n\
     ```\n";
 
-/// Trace 7: the H1 pass writes config.md and spawns T; the walk reads
-/// config.md, then joins T. One root identity spans the pass and the
-/// walk, so there is no false conflict, and the join makes T's write
-/// readable.
+/// Trace 7: the preamble writes config.md and spawns T; the next section
+/// reads config.md, then joins T. One root chain enters both sections
+/// under one identity, so there is no false conflict, and the join makes
+/// T's write readable.
 const TRACE_7: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Trace 7\n\n\
     ```lua\n\
     store.write('config.md', 'configured')\n\
-    var.t = tasks.spawn('Task')\n\
+    var.t = tasks.spawn('../Task')\n\
     ```\n\n\
     ## Result\n\n\
     ```lua\n\
@@ -169,7 +163,6 @@ const TRACE_7: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
 /// joined either by the timed join itself or by the later join - either
 /// way its write is readable, and the result never changes.
 const TRACE_10_PASS: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Timed\n\n\
     ## Main\n\n\
     ```lua\n\
     local b = tasks.spawn('../Quick')\n\
@@ -198,7 +191,6 @@ const TRACE_10_PASS: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
 /// violation. The slow arm parks on a model round past the timeout, so
 /// the timeout provably wins in every interleaving.
 const TRACE_10_FAIL: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Timed\n\n\
     ## Main\n\n\
     ```lua\n\
     local a = tasks.spawn('../Slow')\n\
@@ -214,7 +206,6 @@ const TRACE_10_FAIL: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
 /// Trace 11: cancellation. However far the canceled task got, the join
 /// at delivery makes its completed write readable.
 const TRACE_11: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Cancel\n\n\
     ## Main\n\n\
     ```lua\n\
     local a = tasks.spawn('../Task')\n\
@@ -233,7 +224,6 @@ const TRACE_11: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
 /// The store probe: whether the file the run writes was already there
 /// when it started, which only an earlier run could have left.
 const STORE_PROBE: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Probe\n\n\
     ## Main\n\n\
     ```lua\n\
     local seen = store.exists('probe.txt')\n\
@@ -428,7 +418,7 @@ fn join_any_joins_the_task_it_returns_and_only_that_task() {
 }
 
 #[test]
-fn one_root_identity_spans_the_h1_pass_and_the_walk() {
+fn one_root_identity_spans_the_preamble_and_the_section_after_it() {
     assert_every_interleaving_reads(
         |store| trace_scenario(TRACE_7, store),
         "configured/task wrote",

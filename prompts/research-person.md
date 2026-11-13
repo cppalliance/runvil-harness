@@ -7,8 +7,6 @@ uses:
   - web
 ---
 
-# Research a Person
-
 ## Research
 
 ```lua

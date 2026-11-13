@@ -223,8 +223,7 @@ impl SectionVm<Uninjected> {
     /// The sets are the run's own handles, not snapshots: the run catalog
     /// and the filled roles back the validating `tools`/`models` tables that
     /// [`inject_values`](Self::inject_values) installs.
-    /// Nothing writes either set during a run. H1 is section 0 on this same
-    /// path.
+    /// Nothing writes either set during a run.
     ///
     /// # Errors
     /// Returns a `LuaRuntime` failure if the VM cannot be built or hardened.

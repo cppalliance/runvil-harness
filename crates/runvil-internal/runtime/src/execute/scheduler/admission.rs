@@ -89,13 +89,13 @@ impl ChainTree<'_> {
 
     /// The chain enclosing `id` in the task tree: its owner, read from its
     /// task entry, for a task chain, its call parent for a call chain, and
-    /// `None` for the root walk and the H1 pass.
+    /// `None` for the root walk.
     pub(super) fn enclosing(&self, id: ChainIndex) -> Option<ChainIndex> {
         let chain = &self.chains[id];
         match chain.kind {
             ChainKind::Task => self.tasks.owner_of(&chain.task),
             ChainKind::Call { parent } => Some(parent),
-            ChainKind::Root | ChainKind::H1 => None,
+            ChainKind::Root => None,
         }
     }
 
@@ -253,7 +253,7 @@ impl Admission {
         let requeue = match tree.kind(id) {
             ChainKind::Call { .. } => self.gave_back.contains_key(&id),
             ChainKind::Task => !self.holding.contains(&id),
-            ChainKind::Root | ChainKind::H1 => false,
+            ChainKind::Root => false,
         };
         if requeue {
             self.resuming.push_back(id);
@@ -354,8 +354,7 @@ impl Scheduler {
     }
 
     /// Starts one admitted task chain: enqueues it and fires its start
-    /// event with the spawn record on its owner's sequence (its spawner, or
-    /// the root walk for a task the H1 pass spawned) under the spawning
+    /// event with the spawn record on its owner's sequence under the spawning
     /// section (the spawn-time capture, so a task admitted after its
     /// spawner moved on still reports where it was spawned). Right after
     /// it, each message the owner sent while the task waited for admission

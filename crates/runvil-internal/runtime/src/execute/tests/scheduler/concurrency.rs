@@ -17,7 +17,6 @@ fn tasks_concurrency_clamps_to_the_callers_ceiling_and_reads_the_effective_limit
     // current limit back, and a later 4 climbs back to the parent's
     // limit - the setter is `min(n, parent)`, never an error.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Limits\n\n\
         ## Main\n\n\
         ```lua\n\
         local a = tasks.concurrency(16)\n\
@@ -40,7 +39,6 @@ fn tasks_concurrency_rejects_an_argument_that_is_not_a_positive_whole_number() {
     // whole-number check lets the last through and the parser refuses it
     // as the call's error, so it raises at the call site like the rest.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Limits\n\n\
         ## Main\n\n\
         ```lua\n\
         local function attempt(value)\n\
@@ -70,7 +68,6 @@ fn tasks_concurrency_accepts_a_whole_number_float_as_a_limit() {
     // the parser converts the float, so the call sets the limit and
     // reads the effective value back exactly like an integer argument.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Limits\n\n\
         ## Main\n\n\
         ```lua\n\
         local set = tasks.concurrency(2.0)\n\
@@ -92,7 +89,6 @@ fn a_queued_task_reads_blocked_queued_and_its_start_event_fires_at_admission() {
     // fires only once the first child ends and frees the slot.
     let gateway = ScriptedChat::new(vec![text("slow"), text("fast")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Limits\n\n\
         ## Main\n\n\
         ```lua\n\
         local a = tasks.spawn('../Child')\n\
@@ -148,7 +144,6 @@ fn a_start_event_reports_the_spawning_section_not_the_admission_time_one() {
     // section, Main - the spawn-time capture, not an admission-time read
     // of the spawner's position.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Sections\n\n\
         ## Main\n\n\
         ```lua\n\
         var.t = tasks.spawn('Worker')\n\
@@ -197,7 +192,6 @@ fn a_resumed_task_is_admitted_ahead_of_fresh_starts() {
         text("W3"),
     ]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Resume\n\n\
         ## Main\n\n\
         ```lua\n\
         local w = tasks.spawn('Walker')\n\
@@ -251,7 +245,6 @@ fn an_arm_that_lowers_its_limit_runs_its_fanout_two_arms_at_a_time() {
         text("r8"),
     ]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Limits\n\n\
         ## Main\n\n\
         ```lua\n\
         local arm = tasks.spawn('Arm')\n\
@@ -294,7 +287,6 @@ fn a_nested_fanout_does_not_deadlock_under_a_ceiling_of_one() {
     // outer arm holding the only slot while its inner arms wait for it.
     // Results place by collection index at both levels.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Arm', {'a', 'b', 'c'})\n\

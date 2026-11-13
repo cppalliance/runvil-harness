@@ -233,14 +233,14 @@ fn a_call_chain_counts_its_own_entries_and_the_outer_walk_resumes_its_own_sequen
             (
                 "Main",
                 "
-                assert(sys.id == '0.1', 'the first walked section takes entry 1 of the root chain')
+                assert(sys.id == '0.0', 'the first section takes entry 0 of the root chain')
                 local r = call('../Sub')
                 store.append('order.txt', r .. '\\n')",
             ),
             (
                 "B",
                 "
-                assert(sys.id == '0.2', 'the outer walk resumes its own sequence')
+                assert(sys.id == '0.1', 'the outer walk resumes its own sequence')
                 return store.read('order.txt')",
             ),
             (

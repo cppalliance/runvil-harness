@@ -52,8 +52,7 @@ pub(super) fn loop_model_name(alias: &str) -> String {
         .to_owned()
 }
 
-/// A run of `source` over the loop models, so the run starts with what the
-/// H1 pass would leave.
+/// A run of `source` whose model set is the loop models from its start.
 pub(super) fn loop_scenario(source: impl Into<String>) -> Scenario {
     Scenario::new(source).models(loop_models())
 }
@@ -260,7 +259,7 @@ fn an_offer_after_the_first_loop_raises_and_the_second_loop_sends_the_same_empty
     assert_eq!(
         trace.text(),
         refused(
-            14,
+            12,
             "tools.offer: the section's tool list is fixed at its first models.loop round; \
              make every offer before the first loop, or offer in another section"
         )

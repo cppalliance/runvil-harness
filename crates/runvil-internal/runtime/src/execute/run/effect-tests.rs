@@ -139,7 +139,7 @@ fn tools_pack(description: &str, wire_name: &str) -> Vec<PackToolSets<ToolInfo>>
 #[test]
 fn a_render_record_keeps_the_slots_alias_the_entry_and_the_offered_ids() {
     let effect = Effect::Render {
-        entry: "0.1".to_owned(),
+        entry: "0.0".to_owned(),
         binding: test_binding("writer", "A general model for tests", "test-model"),
         offered: tools_pack("Echo the value.", "echo"),
     };
@@ -147,7 +147,7 @@ fn a_render_record_keeps_the_slots_alias_the_entry_and_the_offered_ids() {
     let canonical = serde_json::to_value(&record).expect("a render record converts");
     assert_eq!(
         canonical.to_string(),
-        r#"{"Render":{"alias":"writer","entry":"0.1","offered":[{"dynamic_set":[],"pack":"tools","static_set":["tools/echo"]}]}}"#
+        r#"{"Render":{"alias":"writer","entry":"0.0","offered":[{"dynamic_set":[],"pack":"tools","static_set":["tools/echo"]}]}}"#
     );
     let back: EffectRecord =
         serde_json::from_value(canonical).expect("the canonical form reads back");
@@ -425,7 +425,7 @@ fn every_kinds_public_record_is_json_that_round_trips_exactly() {
     let effects = [
         chat_effect(three_messages(), Some((RoundId::new(2), 1))),
         Effect::Render {
-            entry: "0.1".to_owned(),
+            entry: "0.0".to_owned(),
             binding: test_binding("writer", "A general model for tests", "test-model"),
             offered: tools_pack("Echo the value.", "echo"),
         },
@@ -433,7 +433,7 @@ fn every_kinds_public_record_is_json_that_round_trips_exactly() {
             tool: ToolId::parse("tools/echo").expect("a fixture tool id"),
             alias: "echo".to_owned(),
             args: json!({ "value": 0.1, "nested": { "b": 1, "a": [true, null] } }),
-            origin: ToolCallOrigin::new("Only", ToolCaller::Model).with_entry("0.1"),
+            origin: ToolCallOrigin::new("Only", ToolCaller::Model).with_entry("0.0"),
             access: access(),
             survives_stop: false,
         },

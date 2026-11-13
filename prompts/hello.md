@@ -4,8 +4,6 @@ description: Say hello
 runvil: 0
 ---
 
-# Hello World
-
 A minimal test prompt.
 
 ## Greet

@@ -1,19 +1,21 @@
-//! Line-mapping tests: a runtime error in each Lua block reports its
-//! file-absolute line, and each prose block records the file line its
-//! text starts on.
+//! Line-mapping tests: a compile error and a runtime error in a Lua block
+//! report its file-absolute line, and each prose block records the file
+//! line its text starts on.
 
 use super::*;
 use runvil_lua::LuaProgram;
 
 #[test]
 fn each_prose_block_records_the_file_line_its_trimmed_text_starts_on() {
-    //  8: Plan.          <- the H1's prose
-    // 12: Notes above.   <- dropped by the break below it
-    // 14: ---
-    // 16: Pending.       <- the prose the fence on line 19 consumes
-    // 17: Second line.
-    // 23: Trailing.      <- after the last fence
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\nPlan.\n\n## S\n\nNotes above.\n\n---\n\n\
+    //  6: Plan.          <- the preamble's prose, which the fence on line 8 consumes
+    // 12: ## S
+    // 14: Notes above.   <- dropped by the break below it
+    // 16: ---
+    // 18: Pending.       <- the prose the fence on line 21 consumes
+    // 19: Second line.
+    // 25: Trailing.      <- after the last fence
+    let src = "---\nname: x\ndescription: d\n---\n\nPlan.\n\n```lua\ny = 0\n```\n\n\
+               ## S\n\nNotes above.\n\n---\n\n\
                Pending.\nSecond line.\n\n```lua\nx = 1\n```\n\nTrailing.\n";
     let prompt = parse_ok(src);
     let prose = |blocks: &[Block]| -> Vec<(String, u32)> {
@@ -25,12 +27,16 @@ fn each_prose_block_records_the_file_line_its_trimmed_text_starts_on() {
             })
             .collect()
     };
-    assert_eq!(prose(&prompt.h1_blocks), [("Plan.".to_owned(), 8)]);
+    assert_eq!(prompt.sections[0].name, "", "the preamble comes first");
     assert_eq!(
         prose(prompt.sections[0].blocks()),
+        [("Plan.".to_owned(), 6)]
+    );
+    assert_eq!(
+        prose(prompt.sections[1].blocks()),
         [
-            ("Pending.\nSecond line.".to_owned(), 16),
-            ("Trailing.".to_owned(), 23)
+            ("Pending.\nSecond line.".to_owned(), 18),
+            ("Trailing.".to_owned(), 25)
         ]
     );
 }
@@ -57,17 +63,15 @@ fn epilog_source_line_maps_runtime_error_to_absolute_line() {
     //  3: description: d
     //  4: ---
     //  5: (empty)
-    //  6: # T
+    //  6: ## Check
     //  7: (empty)
-    //  8: ## Check
+    //  8: Ask the model.
     //  9: (empty)
-    // 10: Ask the model.
-    // 11: (empty)
-    // 12: ```lua       <- epilog opens
-    // 13: local a = 1  <- epilog line 1 (source_line = 13)
-    // 14: assert(false) <- epilog line 2 (absolute = 14)
-    // 15: ```
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\n## Check\n\nAsk the model.\n\n```lua\nlocal a = 1\nassert(false)\n```\n";
+    // 10: ```lua       <- epilog opens
+    // 11: local a = 1  <- epilog line 1 (source_line = 11)
+    // 12: assert(false) <- epilog line 2 (absolute = 12)
+    // 13: ```
+    let src = "---\nname: x\ndescription: d\n---\n\n## Check\n\nAsk the model.\n\n```lua\nlocal a = 1\nassert(false)\n```\n";
     let prompt = parse_ok(src);
     let epilog = prompt
         .entry()
@@ -77,14 +81,14 @@ fn epilog_source_line_maps_runtime_error_to_absolute_line() {
 
     assert_eq!(
         epilog.source_line().get(),
-        13,
-        "epilog Lua starts on line 13"
+        11,
+        "epilog Lua starts on line 11"
     );
     assert_eq!(epilog.source(), "local a = 1\nassert(false)");
 
     // Simulate a runtime error: assert(false) is on chunk line 2.
-    // Absolute line = 13 + 2 - 1 = 14.
-    assert_runtime_error_line(epilog, 14);
+    // Absolute line = 11 + 2 - 1 = 12.
+    assert_runtime_error_line(epilog, 12);
 }
 
 #[test]
@@ -95,16 +99,14 @@ fn prologue_source_line_maps_correctly() {
     //  3: description: d
     //  4: ---
     //  5: (empty)
-    //  6: # T
+    //  6: ## Work
     //  7: (empty)
-    //  8: ## Work
-    //  9: (empty)
-    // 10: ```lua       <- prologue opens
-    // 11: assert(false) <- prologue line 1 (source_line = 11, absolute = 11)
-    // 12: ```
-    // 13: (empty)
-    // 14: Do the work.
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\n## Work\n\n```lua\nassert(false)\n```\n\nDo the work.\n";
+    //  8: ```lua       <- prologue opens
+    //  9: assert(false) <- prologue line 1 (source_line = 9, absolute = 9)
+    // 10: ```
+    // 11: (empty)
+    // 12: Do the work.
+    let src = "---\nname: x\ndescription: d\n---\n\n## Work\n\n```lua\nassert(false)\n```\n\nDo the work.\n";
     let prompt = parse_ok(src);
     let prologue = prompt
         .entry()
@@ -114,11 +116,11 @@ fn prologue_source_line_maps_correctly() {
 
     assert_eq!(
         prologue.source_line().get(),
-        11,
-        "prologue Lua starts on line 11"
+        9,
+        "prologue Lua starts on line 9"
     );
 
-    assert_runtime_error_line(prologue, 11);
+    assert_runtime_error_line(prologue, 9);
 }
 
 #[test]
@@ -126,18 +128,16 @@ fn multi_line_chunk_maps_inner_line_correctly() {
     // Epilog with assert on line 3 of the fence.
     //  1-4: frontmatter
     //  5: empty
-    //  6: # T
+    //  6: ## S
     //  7: empty
-    //  8: ## S
+    //  8: Prose.
     //  9: empty
-    // 10: Prose.
-    // 11: empty
-    // 12: ```lua
-    // 13: local x = 1    <- source_line = 13
-    // 14: local y = 2
-    // 15: assert(false)  <- chunk line 3, absolute = 13 + 3 - 1 = 15
-    // 16: ```
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\nProse.\n\n```lua\nlocal x = 1\nlocal y = 2\nassert(false)\n```\n";
+    // 10: ```lua
+    // 11: local x = 1    <- source_line = 11
+    // 12: local y = 2
+    // 13: assert(false)  <- chunk line 3, absolute = 11 + 3 - 1 = 13
+    // 14: ```
+    let src = "---\nname: x\ndescription: d\n---\n\n## S\n\nProse.\n\n```lua\nlocal x = 1\nlocal y = 2\nassert(false)\n```\n";
     let prompt = parse_ok(src);
     let epilog = prompt
         .entry()
@@ -145,22 +145,22 @@ fn multi_line_chunk_maps_inner_line_correctly() {
         .epilog()
         .expect("epilog must exist");
 
-    assert_eq!(epilog.source_line().get(), 13);
+    assert_eq!(epilog.source_line().get(), 11);
 
-    assert_runtime_error_line(epilog, 15);
+    assert_runtime_error_line(epilog, 13);
 }
 
 #[test]
 fn every_block_of_a_section_maps_only_its_own_errors() {
-    //  8: ## S
-    // 10: ```lua         <- prologue
-    // 16: ```lua         <- second block
-    // 17: assert(false)
-    // 22: ```lua         <- third block (source_line = 23)
-    // 23: local y = 2
-    // 24: assert(false)  <- chunk line 2, absolute = 24
-    // 29: ```lua         <- epilog
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\n\
+    //  6: ## S
+    //  8: ```lua         <- prologue
+    // 14: ```lua         <- second block
+    // 15: assert(false)
+    // 20: ```lua         <- third block (source_line = 21)
+    // 21: local y = 2
+    // 22: assert(false)  <- chunk line 2, absolute = 22
+    // 27: ```lua         <- epilog
+    let src = "---\nname: x\ndescription: d\n---\n\n\
          ## S\n\n```lua\nx = 1\n```\n\nOne.\n\n```lua\nassert(false)\n```\n\nTwo.\n\n\
          ```lua\nlocal y = 2\nassert(false)\n```\n\nThree.\n\n```lua\nz = 3\n```\n";
     let prompt = parse_ok(src);
@@ -181,8 +181,8 @@ fn every_block_of_a_section_maps_only_its_own_errors() {
         "each of the four blocks needs its own chunk name, got {locations:?}"
     );
     let (second, third) = (programs[1], programs[2]);
-    assert_eq!(third.source_line().get(), 23);
-    assert_runtime_error_line(third, 24);
+    assert_eq!(third.source_line().get(), 21);
+    assert_runtime_error_line(third, 22);
 
     let lua = mlua::Lua::new();
     let raw_error = third
@@ -199,13 +199,13 @@ fn every_block_of_a_section_maps_only_its_own_errors() {
 
 #[test]
 fn sections_sharing_a_title_get_locations_named_by_heading_line() {
-    // 10: ### Helpers    <- under `A`
-    // 12: ```lua         <- source_line = 13
-    // 18: ### Helpers    <- under `B`
-    // 20: ```lua         <- source_line = 21
-    // 22: assert(false)  <- chunk line 2, absolute = 22
-    // 25: ## C           <- a title no other section uses
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\n\
+    //  8: ### Helpers    <- under `A`
+    // 10: ```lua         <- source_line = 11
+    // 16: ### Helpers    <- under `B`
+    // 18: ```lua         <- source_line = 19
+    // 20: assert(false)  <- chunk line 2, absolute = 20
+    // 23: ## C           <- a title no other section uses
+    let src = "---\nname: x\ndescription: d\n---\n\n\
          ## A\n\n### Helpers\n\n```lua\nassert(false)\n```\n\n\
          ## B\n\n### Helpers\n\n```lua\nlocal pad = 1\nassert(false)\n```\n\n\
          ## C\n\n```lua\nx = 1\n```\n";
@@ -216,13 +216,13 @@ fn sections_sharing_a_title_get_locations_named_by_heading_line() {
     };
     let under_a = only_program(&prompt.sections[0].children()[0]);
     let under_b = only_program(&prompt.sections[1].children()[0]);
-    assert_eq!(under_a.location(), "section `Helpers` (line 10) prologue");
-    assert_eq!(under_b.location(), "section `Helpers` (line 18) prologue");
+    assert_eq!(under_a.location(), "section `Helpers` (line 8) prologue");
+    assert_eq!(under_b.location(), "section `Helpers` (line 16) prologue");
     assert_eq!(
         only_program(&prompt.sections[2]).location(),
         "section `C` prologue"
     );
-    assert_runtime_error_line(&under_b, 22);
+    assert_runtime_error_line(&under_b, 20);
 
     let lua = mlua::Lua::new();
     let raw_error = under_b
@@ -238,19 +238,22 @@ fn sections_sharing_a_title_get_locations_named_by_heading_line() {
 }
 
 #[test]
-fn every_h1_block_maps_only_its_own_errors() {
-    //  8: ```lua         <- first block (source_line = 9)
-    //  9: assert(false)
-    // 12: Plan.
-    // 14: ```lua         <- second block (source_line = 15)
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\n```lua\nassert(false)\n```\n\nPlan.\n\n```lua\nx = 1\n```\n\n## S\n\np\n";
+fn every_preamble_block_maps_only_its_own_errors() {
+    //  6: ```lua         <- first block (source_line = 7)
+    //  7: assert(false)
+    // 10: Plan.
+    // 12: ```lua         <- second block (source_line = 13)
+    let src = "---\nname: x\ndescription: d\n---\n\n```lua\nassert(false)\n```\n\nPlan.\n\n```lua\nx = 1\n```\n\n## S\n\np\n";
     let prompt = parse_ok(src);
-    let [Block::Lua(first), Block::Prose { .. }, Block::Lua(second)] = prompt.h1_blocks.as_slice()
-    else {
-        panic!("H1 Lua, prose, Lua expected, got {:?}", prompt.h1_blocks);
+    let preamble = prompt.entry().expect("has sections");
+    assert_eq!(preamble.name, "", "the preamble comes first");
+    let [Block::Lua(first), Block::Prose { .. }, Block::Lua(second)] = preamble.blocks() else {
+        panic!("Lua, prose, Lua expected, got {:?}", preamble.blocks());
     };
-    assert_eq!(second.source_line().get(), 15);
-    assert_runtime_error_line(first, 9);
+    assert_eq!(first.location(), "preamble prologue");
+    assert_eq!(second.location(), "preamble epilog");
+    assert_eq!(second.source_line().get(), 13);
+    assert_runtime_error_line(first, 7);
 
     let lua = mlua::Lua::new();
     let raw_error = first
@@ -261,16 +264,38 @@ fn every_h1_block_maps_only_its_own_errors() {
     assert_eq!(
         second.map_runtime_error(&raw_error).to_string(),
         raw_error.to_string(),
-        "the second H1 block must leave the first block's error unmapped"
+        "the second preamble block must leave the first block's error unmapped"
+    );
+}
+
+#[test]
+fn a_preamble_compile_error_reports_its_file_line() {
+    //  6: Plan.
+    //  8: ```lua         <- the preamble's epilog (source_line = 9)
+    //  9: local a = 1
+    // 10: local b =      <- chunk line 2, absolute = 10
+    let src = "---\nname: x\ndescription: d\n---\n\nPlan.\n\n```lua\nlocal a = 1\nlocal b =\n```\n\n## S\n\np\n";
+    let error = parse_err(src);
+    assert_eq!(error.code, ErrorCode::LuaCompile, "{error:?}");
+    assert!(
+        error
+            .message
+            .starts_with("lua compilation error at preamble epilog (line 9): "),
+        "{error:?}"
+    );
+    assert_eq!(
+        location(&error),
+        Some(("prompt", 10, 1, 11, 1)),
+        "the whole line the compiler names: {error:?}"
     );
 }
 
 #[test]
 fn a_long_unique_section_title_maps_its_prologue_line() {
-    //  8: ## Gather Background Research Notes
-    // 10: ```lua         <- prologue opens
-    // 11: assert(false)  <- source_line = 11, absolute = 11
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\n## Gather Background Research Notes\n\n```lua\nassert(false)\n```\n\nGo.\n";
+    //  6: ## Gather Background Research Notes
+    //  8: ```lua         <- prologue opens
+    //  9: assert(false)  <- source_line = 9, absolute = 9
+    let src = "---\nname: x\ndescription: d\n---\n\n## Gather Background Research Notes\n\n```lua\nassert(false)\n```\n\nGo.\n";
     let prompt = parse_ok(src);
     let prologue = prompt
         .entry()
@@ -281,19 +306,19 @@ fn a_long_unique_section_title_maps_its_prologue_line() {
         prologue.location(),
         "section `Gather Background Research Notes` prologue"
     );
-    assert_runtime_error_line(prologue, 11);
+    assert_runtime_error_line(prologue, 9);
 }
 
 #[test]
 fn a_shared_title_whose_heading_line_reaches_100_maps_its_prologue_line() {
-    //  10: ### Research Worker Notes  <- under `A`
-    //  13: assert(false)              <- under `A` source_line = 13
-    //  16-105: Padding.
-    // 109: ### Research Worker Notes  <- under `B`
-    // 112: local pad = 1              <- under `B` source_line = 112
-    // 113: assert(false)              <- chunk line 2, absolute = 113
+    //   8: ### Research Worker Notes  <- under `A`
+    //  11: assert(false)              <- under `A` source_line = 11
+    //  14-103: Padding.
+    // 107: ### Research Worker Notes  <- under `B`
+    // 110: local pad = 1              <- under `B` source_line = 110
+    // 111: assert(false)              <- chunk line 2, absolute = 111
     let src = format!(
-        "---\nname: x\ndescription: d\n---\n\n# T\n\n\
+        "---\nname: x\ndescription: d\n---\n\n\
          ## A\n\n### Research Worker Notes\n\n```lua\nassert(false)\n```\n\n{}\n\
          ## B\n\n### Research Worker Notes\n\n```lua\nlocal pad = 1\nassert(false)\n```\n",
         "Padding.\n".repeat(90),
@@ -304,10 +329,10 @@ fn a_shared_title_whose_heading_line_reaches_100_maps_its_prologue_line() {
     let under_b = prologue(&prompt.sections[1].children()[0]);
     assert_eq!(
         under_b.location(),
-        "section `Research Worker Notes` (line 109) prologue"
+        "section `Research Worker Notes` (line 107) prologue"
     );
-    assert_eq!(under_b.source_line().get(), 112);
-    assert_runtime_error_line(&under_b, 113);
+    assert_eq!(under_b.source_line().get(), 110);
+    assert_runtime_error_line(&under_b, 111);
 
     let lua = mlua::Lua::new();
     let raw_error = under_b
@@ -325,21 +350,20 @@ fn a_shared_title_whose_heading_line_reaches_100_maps_its_prologue_line() {
 #[test]
 fn unrecognized_lua_label_error_reports_the_fence_opening_line() {
     // Lines:
-    //  6: # T
-    //  8: ## S
-    // 10: Prose.
-    // 12: ```lua extra <- the error points here
-    // 13: function f()
-    // 14: end
-    // 15: ```
-    // 17: ```Lua       <- a later offender, not reported
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\n\
+    //  6: ## S
+    //  8: Prose.
+    // 10: ```lua extra <- the error points here
+    // 11: function f()
+    // 12: end
+    // 13: ```
+    // 15: ```Lua       <- a later offender, not reported
+    let src = "---\nname: x\ndescription: d\n---\n\n\
          ## S\n\nProse.\n\n```lua extra\nfunction f()\nend\n```\n\n```Lua\nreturn 1\n```\n";
     let error = parse_err(src);
     assert_eq!(error.code, ErrorCode::FenceInvalid, "{error}");
     assert_eq!(
         location(&error),
-        Some(("prompt", 12, 1, 12, 13)),
+        Some(("prompt", 10, 1, 10, 13)),
         "the opening line without its newline: {error}"
     );
 }

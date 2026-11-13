@@ -1,5 +1,5 @@
 //! An author's own metatable on `_G`: it keeps working for every other
-//! global (defaults, strict errors, write hooks) in the H1 pass and in
+//! global (defaults, strict errors, write hooks) in the preamble and in
 //! later sections, set by a required library and across fences, while
 //! `argv`, `prose`, and `messages` stay guarded whatever author code does
 //! to `_G`'s metatable.
@@ -16,12 +16,12 @@ fn query_source() -> PromptSource {
 #[test]
 fn a_library_defaults_metatable_works_beside_read_only_argv_and_prose() {
     let source = query_source()
-        .h1(
+        .preamble(
             "
             require '/defaults'
-            assert(tone == 'friendly', 'H1 reads the default')
-            assert(not pcall(function() argv = 'hijacked' end), 'argv is read-only in H1')
-            assert(not pcall(function() prose = 'x' end), 'prose is read-only in H1')",
+            assert(tone == 'friendly', 'the preamble reads the default')
+            assert(not pcall(function() argv = 'hijacked' end), 'argv is read-only in the preamble')
+            assert(not pcall(function() prose = 'x' end), 'prose is read-only in the preamble')",
         )
         .prose(
             "First",
@@ -69,11 +69,11 @@ fn a_library_defaults_metatable_works_beside_read_only_argv_and_prose() {
 #[test]
 fn a_strict_metatable_raises_its_own_error_while_the_guard_serves_argv_prose_and_messages() {
     let source = query_source()
-        .h1(
+        .preamble(
             "
             require '/strict'
-            local ok, err = pcall(function() return undefined_in_h1 end)
-            assert(not ok and tostring(err):find('undefined global undefined_in_h1', 1, true), 'H1 is strict: ' .. tostring(err))",
+            local ok, err = pcall(function() return undefined_in_preamble end)
+            assert(not ok and tostring(err):find('undefined global undefined_in_preamble', 1, true), 'the preamble is strict: ' .. tostring(err))",
         )
         .prose(
             "Only",

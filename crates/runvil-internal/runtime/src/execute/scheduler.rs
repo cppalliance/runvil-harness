@@ -54,8 +54,8 @@
 //! teardown), `apply` the answer application, `chain` the chain lifecycle
 //! (chain start and the two chain-end paths), `chain_record` the chain
 //! record and the arena that holds it, `step` one chain's step to its next
-//! suspension point, `walk` the section walk rules, `h1` the H1 pass and
-//! its hand-off to the walk, `dispatch` the request arms, `chat` the one-round `chat` arm and its
+//! suspension point, `walk` the section walk rules and the root walk's
+//! start, `dispatch` the request arms, `chat` the one-round `chat` arm and its
 //! answer application, `tool_call` the script and model-issued `tool_call`
 //! arm (the two arms the section-visible `models.loop` shim drives),
 //! `tasks` the task arena and the `spawn` arm, `admission` the admission
@@ -79,7 +79,6 @@ mod chat;
 mod dispatch;
 mod drive;
 mod effects;
-mod h1;
 mod inbox;
 mod step;
 mod task_end;
@@ -111,11 +110,9 @@ use effects::{CallSite, Continuation, EffectTable, Pending, ToolCallContinuation
 use inbox::Inboxes;
 use tasks::TaskArena;
 
-/// The run's final result when no section produced a reply, which four
-/// fallback sites share: a prompt with neither H1 blocks nor sections, a
-/// top-level walk that ends with no text, by running past its last section
-/// or at a `return` that gave no value, an H1 pass with no walk after it,
-/// and an H1 pass that ends at a `return` that gave no value.
+/// The run's final result when the root walk ends with no text: by running
+/// past its last top-level section, a prompt with no section included, or
+/// at a `return` that gave no value.
 const GENERIC_COMPLETION: &str = "done";
 
 /// The most precise prompt-source line known for `blocks`: the first
@@ -131,19 +128,19 @@ fn first_chunk_line(blocks: &[Block]) -> u32 {
 }
 
 /// The observability origin for a capability the run acquires: `label` is
-/// the section or pass the capability serves, and the prompt's title
-/// stands in for a file name - a prompt's name is its title, since the
-/// source may never have existed on disk. Four shapes reach it: the H1
-/// pass's own title, the walk's title, a worker section's name for a task's
+/// what the capability serves, and the prompt's frontmatter `name`
+/// stands in for a file name, since the source may never have existed on
+/// disk. Three shapes reach it: the prompt's own name for the root walk,
+/// which serves every section in turn, a worker section's name for a task's
 /// spawn, and the tool id a `tool_call`'s access fork reports under.
 fn prompt_origin(prompt: &Prompt, label: &str, blocks: &[Block]) -> Origin {
-    Origin::at(label, prompt.title(), first_chunk_line(blocks))
+    Origin::at(label, prompt.frontmatter().name(), first_chunk_line(blocks))
 }
 
 /// The run's phase, as the step loop reads it.
 enum Phase {
     /// No chain has started: the next step checks that the run can start,
-    /// then starts the H1 pass or the walk.
+    /// then starts the root walk.
     Fresh,
     /// Chains run; the result is undecided.
     Running,
@@ -158,9 +155,8 @@ enum Phase {
 /// The coroutine protocol's driver: the chain arena, ready queue, effect
 /// table, task arena, and admission, owned outright by the run.
 pub(crate) struct Scheduler {
-    /// The root chain's state: cloned to start the H1 pass and the walk,
-    /// forked at the handoff between them, and read for the root task's
-    /// emitter, which reports the run's end.
+    /// The root chain's state: cloned to start the root walk, and read for
+    /// the root task's emitter, which reports the run's end.
     ctx: ChainState,
     /// The chain arena: append-only, indexed by [`ChainIndex`].
     chains: ChainArena,
@@ -188,9 +184,8 @@ pub(crate) struct Scheduler {
     /// identities and every store view of their accesses goes through it,
     /// and it closes the scope when the run reaches `Done` or is dropped
     /// before it, so a store view the caller still holds never outlives the
-    /// run. The two root-start sites (`h1::start_h1` and
-    /// `walk::start_root_walk`) are its only writers in a shipped Engine,
-    /// each at the acquisition that opens the run's identity.
+    /// run. The root start (`walk::start_root_walk`) is its only writer in
+    /// a shipped Engine, at the acquisition that opens the run's identity.
     scope: Option<ScopeHandle>,
 }
 

@@ -37,7 +37,7 @@ fn id(text: &str) -> PackId {
 fn prompt(front: &str) -> Prompt {
     let source = format!(
         "---\nname: t\ndescription: d\nrunvil: 0\n{front}---\n\n\
-         # Run\n\n## Only\n\n```lua\nreturn 'done'\n```\n"
+         ## Only\n\n```lua\nreturn 'done'\n```\n"
     );
     Prompt::parse(&|_: &str| Ok(source.clone()), "prompt")
         .expect("the requirements test prompt parses")

@@ -112,9 +112,8 @@ fn catalog() -> ToolCatalog {
 /// A prompt whose sections are `sections`, each a section's name and the
 /// Lua it runs as its only block, in order.
 fn prompt(sections: &[(&str, &str)]) -> Arc<Prompt> {
-    let mut source = String::from(
-        "---\nname: runner-test\ndescription: a runner fixture\nrunvil: 0\n---\n\n# Fixture\n",
-    );
+    let mut source =
+        String::from("---\nname: runner-test\ndescription: a runner fixture\nrunvil: 0\n---\n");
     for (name, lua) in sections {
         write!(source, "\n## {name}\n\n```lua\n{lua}\n```\n").expect("a String takes any write");
     }

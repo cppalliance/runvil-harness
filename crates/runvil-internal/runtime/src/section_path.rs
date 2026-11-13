@@ -3,11 +3,12 @@
 //!
 //! A section's Lua names another section by a path of titles. `name` is
 //! the direct child with that title and `../name` is the sibling, both
-//! counted from an [`Origin`], the section the path starts at. `/a/b`
+//! counted from the path's origin, the section the path starts at. `/a/b`
 //! starts at the top of the prompt and names one title per level, so it
 //! names the same section from everywhere. The grammar of steps, escapes,
 //! and trimming is `runvil_markdown::split`, which a path over parsed
-//! text shares.
+//! text shares. A step is never empty, so no path names the preamble,
+//! whose name is empty; a path can start at it, as at any section.
 //!
 //! Which forms a function takes is that function's rule, so the module
 //! has one entry per rule: [`resolve_neighbor`] for the functions that run
@@ -23,41 +24,19 @@ use crate::prompt::{Prompt, Section, detail};
 use crate::section_pos::{SectionIndex, SectionPos};
 use crate::{Error, Result, error};
 
-/// The section a relative path starts at.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Origin<'a> {
-    /// The H1, whose children are the top-level sections and which has no
-    /// siblings.
-    H1,
-    /// The section at this position.
-    Section(&'a SectionPos),
+/// The direct child of the section at `origin` titled `title`.
+fn child(origin: &SectionPos, prompt: &Prompt, title: &str) -> Option<SectionPos> {
+    let children = origin.section(prompt)?.children();
+    position(children, title, None).map(|index| origin.child(index))
 }
 
-impl Origin<'_> {
-    /// The direct child titled `title`.
-    fn child(self, prompt: &Prompt, title: &str) -> Option<SectionPos> {
-        match self {
-            Origin::H1 => position(detail::sections(prompt), title, None).map(SectionPos::top),
-            Origin::Section(pos) => {
-                let children = pos.section(prompt)?.children();
-                position(children, title, None).map(|index| pos.child(index))
-            }
-        }
-    }
-
-    /// The sibling titled `title`: another section under the same parent,
-    /// never the section itself.
-    fn sibling(self, prompt: &Prompt, title: &str) -> Option<SectionPos> {
-        match self {
-            Origin::H1 => None,
-            Origin::Section(pos) => {
-                position(pos.siblings(prompt), title, Some(pos.index)).map(|index| SectionPos {
-                    slice: pos.slice.clone(),
-                    index,
-                })
-            }
-        }
-    }
+/// The sibling of the section at `origin` titled `title`: another section
+/// under the same parent, never the section itself.
+fn sibling(origin: &SectionPos, prompt: &Prompt, title: &str) -> Option<SectionPos> {
+    position(origin.siblings(prompt), title, Some(origin.index)).map(|index| SectionPos {
+        slice: origin.slice.clone(),
+        index,
+    })
 }
 
 /// The index of the section titled `title` in `slice`, passing over the
@@ -104,7 +83,7 @@ impl Lookup {
 pub(crate) fn resolve_neighbor(
     given: &str,
     prompt: &Prompt,
-    origin: Origin<'_>,
+    origin: &SectionPos,
 ) -> Result<SectionPos> {
     let path = titles(given)?;
     if path.from_top {
@@ -124,7 +103,7 @@ pub(crate) fn resolve_neighbor(
 /// relative and neither relative form. A path that names no section is a
 /// [`Lookup::Missing`], not an error, so the caller decides whether a miss
 /// raises.
-pub(crate) fn find(given: &str, prompt: &Prompt, origin: Origin<'_>) -> Result<Lookup> {
+pub(crate) fn find(given: &str, prompt: &Prompt, origin: &SectionPos) -> Result<Lookup> {
     let path = titles(given)?;
     if path.from_top {
         from_top(given, &path.titles, prompt)
@@ -212,7 +191,12 @@ enum Wanted {
 /// # Errors
 /// Returns a `LuaRuntime` failure when the titles are neither `name` nor
 /// `..` and a name.
-fn neighbor(given: &str, titles: &[String], prompt: &Prompt, origin: Origin<'_>) -> Result<Lookup> {
+fn neighbor(
+    given: &str,
+    titles: &[String],
+    prompt: &Prompt,
+    origin: &SectionPos,
+) -> Result<Lookup> {
     let (wanted, title) = match titles {
         [name] if name == ".." => {
             return Err(error::make_lua_runtime_error(format!(
@@ -229,12 +213,18 @@ fn neighbor(given: &str, titles: &[String], prompt: &Prompt, origin: Origin<'_>)
         }
     };
     let found = match wanted {
-        Wanted::Child => origin.child(prompt, title),
-        Wanted::Sibling => origin.sibling(prompt, title),
+        Wanted::Child => child(origin, prompt, title),
+        Wanted::Sibling => sibling(origin, prompt, title),
     };
     Ok(match found {
         Some(pos) => Lookup::Found(pos),
-        None => Lookup::Missing(make_not_found_error(given, prompt, origin, wanted, title)),
+        None => Lookup::Missing(make_not_found_error(
+            given,
+            prompt,
+            Some(origin),
+            wanted,
+            title,
+        )),
     })
 }
 
@@ -252,10 +242,14 @@ fn from_top(given: &str, titles: &[String], prompt: &Prompt) -> Result<Lookup> {
     }
     let mut reached: Option<SectionPos> = None;
     for title in titles {
-        let origin = reached.as_ref().map_or(Origin::H1, Origin::Section);
-        let Some(pos) = origin.child(prompt, title) else {
-            // The walk stopped at `origin`, which has no such child.
-            let error = make_not_found_error(given, prompt, origin, Wanted::Child, title);
+        let found = match &reached {
+            None => position(detail::sections(prompt), title, None).map(SectionPos::top),
+            Some(parent) => child(parent, prompt, title),
+        };
+        let Some(pos) = found else {
+            // The walk stopped where it had reached, which has no such
+            // section below it.
+            let error = make_not_found_error(given, prompt, reached.as_ref(), Wanted::Child, title);
             return Ok(Lookup::Missing(error));
         };
         reached = Some(pos);
@@ -266,24 +260,34 @@ fn from_top(given: &str, titles: &[String], prompt: &Prompt) -> Result<Lookup> {
 }
 
 /// The error for a path that names no section: the path as it was given,
-/// the section that was searched, and what was wanted there. It lists no
-/// other section, so the error cannot show the rest of the prompt's
-/// structure.
+/// the section that was searched, or `None` for the top level, and what
+/// was wanted there. It lists no other section, so the error cannot show
+/// the rest of the prompt's structure. The preamble is named in words,
+/// because its address, the path of an empty name, would read as the top
+/// level.
 fn make_not_found_error(
     given: &str,
     prompt: &Prompt,
-    searched: Origin<'_>,
+    searched: Option<&SectionPos>,
     wanted: Wanted,
     title: &str,
 ) -> Error {
-    let looked = match (searched, wanted) {
-        (Origin::H1, Wanted::Child) => format!("the top level has no section `{title}`"),
-        (Origin::H1, Wanted::Sibling) => "the H1 has no siblings".to_owned(),
-        (Origin::Section(pos), Wanted::Child) => {
-            format!("`{}` has no child `{title}`", path_from_top(prompt, pos))
-        }
-        (Origin::Section(pos), Wanted::Sibling) => {
-            format!("`{}` has no sibling `{title}`", path_from_top(prompt, pos))
+    let looked = match searched {
+        None => format!("the top level has no section `{title}`"),
+        Some(pos) => {
+            let preamble = pos
+                .section(prompt)
+                .is_some_and(|section| section.name().is_empty());
+            let searched = if preamble {
+                "the preamble".to_owned()
+            } else {
+                format!("`{}`", path_from_top(prompt, pos))
+            };
+            let wanted = match wanted {
+                Wanted::Child => "child",
+                Wanted::Sibling => "sibling",
+            };
+            format!("{searched} has no {wanted} `{title}`")
         }
     };
 

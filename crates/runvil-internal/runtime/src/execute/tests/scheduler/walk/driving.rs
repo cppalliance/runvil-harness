@@ -11,7 +11,6 @@ fn nested_call_and_inference_run_end_to_end_on_a_current_thread_runtime() {
     // order.
     let gateway = ScriptedChat::new(vec![text("inner answer"), text("outer answer")]);
     let md = "---\nname: gate\ndescription: d\nrunvil: 0\n---\n\n\
-        # Gate\n\n\
         ## Outer\n\n\
         ```lua\n\
         local inner = call('../Inner')\n\
@@ -48,7 +47,6 @@ fn cancellation_while_suspended_on_infer_cancels_the_run() {
     // once the round is issued.
     let gateway = ScriptedChat::new(vec![text("too late")]);
     let md = "---\nname: cancel\ndescription: d\nrunvil: 0\n---\n\n\
-        # Cancel\n\n\
         ## Only\n\n\
         ```lua\nreturn models.infer('hang')\n```\n";
     let is_round = |effect: &Effect| matches!(effect, Effect::Chat { .. });
@@ -81,7 +79,6 @@ fn call_depth_cap_reads_the_chain_field() {
     // answer envelope without flattening, keeping the innermost call's
     // line and its own code.
     let md = "---\nname: depth\ndescription: d\nrunvil: 0\n---\n\n\
-        # Depth\n\n\
         ## Alpha\n\n\
         ```lua\nreturn call('../Beta')\n```\n\n\
         ## Beta\n\n\
@@ -93,7 +90,7 @@ fn call_depth_cap_reads_the_chain_field() {
         error,
         &crate::test_support::with_author_prose(
             crate::error::make_call_depth_exceeded_error(8),
-            12
+            10
         ),
         "expected the typed call-depth error on Alpha's call line"
     );
@@ -109,7 +106,6 @@ fn a_lua_infer_of_prose_uses_the_run_configured_client() {
     // the run's result.
     let gateway = ScriptedChat::new(vec![text("prose answer")]);
     let md = "---\nname: prose\ndescription: d\nrunvil: 0\n---\n\n\
-        # Prose\n\n\
         ## Only\n\n\
         Say something.\n\n\
         ```lua\nreturn models.infer(prose)\n```\n";
@@ -132,7 +128,6 @@ fn a_dispatch_failure_resumes_through_the_envelope_into_pcall() {
     // catches it; a driver that failed the chain instead would error the
     // run.
     let md = "---\nname: catch\ndescription: d\nrunvil: 0\n---\n\n\
-        # Catch\n\n\
         ## Only\n\n\
         ```lua\n\
         local ok, err = pcall(call, '../Missing')\n\

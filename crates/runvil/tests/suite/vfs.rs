@@ -18,7 +18,7 @@ const REVIEW: &str = concat!(
     "uses:\n  - user\n",
     "input: { path: notes.md, description: The operator's notes }\n",
     "output: { path: summary.md, description: The approved notes }\n",
-    "---\n\n# Review\n\n## Approve\n\n```lua\n",
+    "---\n\n## Approve\n\n```lua\n",
     "local notes = store.read('notes.md')\n",
     "local answer = tasks.receive()\n",
     "store.write('summary.md', notes .. ' ' .. answer)\n",
@@ -149,7 +149,8 @@ async fn a_hosts_edit_of_a_file_the_run_read_conflicts_while_the_run_waits_on_it
         seen.lock()
             .unwrap()
             .iter()
-            .any(|(_, file)| file == "Review")
+            .any(|(_, file)| file == "review"),
+        "the run's own file operations name the prompt by its frontmatter `name`"
     );
     assert_eq!(
         report.output.expect("the run completed"),

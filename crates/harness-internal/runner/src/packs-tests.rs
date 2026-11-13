@@ -183,7 +183,7 @@ fn host_with(services: &HostServices, packs: &[(PackInfo, Make, Value)]) -> Pack
 fn prompt(frontmatter: &str) -> Prompt {
     let source = format!(
         "---\nname: host-test\ndescription: d\nrunvil: 0\n{frontmatter}---\n\n\
-         # Title\n\n## Only\n\nDone.\n"
+         ## Only\n\nDone.\n"
     );
     let prompt = Prompt::parse(&|_: &str| Ok(source.clone()), "prompt");
     prompt.unwrap()

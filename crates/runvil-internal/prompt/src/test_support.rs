@@ -43,7 +43,7 @@ pub fn prose_block(text: String) -> Block {
 /// entry.
 ///
 /// The frontmatter has `name: t`, `description: d`, and `runvil: 0`,
-/// then the `front` lines, then `# Test prompt` and the sections. A heading
+/// then the `front` lines, then the sections. A heading
 /// that starts with `#` is written as given, and any other heading becomes an
 /// H2. Every line is trimmed, so `front` and each body can be indented raw
 /// strings.
@@ -64,15 +64,14 @@ pub fn one_section(lua: &str) -> String {
 
 /// A prompt source built part by part, for shapes [`prompt`] cannot express.
 ///
-/// Those shapes are another name or title, H1 blocks, and prose sections. It
+/// Those shapes are another name, a preamble, and prose sections. It
 /// has [`prompt`]'s defaults and trimming.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct PromptSource {
     name: String,
-    title: String,
     front: String,
-    h1: String,
+    preamble: String,
     sections: String,
 }
 
@@ -83,13 +82,12 @@ impl Default for PromptSource {
 }
 
 impl PromptSource {
-    /// The prompt `t`, titled `Test prompt`, with an empty H1 and no sections.
+    /// The prompt `t`, with no preamble and no sections.
     pub fn new() -> Self {
         Self {
             name: "t".to_owned(),
-            title: "Test prompt".to_owned(),
             front: String::new(),
-            h1: String::new(),
+            preamble: String::new(),
             sections: String::new(),
         }
     }
@@ -100,27 +98,22 @@ impl PromptSource {
         self
     }
 
-    /// Replaces the H1 title.
-    pub fn title(mut self, title: &str) -> Self {
-        title.clone_into(&mut self.title);
-        self
-    }
-
     /// Adds frontmatter lines after the fixed ones.
     pub fn front(mut self, front: &str) -> Self {
         self.front += &trimmed(front);
         self
     }
 
-    /// Adds a `lua` fence holding `lua` to the H1.
-    pub fn h1(self, lua: &str) -> Self {
-        self.h1_prose(&fence(lua))
+    /// Adds a `lua` fence holding `lua` to the preamble, the content
+    /// before the first section.
+    pub fn preamble(self, lua: &str) -> Self {
+        self.preamble_prose(&fence(lua))
     }
 
-    /// Adds the Markdown `text` to the H1.
-    pub fn h1_prose(mut self, text: &str) -> Self {
-        self.h1.push('\n');
-        self.h1 += &trimmed(text);
+    /// Adds the Markdown `text` to the preamble.
+    pub fn preamble_prose(mut self, text: &str) -> Self {
+        self.preamble.push('\n');
+        self.preamble += &trimmed(text);
         self
     }
 
@@ -140,8 +133,8 @@ impl PromptSource {
     #[must_use]
     pub fn build(&self) -> String {
         let head = format!("---\nname: {}\ndescription: d\nrunvil: 0\n", self.name);
-        let h1 = format!("{}---\n\n# {}\n{}", self.front, self.title, self.h1);
-        head + &h1 + &self.sections
+        let preamble = format!("{}---\n{}", self.front, self.preamble);
+        head + &preamble + &self.sections
     }
 }
 
@@ -176,14 +169,14 @@ pub fn parse_ok(src: &str) -> Prompt {
 ///
 /// # Panics
 ///
-/// When `src` parses, naming its title and showing the source's first lines.
+/// When `src` parses, naming the prompt and showing the source's first lines.
 #[track_caller]
 #[must_use]
 pub fn parse_err(src: &str) -> Error {
     match Prompt::parse(&|_: &str| Ok(src.to_owned()), "prompt") {
         Ok(prompt) => panic!(
             "expected an error, parsed `{}`\n{}",
-            prompt.title,
+            prompt.frontmatter.name(),
             excerpt(src)
         ),
         Err(error) => error,

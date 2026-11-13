@@ -4,8 +4,6 @@ description: Two arms append to one path
 runvil: 0
 ---
 
-# Fanout Cross Arm Append
-
 ## Research
 
 ```lua

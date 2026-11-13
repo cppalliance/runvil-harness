@@ -4,8 +4,6 @@ description: Two-item fanout with prologue-return arms
 runvil: 0
 ---
 
-# Fanout Basic
-
 ## Research
 
 ```lua

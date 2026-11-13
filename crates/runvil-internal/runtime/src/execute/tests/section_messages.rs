@@ -143,15 +143,21 @@ fn a_called_sections_loop_sends_only_its_own_list_and_leaves_the_callers() {
 }
 
 #[test]
-fn the_first_section_starts_empty_after_h1_ran_a_loop() {
+fn a_section_starts_empty_after_the_preamble_ran_a_loop() {
     let source = PromptSource::new()
-        .h1("messages:user('h1 question')
+        .preamble(
+            "messages:user('preamble question')
              models.loop()
-             var.h1 = #messages")
-        .section("Only", "return var.h1 .. '|' .. #messages");
-    let (out, gateway) = run(&source, vec![text("h1 reply")]);
+             var.preamble = #messages",
+        )
+        .section("Only", "return var.preamble .. '|' .. #messages");
+    let (out, gateway) = run(&source, vec![text("preamble reply")]);
     assert_eq!(out, "2|0");
-    assert_eq!(gateway.call_count(), 1, "only the H1 loop sent a round");
+    assert_eq!(
+        gateway.call_count(),
+        1,
+        "only the preamble's loop sent a round"
+    );
 }
 
 #[test]
@@ -348,7 +354,7 @@ fn the_loop_entry_takes_its_two_shapes_and_checks_the_compactor_before_a_running
         compactor,
         LOOP_RUNNING,
     ]
-    .map(|message| format!("false:lua:{}", refused(15, message)));
+    .map(|message| format!("false:lua:{}", refused(13, message)));
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(
         lines[..7],

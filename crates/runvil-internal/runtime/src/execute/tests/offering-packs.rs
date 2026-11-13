@@ -25,8 +25,7 @@ fn an_offered_pack_reaches_only_the_rounds_of_the_section_entry_that_offered_it(
     };
     let source = format!(
         "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-         # Packs\n\n\
-         ```lua\ntools.offer('kit')\n{h1}```\n\n\
+         ```lua\ntools.offer('kit')\n{preamble}```\n\n\
          ## A\n\n\
          ```lua\n\
          tools.offer('kit/a')\n\
@@ -44,7 +43,7 @@ fn an_offered_pack_reaches_only_the_rounds_of_the_section_entry_that_offered_it(
          ```lua\n{called}return 'called'\n```\n\n\
          ## Worker\n\n\
          ```lua\nrequire '/offers'\n{worker}return 'worker'\n```\n",
-        h1 = round("Packs"),
+        preamble = round("Packs"),
         a = round("A"),
         b = round("B"),
         called = round("Called"),

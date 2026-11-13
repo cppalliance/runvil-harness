@@ -97,9 +97,9 @@ fn a_model_calls_origin_names_its_rounds_model_and_a_script_calls_names_none() {
         origins(&rig),
         vec![
             ToolCallOrigin::new("Only", ToolCaller::Model)
-                .with_entry("0.1")
+                .with_entry("0.0")
                 .with_model(loop_model_name("default")),
-            script_call("Only", "0.1"),
+            script_call("Only", "0.0"),
         ],
         "the model call names its round's model, and the script call after that round names none"
     );
@@ -192,7 +192,7 @@ fn re_entering_a_section_gives_each_entrys_call_its_own_entry_id() {
     assert_eq!(rig.trace().text(), "done");
     assert_eq!(
         origins(&rig),
-        vec![script_call("Loop", "0.1"), script_call("Loop", "0.3")],
+        vec![script_call("Loop", "0.0"), script_call("Loop", "0.2")],
         "both entries share the section's name, and each names its own entry"
     );
 }

@@ -179,16 +179,16 @@ fn main_waits(records: &[Record]) -> usize {
 const FILES: &str = "---\nname: files\ndescription: d\nrunvil: 0\n\
     input:\n  path: paper.md\n  description: The paper\n\
     output:\n  path: report.md\n  description: The report\n---\n\n\
-    # Title\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     store.write('report.md', 'seen: ' .. store.read('paper.md'))\nreturn 'done'\n```\n";
 
 /// A prompt whose one section writes a store file and then raises.
 const RAISES: &str = "---\nname: raises\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n## Only\n\n```lua\nstore.write('a.md', '1')\nerror('the section gives up')\n```\n";
+    ## Only\n\n```lua\nstore.write('a.md', '1')\nerror('the section gives up')\n```\n";
 
 /// A prompt that writes two store files and reads them back.
 const WRITES_TWICE: &str = "---\nname: writes\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     store.write('a.md', '1')\nstore.write('b.md', '2')\n\
     return store.read('a.md') .. store.read('b.md')\n```\n";
 
@@ -196,13 +196,13 @@ const WRITES_TWICE: &str = "---\nname: writes\ndescription: d\nrunvil: 0\n---\n\
 /// and returns the reply beside the file.
 const INFERS_AND_STORES: &str = "---\nname: infers\ndescription: d\nrunvil: 0\n\
     ---\n\n\
-    # Title\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     store.write('note.md', 'kept')\n\
     return models.infer('asked') .. '|' .. store.read('note.md')\n```\n";
 
 /// A prompt that returns the `ui()` snapshot's two fields.
 const READS_UI: &str = "---\nname: reads-ui\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     return tostring(ui().selected_model) .. '|' .. tostring(ui().workspace_root)\n```\n";
 
 #[tokio::test]

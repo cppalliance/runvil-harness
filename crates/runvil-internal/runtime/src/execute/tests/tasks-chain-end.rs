@@ -2,8 +2,8 @@
 //! `make_tasks_live_error` naming the leaked ids (as the run's error at the root, as
 //! the call's answer for a `call` chain), the leaked tasks are abandoned;
 //! a running task's terminal names how its owner ended (returned, failed,
-//! or exhausted its tool loop); a task spawned in H1 belongs to the walk
-//! after the hand-off; an aborted chain's owned tasks abort with it.
+//! or exhausted its tool loop); a task spawned in the preamble belongs to
+//! the root chain; an aborted chain's owned tasks abort with it.
 
 use runvil_prompt::test_support::prompt;
 use runvil_types::ids::AbandonReason;
@@ -54,7 +54,7 @@ fn a_chain_ending_with_live_author_tasks_fails_as_tasks_live_naming_the_ids() {
         error,
         &crate::test_support::placed(
             crate::error::make_tasks_live_error(&[task("0.0"), task("0.1")]),
-            12
+            10
         ),
         "leaked ids in spawn order, on the line that spawned the first"
     );
@@ -160,7 +160,7 @@ fn a_returning_owner_abandons_its_running_task_as_owner_returned() {
     let rig = run_abandoning_a_running_task(scheduler_scenario(md), AbandonReason::OwnerReturned);
     assert_eq!(
         rig.trace().error(),
-        &crate::test_support::placed(crate::error::make_tasks_live_error(&[task("0.0")]), 12)
+        &crate::test_support::placed(crate::error::make_tasks_live_error(&[task("0.0")]), 10)
     );
 }
 
@@ -201,7 +201,7 @@ fn an_exhausted_tool_loop_abandons_its_running_task_as_tool_loop_exhausted() {
     let rig = run_abandoning_a_running_task(scenario, AbandonReason::ToolLoopExhausted);
     let error = rig.trace().error();
     assert!(
-        error == &crate::test_support::placed(crate::error::make_tool_loop_exhausted_error(), 17),
+        error == &crate::test_support::placed(crate::error::make_tool_loop_exhausted_error(), 15),
         "the owner's own error stands, on its loop's line: {error:?}"
     );
 }
@@ -213,7 +213,6 @@ fn an_exhausted_tool_loop_abandons_its_running_task_as_tool_loop_exhausted() {
 fn moving_spawner_prompt(movement: &str) -> String {
     format!(
         "---\nname: tasks\ndescription: d\nrunvil: 0\n---\n\n\
-         # Tasks\n\n\
          ## Spawner\n\n\
          ```lua\n\
          tasks.spawn('../Child')\n\
@@ -238,7 +237,7 @@ fn assert_task_outlives_movement(md: String) {
 
     assert_eq!(
         rig.trace().error(),
-        &crate::test_support::placed(crate::error::make_tasks_live_error(&[task("0.0")]), 12),
+        &crate::test_support::placed(crate::error::make_tasks_live_error(&[task("0.0")]), 10),
         "the walk still owns the task when the sibling returns, spawned on the spawner's line"
     );
     assert_eq!(
@@ -276,7 +275,6 @@ fn a_call_chain_ending_with_a_live_task_answers_tasks_live_to_its_caller() {
     // `pcall` sees the `make_tasks_live_error` kind with the leaked ids in `tasks`,
     // and the task ended with the call chain that owned it.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Tasks\n\n\
         ## Main\n\n\
         ```lua\n\
         local ok, err = pcall(call, '../Leaky')\n\
@@ -317,7 +315,6 @@ fn a_fanout_arm_leaking_a_task_fails_on_the_arms_own_spawn_line() {
     // before the fanout delivers it, so the parent's re-raise and the run
     // keep that line rather than the parent's `tasks.fanout` line.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Tasks\n\n\
         ## Main\n\n\
         ```lua\n\
         return tasks.fanout('../Worker', {'only'})[1].text\n\
@@ -339,29 +336,27 @@ fn a_fanout_arm_leaking_a_task_fails_on_the_arms_own_spawn_line() {
     assert_eq!(error.code, ErrorCode::TasksLive, "{error:?}");
     assert_eq!(
         error.at,
-        at_line(19),
+        at_line(17),
         "the Worker's `tasks.spawn` line, not Main's fanout line: {error:?}"
     );
     let message = error.located_message();
     assert!(
-        message.ends_with(" (at prompt:19)"),
+        message.ends_with(" (at prompt:17)"),
         "the located message ends with where it failed: {message}"
     );
 }
 
 #[test]
-fn a_task_spawned_in_h1_belongs_to_the_main_walk() {
-    // H1 spawns a child that parks; the walk's first section returns at
-    // once. The hand-off made the walk the task's owner, so the walk's end
-    // is the leak: without the reassignment the pass's task would belong
-    // to a chain that never finishes and the run would end `done`. The
-    // task was never admitted - neither the pass nor the walk suspended
-    // between the spawn and the walk's end - so it reports no start and
+fn a_task_spawned_in_the_preamble_belongs_to_the_root_chain() {
+    // The preamble spawns a child that parks, then falls through to the
+    // first heading's section, which returns at once. The preamble and
+    // that section are one chain, so the chain owns the task and its end
+    // is the leak. The task was never admitted - the chain did not
+    // suspend between the spawn and its end - so it reports no start and
     // no terminal, though its entry ends Abandoned.
-    let md = "---\nname: h1\ndescription: d\nrunvil: 0\n---\n\n\
-        # Tasks\n\n\
+    let md = "---\nname: preamble\ndescription: d\nrunvil: 0\n---\n\n\
         ```lua\n\
-        tasks.spawn('Child')\n\
+        tasks.spawn('../Child')\n\
         ```\n\n\
         ## Main\n\n\
         ```lua\n\
@@ -376,8 +371,8 @@ fn a_task_spawned_in_h1_belongs_to_the_main_walk() {
 
     assert_eq!(
         rig.trace().error(),
-        &crate::test_support::placed(crate::error::make_tasks_live_error(&[task("0.0")]), 10),
-        "the walk owns H1's task and leaks it, placed on the H1's spawn"
+        &crate::test_support::placed(crate::error::make_tasks_live_error(&[task("0.0")]), 8),
+        "the chain owns the preamble's task and leaks it, placed on the preamble's spawn"
     );
     assert_eq!(
         rig.task_state_for_test(&task("0.0")),
@@ -399,7 +394,6 @@ fn aborting_a_chain_abandons_the_tasks_it_owns() {
     // still queued - so it reports no start and no terminal, and its
     // chain never runs its block.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Tasks\n\n\
         ## Main\n\n\
         ```lua\n\
         local ok, err = pcall(tasks.fanout, '../Worker', {'spawner', 'boom'})\n\

@@ -27,7 +27,7 @@ fn echo_id() -> ToolId {
 
 /// The origin of a script call made in the fixture prompt's one section.
 fn script_origin() -> ToolCallOrigin {
-    ToolCallOrigin::new("Only", ToolCaller::Script).with_entry("0.1")
+    ToolCallOrigin::new("Only", ToolCaller::Script).with_entry("0.0")
 }
 
 /// A run of the one section `lua` over a catalog of the echo fixture and a
@@ -165,8 +165,8 @@ fn a_script_call_naming_a_string_without_a_slash_raises_before_any_resolution() 
         rig.trace().text(),
         format!(
             "lua:{}|{}",
-            refused(12, "tools.call: \"tools_echo\" is not a tool id"),
-            refused(13, "tools.call: \"echo\" is not a tool id")
+            refused(10, "tools.call: \"tools_echo\" is not a tool id"),
+            refused(11, "tools.call: \"echo\" is not a tool id")
         )
     );
     assert!(rig.issued().is_empty(), "nothing was issued");
@@ -221,7 +221,7 @@ fn a_name_that_is_no_catalog_id_is_unbound_and_lists_the_catalog_ids() {
                 "tools/missing",
                 &["tools/concrete".to_owned(), ECHO_ID.to_owned()]
             ),
-            12
+            10
         ),
         "every catalog tool's id is listed, in id order, on the returning call's line"
     );

@@ -62,7 +62,6 @@ fn bench_catalog(context: u32) -> ModelCatalog {
 
 /// One section driving `models.loop` over its `messages` list.
 const LOOP_PROMPT: &str = "---\nname: bench_loop\ndescription: d\nrunvil: 0\n---\n\n\
-    # Bench\n\n\
     ## Only\n\n\
     ```lua\n\
     messages:user('hi')\n\

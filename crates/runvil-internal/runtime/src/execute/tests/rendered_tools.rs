@@ -62,7 +62,7 @@ fn a_first_round_the_precheck_refuses_still_fixes_the_tool_list() {
         .run();
     assert_eq!(
         trace.text(),
-        format!("lua:{}", refused(16, &format!("tools.offer: {FIXED}")))
+        format!("lua:{}", refused(14, &format!("tools.offer: {FIXED}")))
     );
     let bodies = gateway.requests();
     assert_eq!(bodies.len(), 1, "only the round on the wide model left");
@@ -150,13 +150,13 @@ fn after_the_render_every_offer_raises_even_an_identical_one_while_defining_stil
     assert_eq!(
         lines[..5],
         [
-            offer(16),
+            offer(14),
+            offer(21),
+            offer(22),
             offer(23),
-            offer(24),
-            offer(25),
             format!(
                 "lua:{}",
-                refused(26, &format!("tools.offer_dynamic: {FIXED}"))
+                refused(24, &format!("tools.offer_dynamic: {FIXED}"))
             ),
         ],
         "a handler's offer during the loop, then an identical re-offer of a tool \
@@ -223,7 +223,7 @@ fn a_first_round_refused_over_an_empty_list_renders_nothing() {
         .offer("echo", echo_tool())
         .chat(&gateway)
         .run();
-    assert_eq!(trace.text(), refused(12, "messages must not be empty"));
+    assert_eq!(trace.text(), refused(10, "messages must not be empty"));
     let bodies = gateway.requests();
     assert_eq!(bodies.len(), 1, "the refused round never left");
     assert_eq!(
@@ -257,7 +257,7 @@ fn a_first_round_refused_for_a_missing_model_renders_nothing() {
         .run();
     assert_eq!(
         trace.text(),
-        format!("prompt:13: {}", ErrorCode::ModelRequired.prose()),
+        format!("prompt:11: {}", ErrorCode::ModelRequired.prose()),
         "a missing model keeps its remedy prose"
     );
     let bodies = gateway.requests();
@@ -296,7 +296,7 @@ fn a_first_round_whose_tool_build_fails_renders_nothing() {
     assert_eq!(
         trace.text(),
         format!(
-            "internal:prompt:14: {}",
+            "internal:prompt:12: {}",
             ErrorCode::ToolSchemaInvalid.prose()
         )
     );

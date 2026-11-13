@@ -20,7 +20,6 @@ use super::*;
 /// round the test never answers, so the run is canceled with the task
 /// live.
 const CHILD_PARKED_ON_ROUND: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Termination\n\n\
     ## Spawner\n\n\
     ```lua\n\
     local t = tasks.spawn('../Child')\n\

@@ -14,7 +14,6 @@ fn two_tasks_whose_call_children_finish_in_any_order_both_complete() {
     // issue order, A's child finishes while B's is still running; answered
     // in reverse, B's finishes first. Every order completes both calls.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Calls\n\n\
         ## Main\n\n\
         ```lua\n\
         var.who = 'a'\n\
@@ -54,7 +53,6 @@ fn a_queued_task_that_can_never_be_admitted_is_reported_as_a_stall() {
     // Pending with nothing to answer. No task waits on its inbox, so only
     // an Engine fault gets here, and the report is an internal error.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Limits\n\n\
         ## Main\n\n\
         ```lua\n\
         store.write('park', 'x')\n\

@@ -415,7 +415,7 @@ fn a_render_answer_that_breaks_the_merge_fails_its_round_and_fixes_no_tools() {
     assert_eq!(
         text_of(result),
         format!(
-            "internal:prompt:14: {}|done",
+            "internal:prompt:12: {}|done",
             ErrorCode::ToolSetsInvalid.prose()
         )
     );

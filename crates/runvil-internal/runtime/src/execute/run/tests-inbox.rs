@@ -2,9 +2,9 @@
 //! message and returns the events to record before the next step, the
 //! `InboxMessage` event that reports the message last, the next step
 //! applies it, and `tasks.receive()` takes the oldest message or waits
-//! for one, in the main chain, the H1 pass, and their `call` children.
-//! `waiting_for_input` reports that wait, and `Step::Done` hands back every
-//! message the run never read.
+//! for one, in every section of the main chain, the preamble included, and
+//! in its `call` children. `waiting_for_input` reports that wait, and
+//! `Step::Done` hands back every message the run never read.
 
 use runvil_prompt::test_support::{PromptSource, prompt};
 use runvil_types::ids::{ChainId, TaskId};
@@ -184,13 +184,13 @@ fn deliver_returns_the_inbox_message_event_and_the_applying_step_reports_no_seco
 }
 
 #[test]
-fn deliver_before_the_run_starts_reports_under_the_prompts_title() {
+fn deliver_before_the_run_starts_reports_under_the_prompts_name() {
     let mut run = run_of("return tasks.receive()", run_params());
     let delivered = run.deliver("early".to_owned());
     let event = only_event(&delivered);
     assert!(
-        matches!(event, Event::InboxMessage { section, text, .. } if section == "Run" && text == "early"),
-        "no section runs yet, so the event reports under the title: {event:?}"
+        matches!(event, Event::InboxMessage { section, text, .. } if section == "t" && text == "early"),
+        "no section runs yet, so the event reports under the prompt's name: {event:?}"
     );
     assert_eq!(event.provenance().task, main_task());
     let (result, _) = done(&mut run);
@@ -286,7 +286,7 @@ fn a_canceled_run_hands_back_the_message_its_woken_reader_never_resumed_with() {
 
 #[test]
 fn a_run_that_cannot_start_hands_back_the_messages_delivered_before_it() {
-    let source = "---\nname: t\ndescription: d\nrunvil: 7\n---\n\n# Run\n\n## Only\n\ndone\n";
+    let source = "---\nname: t\ndescription: d\nrunvil: 7\n---\n\n## Only\n\ndone\n";
     let mut run = run_of_source(source);
     let _ = run.deliver("early".to_owned());
     let (result, unread) = done(&mut run);
@@ -323,22 +323,22 @@ fn a_receive_in_a_call_child_reads_the_main_chains_inbox() {
 }
 
 #[test]
-fn the_h1_pass_and_the_walk_after_it_read_one_inbox() {
+fn the_preamble_and_the_section_after_it_read_one_inbox() {
     let source = PromptSource::new()
-        .h1("var.first = tasks.receive()")
+        .preamble("var.first = tasks.receive()")
         .section("Only", "return var.first .. '|' .. tasks.receive()")
         .build();
     let mut run = run_of_source(&source);
     let (_, _, waiting) = pending(&mut run);
     assert!(
         waiting,
-        "the H1 pass is the main chain, waiting on its inbox"
+        "the preamble runs in the main chain, waiting on its inbox"
     );
     let _ = run.deliver("one".to_owned());
     let _ = run.deliver("two".to_owned());
     let (result, unread) = done(&mut run);
     assert_eq!(
-        result.expect("the walk reads the second message"),
+        result.expect("the next section reads the second message"),
         "one|two"
     );
     assert!(unread.is_empty(), "{unread:?}");

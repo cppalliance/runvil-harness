@@ -1,6 +1,6 @@
 //! Library code issues effects as part of the calling section: `store`,
-//! model, and tool calls while it loads, and prompt-wide state an H1
-//! `require` sets for every later section.
+//! model, and tool calls while it loads, and the state a library the
+//! preamble requires sets in `var` for the sections after it.
 
 use crate::execute::tests::fixtures::echo_tool;
 use crate::model::ToolSchema;
@@ -42,9 +42,9 @@ fn library_code_makes_store_model_and_tool_calls_while_it_loads() {
 }
 
 #[test]
-fn an_h1_library_sets_prompt_wide_state_every_later_section_sees() {
+fn a_library_the_preamble_requires_sets_state_in_var_that_the_next_section_sees() {
     let source = effect_source()
-        .h1("require '/setup'")
+        .preamble("require '/setup'")
         .section(
             "Main",
             "
@@ -60,7 +60,7 @@ fn an_h1_library_sets_prompt_wide_state_every_later_section_sees() {
     assert_eq!(
         trace.text(),
         "ready:pong",
-        "the loop runs after the H1 library set the state the section reads"
+        "the loop runs after the preamble's library set the state the section reads"
     );
     let round = gateway
         .last_request()

@@ -27,7 +27,6 @@ pub const GREETER: &str = concat!(
     "description: Writes a note, asks a model to reply, and shouts the reply.\n",
     "runvil: 0\n",
     "---\n\n",
-    "# Greeter\n\n",
     "## Greet\n\n",
     "```lua\n",
     "store.write('note.md', 'hello')\n",

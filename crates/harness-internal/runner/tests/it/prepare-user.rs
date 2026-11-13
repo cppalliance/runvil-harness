@@ -8,12 +8,12 @@ use super::*;
 
 /// A prompt that declares the user Pack and returns a constant.
 const NEEDS_USER: &str = "---\nname: needs-user\ndescription: d\nrunvil: 0\n\
-    uses:\n  - user\n---\n\n# Title\n\n## Only\n\n```lua\nreturn 'ran'\n```\n";
+    uses:\n  - user\n---\n\n## Only\n\n```lua\nreturn 'ran'\n```\n";
 
 /// A prompt that declares no Pack and returns the type of what
 /// `tools.packs.get('user')` hands back.
 const CHECKS_USER: &str = "---\nname: checks-user\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n## Only\n\n```lua\nreturn type(tools.packs.get('user'))\n```\n";
+    ## Only\n\n```lua\nreturn type(tools.packs.get('user'))\n```\n";
 
 /// The setup of a run with a user, recorded through `recorder`.
 fn with_user(recorder: &Arc<MemoryRecorder>) -> RunSetup {

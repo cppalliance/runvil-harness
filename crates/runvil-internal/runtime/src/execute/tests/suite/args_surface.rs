@@ -6,6 +6,7 @@
 //! `var`; and `{{ argv }}` joins the prose substitution namespaces.
 
 use runvil_prompt::test_support::{PromptSource, prompt};
+use runvil_types::error::ErrorCode;
 
 use crate::test_support::scenario::Scenario;
 
@@ -93,13 +94,16 @@ fn the_executor_never_hard_errors_on_shape() {
 }
 
 #[test]
-fn a_strict_h1_errors_on_a_missing_field() {
+fn a_strict_preamble_errors_on_a_missing_field() {
+    // The preamble runs first, so its own check of `argv` fails the run
+    // before the next section, as a Lua error like any section's.
     let source = PromptSource::new()
         .front(QUERY)
-        .h1("assert(argv and argv.query, 'query is required')")
+        .preamble("assert(argv and argv.query, 'query is required')")
         .section("Only", "return 'unreachable'");
     let trace = Scenario::new(source.build()).args("{}").run();
     let error = trace.error();
+    assert_eq!(error.code, ErrorCode::LuaRuntime, "{error:?}");
     assert!(
         error.to_string().contains("query is required"),
         "the assertion notice surfaces: {error}"
@@ -168,10 +172,10 @@ fn a_field_write_on_argv_is_an_error() {
 }
 
 #[test]
-fn argv_is_read_only_in_the_h1_too() {
+fn argv_is_read_only_in_the_preamble_too() {
     let source = PromptSource::new()
         .front(QUERY)
-        .h1("argv = { query = 'hijacked' }")
+        .preamble("argv = { query = 'hijacked' }")
         .section("Only", "return 'unreachable'");
     let trace = Scenario::new(source.build())
         .args("{\"query\":\"x\"}")

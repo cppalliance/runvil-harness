@@ -31,7 +31,6 @@ const ROUND_TRIP_PROMPT: &str = concat!(
     "  path: report.md\n",
     "  description: The output report\n",
     "---\n\n",
-    "# Review\n\n",
     "## Summarize\n\n",
     "```lua\n",
     "local paper = store.read('paper.md')\n",
@@ -52,7 +51,6 @@ const MISSING_OUTPUT: &str = concat!(
     "  path: report.md\n",
     "  description: The output report\n",
     "---\n\n",
-    "# Review\n\n",
     "## Summarize\n\n",
     "```lua\n",
     "local paper = store.read('paper.md')\n",
@@ -213,7 +211,6 @@ fn fanout_interleaving_is_invariant_across_memory_and_real_backends() {
 }
 
 const HELD_STORE: &str = "---\nname: held-store\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n\
     ## Only\n\n\
     ```lua\n\
     store.write('kept.txt', 'from the run')\n\

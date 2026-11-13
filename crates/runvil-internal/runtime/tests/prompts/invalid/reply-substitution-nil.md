@@ -4,8 +4,6 @@ description: Reading prose with a reply substitution fails because reply names n
 runvil: 0
 ---
 
-# Reply Substitution Nil
-
 ## Only
 
 Previous reply was {{ reply }}.

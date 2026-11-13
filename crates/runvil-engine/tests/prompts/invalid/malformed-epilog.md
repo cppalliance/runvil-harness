@@ -4,8 +4,6 @@ description: Invalid because the trailing epilog is malformed Lua
 runvil: 0
 ---
 
-# Malformed Epilog
-
 ## Transform
 
 Ask the model for a response.

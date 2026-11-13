@@ -141,7 +141,7 @@ fn pcall_catches_a_read_site_substitution_error() {
     );
     let caught = Scenario::new(source).run().text().to_owned();
     assert!(
-        caught.starts_with("prompt:11: missing {{ var.missing }}"),
+        caught.starts_with("prompt:9: missing {{ var.missing }}"),
         "the substitution error surfaces on its template's line: {caught}"
     );
 }
@@ -169,11 +169,11 @@ fn an_uncaught_read_error_fails_the_run() {
     assert_eq!(error.code, ErrorCode::Substitution, "{error:?}");
     assert_eq!(
         error.at,
-        at_line(12),
+        at_line(10),
         "the placeholder's line, not the read's: {error:?}"
     );
     let message = error.located_message();
-    assert!(message.ends_with(" (at prompt:12)"), "{message}");
+    assert!(message.ends_with(" (at prompt:10)"), "{message}");
 }
 
 #[test]

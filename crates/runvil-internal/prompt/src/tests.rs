@@ -1,4 +1,5 @@
-//! Crate-wide parser tests: frontmatter, headings, fences, lists, breaks, and line mapping.
+//! Crate-wide parser tests: frontmatter, headings, the preamble, fences, lists, breaks, and
+//! line mapping.
 
 use runvil_lua::LuaProgram;
 use runvil_types::error::{Error, ErrorCode, ErrorFact};
@@ -10,10 +11,10 @@ use crate::test_support::{
 
 mod breaks;
 mod frontmatter;
-mod h1_fences;
 mod headings;
 mod line_mapping;
 mod lists;
+mod preamble_fences;
 mod section_fences;
 
 /// `lua` fences whose opening line breaks the Opener rule, each closed by a
@@ -52,7 +53,7 @@ fn frontmatter_syntax_errors_report_a_position_without_a_name() {
     // A malformed-YAML frontmatter is located at the serde_yaml_ng position
     // (1-based, file-absolute), a point at the line and column; the failure
     // predates the prompt's name, so none is reported.
-    let error = parse_err("---\nname: p\ndescription: d\n: : :\n---\n\n# T\n\n## S\n\nhi\n");
+    let error = parse_err("---\nname: p\ndescription: d\n: : :\n---\n\n## S\n\nhi\n");
     assert_eq!(error.code, ErrorCode::FrontmatterInvalid);
     let Some((file, line, column, end_line, end_column)) = location(&error) else {
         panic!("the malformed line is located: {error:?}");
@@ -70,26 +71,30 @@ fn structured_errors_report_the_prompt_name_and_source_position() {
     // source.
     let src = concat!(
         "---\nname: dup\ndescription: d\n---\n", // lines 1-4
-        "\n# T\n\n## S\n\np\n\n## S\n\nq\n",     // the second `## S` heads line 12
+        "\n## S\n\np\n\n## S\n\nq\n",            // the second `## S` heads line 10
     );
     let error = parse_err(src);
     assert_eq!(error.code, ErrorCode::StructureInvalid);
     assert_eq!(error.facts.get(&ErrorFact::Name), Some(&"dup".into()));
     assert_eq!(
         location(&error),
-        Some(("prompt", 12, 1, 13, 1)),
+        Some(("prompt", 10, 1, 11, 1)),
         "the duplicate heading's line, through its newline: {error}"
     );
 }
 
 #[test]
 fn orphan_and_empty_heading_errors_report_a_line() {
-    // The frontmatter takes lines 1-4, `# T` is line 6, and the body starts
-    // on line 8. Each span is the heading line through its newline.
-    for (body, line) in [("## A\n\na\n\n#### D\n\nd\n", 12), ("## \n\na\n", 8)] {
-        let error = parse_err(&format!(
-            "---\nname: x\ndescription: d\n---\n\n# T\n\n{body}"
-        ));
+    // The frontmatter takes lines 1-4, so the first heading is on line 6.
+    // In turn: `D` skips a level under `A`, `A` is deeper than the later
+    // `B`, and the lone heading is empty. Each span is the heading line
+    // through its newline.
+    for (body, line) in [
+        ("## A\n\na\n\n#### D\n\nd\n", 10),
+        ("## A\n\na\n\n# B\n\nb\n", 6),
+        ("## \n\na\n", 6),
+    ] {
+        let error = parse_err(&format!("---\nname: x\ndescription: d\n---\n\n{body}"));
         assert_eq!(error.code, ErrorCode::StructureInvalid, "{error}");
         assert_eq!(
             location(&error),
@@ -119,8 +124,8 @@ fn parsed_prompt_value_types_are_equatable() {
 fn parses_multi_section_with_all_features() {
     let src = PromptSource::new()
         .name("demo")
-        .title("Demo Title")
-        .h1_prose("Human-readable intro text.")
+        .preamble_prose("Human-readable intro text.")
+        .preamble("local ready = true")
         .prose(
             "First",
             "```lua\nlocal x = 1\n```\n\nProse for the first section.",
@@ -132,17 +137,25 @@ fn parses_multi_section_with_all_features() {
     let p = parse_ok(&src);
     assert_eq!(p.frontmatter.name(), "demo");
     assert_eq!(p.frontmatter.description(), "d");
-    assert_eq!(p.title, "Demo Title");
+
+    assert_eq!(p.sections.len(), 3);
+    let preamble = &p.sections[0];
+    assert_eq!(preamble.name, "");
+    assert_eq!(preamble.level, 2);
+    assert!(preamble.children.is_empty());
     assert_eq!(
-        p.h1_blocks,
-        vec![Block::Prose {
+        preamble.blocks[0],
+        Block::Prose {
             text: BodyText::from_owned("Human-readable intro text.".to_owned()),
-            line: std::num::NonZeroU32::new(9).expect("9 is non-zero"),
-        }]
+            line: std::num::NonZeroU32::new(7).expect("7 is non-zero"),
+        }
+    );
+    assert_eq!(
+        preamble.epilog().map(LuaProgram::source),
+        Some("local ready = true")
     );
 
-    assert_eq!(p.sections.len(), 2);
-    let first = &p.sections[0];
+    let first = &p.sections[1];
     assert_eq!(first.name, "First");
     assert_eq!(first.level, 2);
     assert_eq!(
@@ -156,9 +169,9 @@ fn parses_multi_section_with_all_features() {
     assert_eq!(first.children[0].level, 3);
     assert_eq!(first.children[0].prose(), "Child prose.");
 
-    assert_eq!(p.sections[1].name, "Second");
-    assert!(p.sections[1].prologue().is_none());
-    assert!(p.sections[1].epilog().is_none());
+    assert_eq!(p.sections[2].name, "Second");
+    assert!(p.sections[2].prologue().is_none());
+    assert!(p.sections[2].epilog().is_none());
 }
 
 #[test]
@@ -202,7 +215,7 @@ fn a_finder_error_comes_back_unchanged() {
 
 #[test]
 fn a_found_source_that_fails_to_parse_is_located_in_the_named_prompt() {
-    let src = "---\nname: p\ndescription: d\n---\n\n# T\n\n## S\n\n```lua\nreturn 1\n";
+    let src = "---\nname: p\ndescription: d\n---\n\n## S\n\n```lua\nreturn 1\n";
     let error = Prompt::parse(&|_: &str| Ok(src.to_owned()), "research.md")
         .expect_err("an unclosed fence fails");
     assert_eq!(error.code, ErrorCode::FenceInvalid, "{error:?}");

@@ -4,71 +4,67 @@
 //! local entry counter), and a jump transfers control - a sibling move
 //! within the chain's slice, or a descent into the jumper's child slice
 //! with the parent position suspended on the chain's own walk stack
-//! until the child level exhausts. A prompt with H1 blocks runs them first
-//! as section 0 (the `h1` module), and the root walk starts from that
-//! pass's `var` hand-off, under the same root lineage
-//! ([`Chain::lineage`](super::Chain::lineage)); a prompt without H1 blocks
-//! starts the root walk directly.
+//! until the child level exhausts. The root walk is the run's first chain:
+//! it starts at the prompt's first top-level section, the preamble when
+//! the prompt has one, and every other chain starts where a `call` or a
+//! spawn names.
 
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use runvil_types::error::place;
+use runvil_types::ids::ChainId;
 
 use crate::execute::section_context::SectionContext;
 use crate::execute::walk_target::{JumpTarget, resolve_jump_target};
 use crate::lua::LibraryKey;
 use crate::prompt::Block;
-use crate::section_path::Origin;
 use crate::section_pos::{SectionIndex, SectionPos};
 use crate::{Result, error};
 
-use super::chain::ChainStep;
-use super::chain_record::{ChainKind, Entered};
+use super::chain::{ChainStart, ChainStep};
+use super::chain_record::{CallDepth, ChainKind, Entered};
 use super::{ChainIndex, ChainOps, Counters, Scheduler, prompt_origin};
 
 impl Scheduler {
-    /// Starts the root walk chain over the top-level sections when the
-    /// prompt has no H1 blocks, seeded with an empty `var`. The walk is the
-    /// root chain `0`; its entry 0 stays reserved for the H1 pass the
-    /// prompt does not have, so the first walked section is `0.1` - see
-    /// [`Chain::counters`](super::Chain) for the normative statement.
+    /// Starts the root walk chain over the top-level sections, seeded with
+    /// an empty `var`, on the `default` model, under the run's concurrency
+    /// ceiling, and enqueues it. The walk is the root chain `0`, at the
+    /// root call depth, and the first section it enters takes entry `0.0`.
+    /// A prompt with no section starts the same chain, which ends on its
+    /// first step with no text.
     ///
     /// # Errors
     /// Returns an `Internal` failure when the run's chain count exceeds `u32`,
     /// or a store failure when the backend refuses acquisition.
     pub(super) fn start_root_walk(&mut self) -> Result<()> {
-        // The pass the prompt does not have would have taken root entry 0
-        // and started no child, so the walk continues from the counters
-        // it would have left.
-        let after_h1 = Counters {
-            next_child: 0,
-            next_entry: 1,
-        };
-        // The root walk is its own serial thread of execution, so a prompt
-        // without H1 blocks acquires its capability fresh. It serves every
+        // The root walk is the run's one serial thread of execution at the
+        // top, so it acquires the run's root capability. It serves every
         // section in turn, so its label is the prompt's own; the line is
         // where the walk starts.
         let prompt = self.ctx.prompt();
         let blocks: &[Block] =
             crate::prompt::detail::entry(prompt).map_or(&[], |section| section.blocks());
-        let origin = prompt_origin(prompt, prompt.title(), blocks);
+        let origin = prompt_origin(prompt, prompt.frontmatter().name(), blocks);
         let (access, scope) = self
             .ctx
             .vfs()
             .acquire_scope(origin)
             .map_err(|cause| error::make_store_error(&cause))?;
         self.scope = Some(scope);
-        self.start_root_chain(
-            ChainKind::Root,
-            after_h1,
-            self.ctx.clone(),
-            self.ctx.default_binding(),
-            Arc::new(access),
-            SectionPos::top(SectionIndex::FIRST),
-            serde_json::json!({}),
-            self.ctx.limits().max_concurrency,
-        )?;
+        let id = self.start_chain(ChainStart {
+            lineage: ChainId::root(),
+            counters: Counters::default(),
+            ctx: self.ctx.clone(),
+            model: self.ctx.default_binding(),
+            access: Arc::new(access),
+            start: SectionPos::top(SectionIndex::FIRST),
+            kind: ChainKind::Root,
+            var: serde_json::json!({}),
+            call_depth: CallDepth::ROOT,
+            concurrency: self.ctx.limits().max_concurrency,
+        })?;
+        self.ready.push_back(id);
         Ok(())
     }
 
@@ -110,23 +106,6 @@ impl ChainOps<'_> {
         let prompt = self.prompt();
         let scope = self.scope()?;
         let chain = &mut *self.chain;
-        if chain.kind.is_h1() {
-            // The H1 pass enters its frame exactly once: section 0 under
-            // the prompt's title, through the same install path as any
-            // section - and no SECTION_STARTED, the pass is not a walked
-            // section. Its id is the root chain's entry 0.
-            let section_id = chain.next_entry_id()?;
-            let frame = SectionContext::new_h1(
-                &chain.ctx,
-                chain.access()?,
-                scope,
-                &chain.selection,
-                &section_id,
-                &chain.task,
-            )?;
-            chain.entered = Some(Entered::new(frame));
-            return Ok(true);
-        }
         // `section` borrows the shared prompt tree, not the arena, so the
         // frame construction can borrow the chain's own context and slots.
         let Some(section) = chain.walk.current().section(&prompt) else {
@@ -238,8 +217,6 @@ impl ChainOps<'_> {
     /// starting section's child slice, or a sibling's in its own. The
     /// path starts at the library `from` names, when a library's code
     /// made the request, and otherwise at the chain's current section.
-    /// The H1 pass's children are the top-level sections, so its targets
-    /// never descend.
     ///
     /// # Errors
     /// Returns a `LuaRuntime` failure when the path is malformed, is not
@@ -252,12 +229,6 @@ impl ChainOps<'_> {
         from: Option<&LibraryKey>,
     ) -> Result<JumpTarget> {
         let prompt = self.prompt();
-        let chain = &*self.chain;
-        let origin = if chain.kind.is_h1() {
-            Origin::H1
-        } else {
-            Origin::Section(chain.walk.current())
-        };
-        resolve_jump_target(path, &prompt, origin, from)
+        resolve_jump_target(path, &prompt, self.chain.walk.current(), from)
     }
 }

@@ -4,8 +4,6 @@ description: Invalid because a Lua fence closes with four backticks instead of e
 runvil: 0
 ---
 
-# Lua Fence Closer
-
 ```lua
 local greeting = "hello"
 ````

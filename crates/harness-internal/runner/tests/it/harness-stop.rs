@@ -32,7 +32,6 @@ use crate::support::assert_canceled;
 /// both children's reports.
 const STOPS_ALL: &str = "---\nname: stops\ndescription: d\nrunvil: 0\n\
     uses:\n  - tests/harness\n---\n\n\
-    # Stops\n\n\
     ## Main\n\n```lua\n\
     local chat = tasks.spawn('../Chat')\n\
     local tool = tasks.spawn('../Tool')\n\
@@ -49,7 +48,6 @@ const STOPS_ALL: &str = "---\nname: stops\ndescription: d\nrunvil: 0\n\
 /// A prompt whose one round sits under nothing that catches.
 const STOPS_UNCAUGHT: &str = "---\nname: uncaught\ndescription: d\nrunvil: 0\n\
     ---\n\n\
-    # Uncaught\n\n\
     ## Only\n\n```lua\nreturn models.infer('held')\n```\n";
 
 /// The built-in chat's shape: read the operator's next message, run the
@@ -58,7 +56,6 @@ const STOPS_UNCAUGHT: &str = "---\nname: uncaught\ndescription: d\nrunvil: 0\n\
 const CHATS: &str = "---\nname: chats\ndescription: d\nrunvil: 0\n\
     uses:\n  - tests/harness\n  - user\n\
     ---\n\n\
-    # Chats\n\n\
     ## Conversation\n\n```lua\n\
     tools.offer('harness/hold')\n\
     while true do\n\
@@ -71,7 +68,6 @@ const CHATS: &str = "---\nname: chats\ndescription: d\nrunvil: 0\n\
 const LOOPS_ONCE: &str = "---\nname: loops\ndescription: d\nrunvil: 0\n\
     uses:\n  - tests/harness\n\
     ---\n\n\
-    # Loops\n\n\
     ## Only\n\n```lua\n\
     tools.offer('harness/hold')\n\
     messages:user('hold twice')\n\
@@ -81,12 +77,12 @@ const LOOPS_ONCE: &str = "---\nname: loops\ndescription: d\nrunvil: 0\n\
 /// A prompt that returns the operator's next message.
 const RECEIVES: &str = "---\nname: receives\ndescription: d\nrunvil: 0\n\
     uses:\n  - user\n---\n\n\
-    # Receives\n\n## Only\n\n```lua\nreturn (tasks.receive())\n```\n";
+    ## Only\n\n```lua\nreturn (tasks.receive())\n```\n";
 
 /// A prompt that returns what the held tool answers.
 const HOLDS: &str = "---\nname: holds\ndescription: d\nrunvil: 0\n\
     uses:\n  - tests/harness\n---\n\n\
-    # Holds\n\n## Only\n\n```lua\nreturn tools.call('harness/hold')\n```\n";
+    ## Only\n\n```lua\nreturn tools.call('harness/hold')\n```\n";
 
 #[tokio::test]
 async fn a_stop_drops_a_chat_round_a_tool_call_and_a_timer_and_a_pcall_keeps_the_run_alive() {

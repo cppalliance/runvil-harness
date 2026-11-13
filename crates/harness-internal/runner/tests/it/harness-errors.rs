@@ -22,7 +22,7 @@ use crate::support::{FailingRecorder, assert_not_completed};
 
 /// A Pack-free prompt whose one section returns a constant.
 const PLAIN: &str = "---\nname: plain\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n## Only\n\n```lua\nreturn 'plain'\n```\n";
+    ## Only\n\n```lua\nreturn 'plain'\n```\n";
 
 /// The run a recorder failure names in its `Run` fact, if any.
 fn run_of(error: &Error) -> Option<RunId> {
@@ -35,13 +35,13 @@ fn run_of(error: &Error) -> Option<RunId> {
 
 /// A prompt of one store write and one read.
 const STORES: &str = "---\nname: stores\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n## Only\n\n```lua\nstore.write('a.md', '1')\nreturn store.read('a.md')\n```\n";
+    ## Only\n\n```lua\nstore.write('a.md', '1')\nreturn store.read('a.md')\n```\n";
 
 /// A prompt whose one round sits under a `pcall` that reports how it
 /// ended.
 const CATCHES_A_ROUND: &str = "---\nname: catches\ndescription: d\nrunvil: 0\n\
     ---\n\n\
-    # Title\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     local ok, err = pcall(models.infer, 'asked')\n\
     return tostring(ok) .. ':' .. err.kind\n```\n";
 

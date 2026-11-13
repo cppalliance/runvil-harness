@@ -49,7 +49,7 @@ fn a_failed_model_round_fails_the_run_with_the_rounds_code() -> TestResult {
         (error.code, error.located_message()),
         (
             ErrorCode::Overloaded,
-            "the model backend is overloaded (at prompt:13)".to_owned()
+            "the model backend is overloaded (at prompt:11)".to_owned()
         )
     );
     Ok(())

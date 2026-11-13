@@ -39,10 +39,9 @@ const TOOL: &str = "tests/cap/park";
 /// [`TOOL`]'s wire name, as the model calls it.
 const WIRE: &str = "tests_cap_park";
 
-/// The frontmatter and title every run here shares.
-const PREAMBLE: &str = "---\nname: runner-cap\ndescription: caps tool calls\nrunvil: 0\n\
-    ---\n\n\
-    # Cap\n\n";
+/// The frontmatter every run here shares.
+const FRONTMATTER: &str = "---\nname: runner-cap\ndescription: caps tool calls\nrunvil: 0\n\
+    ---\n\n";
 
 /// Main spawns Child and waits on a `wait` round while Child's loop asks
 /// its round, then cancels Child and lingers on a second round.
@@ -69,10 +68,10 @@ fn looping(section: &str, user: &str, result: &str) -> String {
     )
 }
 
-/// A run over [`PREAMBLE`] and `sections`, with the `default` role filled by
-/// one model and [`TOOL`] in its catalog, under the cancel flag `cancel`.
+/// A run over [`FRONTMATTER`] and `sections`, with the `default` role filled
+/// by one model and [`TOOL`] in its catalog, under the cancel flag `cancel`.
 fn run_of(sections: &str, cancel: &CancelHandle) -> Run {
-    let source = format!("{PREAMBLE}{sections}");
+    let source = format!("{FRONTMATTER}{sections}");
     let prompt = Prompt::parse(&|_: &str| Ok(source.clone()), "prompt");
     let prompt = Arc::new(prompt.expect("the cap fixture parses"));
     let model = ModelInfo::new(

@@ -135,8 +135,7 @@ pub(crate) enum TaskState {
 pub(super) struct TaskEntry {
     /// Where the task's work runs.
     pub(super) backing: TaskBacking,
-    /// The chain that owns the task: its spawner, or the root walk for a
-    /// task the H1 pass spawned. The only chain allowed to wait on,
+    /// The chain that owns the task: its spawner. The only chain allowed to wait on,
     /// inspect, or cancel the task, and the chain whose end ends it.
     /// Recorded only here: admission reads it as the task chain's
     /// enclosing chain.
@@ -483,15 +482,6 @@ impl TaskArena {
         owners.sort_unstable_by_key(|owner| owner.index());
         owners.dedup();
         owners
-    }
-
-    /// Moves every task `from` owns to `to`.
-    pub(super) fn reassign(&mut self, from: ChainIndex, to: ChainIndex) {
-        for entry in self.entries.values_mut() {
-            if entry.owner == from {
-                entry.owner = to;
-            }
-        }
     }
 
     /// Records `text` as `task`'s latest note. A task with no entry records

@@ -34,11 +34,11 @@ use crate::support::{FailingRecorder, assert_canceled};
 
 /// A prompt that returns the first message its main chain reads.
 const RECEIVES: &str = "---\nname: receives\ndescription: d\nrunvil: 0\n---\n\n\
-    # Receives\n\n## Only\n\n```lua\nreturn 'got ' .. tasks.receive()\n```\n";
+    ## Only\n\n```lua\nreturn 'got ' .. tasks.receive()\n```\n";
 
 /// A prompt that returns the first two messages its main chain reads.
 const RECEIVES_TWICE: &str = "---\nname: receives-twice\ndescription: d\nrunvil: 0\n---\n\n\
-    # ReceivesTwice\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     local first = tasks.receive()\n\
     local second = tasks.receive()\n\
     return first .. '|' .. second\n```\n";
@@ -47,7 +47,7 @@ const RECEIVES_TWICE: &str = "---\nname: receives-twice\ndescription: d\nrunvil:
 /// to the store, and returns it.
 const RECEIVES_THEN_WRITES: &str = "---\nname: receives-writes\ndescription: d\nrunvil: 0\n\
     ---\n\n\
-    # ReceivesWrites\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     local text = tasks.receive()\n\
     log('read')\n\
     store.write('note.md', text)\n\
@@ -57,7 +57,7 @@ const RECEIVES_THEN_WRITES: &str = "---\nname: receives-writes\ndescription: d\n
 /// next message the main chain reads, beside how the loop ended.
 const LOOPS_THEN_RECEIVES: &str = "---\nname: loops-receives\ndescription: d\nrunvil: 0\n\
     uses:\n  - tests/harness\n---\n\n\
-    # LoopsReceives\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     tools.offer('harness/hold')\n\
     messages:user('hold')\n\
     local ok, err = pcall(models.loop)\n\
@@ -66,7 +66,7 @@ const LOOPS_THEN_RECEIVES: &str = "---\nname: loops-receives\ndescription: d\nru
 /// A model loop over one user message that returns the loop's final
 /// reply.
 const LOOPS: &str = "---\nname: loops\ndescription: d\nrunvil: 0\n---\n\n\
-    # Loops\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     messages:user('hi')\n\
     models.loop()\n\
     return messages[#messages].content\n```\n";
@@ -75,7 +75,7 @@ const LOOPS: &str = "---\nname: loops\ndescription: d\nrunvil: 0\n---\n\n\
 /// reads, beside how the loop ended.
 const LOOPS_THEN_RECEIVES_TWICE: &str = "---\nname: loops-receives-twice\ndescription: d\n\
     runvil: 0\n---\n\n\
-    # LoopsReceivesTwice\n\n## Only\n\n```lua\n\
+    ## Only\n\n```lua\n\
     messages:user('hold')\n\
     local ok, err = pcall(models.loop)\n\
     local first = tasks.receive()\n\
@@ -86,7 +86,6 @@ const LOOPS_THEN_RECEIVES_TWICE: &str = "---\nname: loops-receives-twice\ndescri
 /// child the first message the main chain reads, and returns the child's
 /// report of how its loop ended.
 const STEERS_A_CHILD: &str = "---\nname: steers-child\ndescription: d\nrunvil: 0\n---\n\n\
-    # SteersChild\n\n\
     ## Main\n\n```lua\n\
     local child = tasks.spawn('../Child')\n\
     tasks.send(child, (tasks.receive()))\n\
@@ -103,7 +102,6 @@ const STEERS_A_CHILD: &str = "---\nname: steers-child\ndescription: d\nrunvil: 0
 /// ended.
 const STEERS_A_CHILD_THEN_LOOPS: &str = "---\nname: steers-child-loops\ndescription: d\n\
     runvil: 0\n---\n\n\
-    # SteersChildLoops\n\n\
     ## Main\n\n```lua\n\
     local child = tasks.spawn('../Child')\n\
     tasks.send(child, (tasks.receive()))\n\

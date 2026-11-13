@@ -130,7 +130,7 @@ fn issued_calls(rig: &RigTrace) -> Vec<EffectRecord> {
 /// The origin of a model call made in the one section's entry.
 fn model_origin() -> ToolCallOrigin {
     ToolCallOrigin::new("Only", ToolCaller::Model)
-        .with_entry("0.1")
+        .with_entry("0.0")
         .with_model(loop_model_name("default"))
 }
 

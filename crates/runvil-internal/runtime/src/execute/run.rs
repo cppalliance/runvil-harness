@@ -148,8 +148,7 @@ impl Run {
     }
 
     /// [`Run::new`], with `edit` applied to the assembled state before the
-    /// run starts: how a test fills in what the H1 pass would
-    /// otherwise leave in the state.
+    /// run starts: how a test fills in state that the params cannot.
     #[cfg(test)]
     pub(crate) fn new_for_test(
         prompt: Arc<Prompt>,

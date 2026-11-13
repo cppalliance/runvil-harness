@@ -277,7 +277,7 @@ fn fanout_recursion_across_the_boundary_trips_the_depth_cap() {
     );
     assert_eq!(
         error.at,
-        at_line(16),
+        at_line(14),
         "the cap trips on A's `tasks.fanout` line: {error:?}"
     );
 }
@@ -321,7 +321,7 @@ fn call_inside_an_arm_spawned_near_the_cap_trips_the_depth_cap() {
     );
     assert_eq!(
         error.at,
-        at_line(33),
+        at_line(31),
         "the cap trips on the arm's own `call` line: {error:?}"
     );
 }

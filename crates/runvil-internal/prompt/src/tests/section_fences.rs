@@ -18,7 +18,7 @@ fn lua_fence_separated_from_prose() {
 
 #[test]
 fn section_compiles_prologue_and_epilog_around_prose() {
-    let src = "---\r\nname: x\r\ndescription: d\r\n---\r\n\r\n# T\r\n\r\n## Transform\r\n\r\n \t\r\n```lua\r\nvar.before = args\r\n```\r\n\r\nAsk about {{ var.before }}.\r\n\r\n```lua\r\nreturn reply\r\n```\r\n";
+    let src = "---\r\nname: x\r\ndescription: d\r\n---\r\n\r\n## Transform\r\n\r\n \t\r\n```lua\r\nvar.before = args\r\n```\r\n\r\nAsk about {{ var.before }}.\r\n\r\n```lua\r\nreturn reply\r\n```\r\n";
     let prompt = parse_ok(src);
     let section = prompt.entry().expect("has sections");
 
@@ -97,8 +97,7 @@ fn one_exact_fence_is_the_prologue_and_two_can_surround_empty_prose() {
 fn non_exact_lua_openers_fail_in_a_section() {
     for fence in NON_EXACT_LUA_OPENERS {
         for intro in ["", "Intro.\n\n"] {
-            let src =
-                format!("---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\n{intro}{fence}\n");
+            let src = format!("---\nname: x\ndescription: d\n---\n\n## S\n\n{intro}{fence}\n");
             let error = parse_err(&src);
             assert_eq!(error.code, ErrorCode::FenceInvalid, "{error}");
             assert_eq!(error.to_string(), OPENER_MESSAGE, "{src:?}");
@@ -116,7 +115,7 @@ fn lua_fence_lookalikes_outside_every_fence_are_parse_errors() {
         "Intro.\n\n    ```LUA\n    return 1\n    ```",
         "<div>\n```lua\nreturn 1\n```\n</div>",
     ] {
-        let src = format!("---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\n{content}\n");
+        let src = format!("---\nname: x\ndescription: d\n---\n\n## S\n\n{content}\n");
         let error = parse_err(&src);
         assert_eq!(error.code, ErrorCode::FenceInvalid, "{error}");
         assert_eq!(error.to_string(), OPENER_MESSAGE, "{src:?}");
@@ -159,7 +158,7 @@ fn non_exact_section_closing_lines_fail_the_parse() {
             "Prose.\n\n```python\nprint(1)\n```",
         ] {
             let src = format!(
-                "---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\n```lua\nvar.a = 1\n{bad_close}\n\n{after}\n"
+                "---\nname: x\ndescription: d\n---\n\n## S\n\n```lua\nvar.a = 1\n{bad_close}\n\n{after}\n"
             );
             let error = parse_err(&src);
             assert_eq!(error.code, ErrorCode::FenceInvalid, "{error} in {src:?}");
@@ -176,7 +175,7 @@ fn a_lookalike_line_and_a_bad_closing_line_report_whichever_comes_first() {
         (format!("{lookalike}\n\n{fence}"), OPENER_MESSAGE),
         (format!("{fence}\n\n{lookalike}"), CLOSER_MESSAGE),
     ] {
-        let src = format!("---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\n{content}\n");
+        let src = format!("---\nname: x\ndescription: d\n---\n\n## S\n\n{content}\n");
         let error = parse_err(&src);
         assert_eq!(error.code, ErrorCode::FenceInvalid, "{error}");
         assert_eq!(error.to_string(), message, "{src:?}");
@@ -185,24 +184,24 @@ fn a_lookalike_line_and_a_bad_closing_line_report_whichever_comes_first() {
 
 #[test]
 fn closer_and_lookalike_errors_report_the_offending_line() {
-    // `## S` is on line 8 and the content starts on line 10. Each span is
+    // `## S` is on line 6 and the content starts on line 8. Each span is
     // the offending line without its newline.
     for (content, message, line, end_column) in [
         (
             "```lua\nvar.a = 1\nvar.b = 2\n  ```\n",
             CLOSER_MESSAGE,
-            13,
+            11,
             6,
         ),
         (
             "Prose.\n\n    ```lua\n    return 1\n    ```\n",
             OPENER_MESSAGE,
-            12,
+            10,
             11,
         ),
     ] {
         let error = parse_err(&format!(
-            "---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\n{content}"
+            "---\nname: x\ndescription: d\n---\n\n## S\n\n{content}"
         ));
         assert_eq!(error.code, ErrorCode::FenceInvalid, "{error}");
         assert_eq!(error.to_string(), message);
@@ -233,7 +232,8 @@ fn a_fence_split_that_disagrees_with_the_markdown_parser_is_an_internal_error() 
 
 #[test]
 fn section_markers_inside_longer_fences_remain_prose() {
-    let src = "---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\n````markdown\n```lua\nreturn 1\n```\n````\n";
+    let src =
+        "---\nname: x\ndescription: d\n---\n\n## S\n\n````markdown\n```lua\nreturn 1\n```\n````\n";
     let prompt = parse_ok(src);
 
     let entry = prompt.entry().expect("has sections");
@@ -249,7 +249,7 @@ fn lines_inside_another_fence_body_are_never_inspected() {
         "````\n```lua \nreturn 1\n```\n````",
         "````\n    ```lua\nreturn 1\n```\n````",
     ] {
-        let src = format!("---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\n{fence}\n");
+        let src = format!("---\nname: x\ndescription: d\n---\n\n## S\n\n{fence}\n");
         let prompt = parse_ok(&src);
         let entry = prompt.entry().expect("has sections");
         assert!(entry.prologue().is_none());
@@ -301,9 +301,8 @@ fn unclosed_reserved_section_fences_are_location_errors() {
 #[test]
 fn backtick_lines_that_cannot_close_a_lua_fence_leave_it_unclosed() {
     for last_line in ["    ```", "``` x"] {
-        let src = format!(
-            "---\nname: x\ndescription: d\n---\n\n# T\n\n## S\n\n```lua\nreturn 1\n{last_line}\n"
-        );
+        let src =
+            format!("---\nname: x\ndescription: d\n---\n\n## S\n\n```lua\nreturn 1\n{last_line}\n");
         let error = parse_err(&src);
         assert_eq!(error.code, ErrorCode::FenceInvalid, "{error}");
         assert_eq!(

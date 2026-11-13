@@ -49,7 +49,7 @@ fn tool_loop_gives_up_after_exactly_the_configured_cap() {
     let error = trace.error();
     assert_eq!(
         error,
-        &placed(crate::error::make_tool_loop_exhausted_error(), 15)
+        &placed(crate::error::make_tool_loop_exhausted_error(), 13)
     );
     assert_eq!(
         gateway.call_count(),
@@ -82,7 +82,7 @@ fn tool_loop_exhaustion_is_readable_at_the_call_site_after_whole_exchanges() {
     assert_eq!(
         trace.text(),
         format!(
-            "tool_loop_exhausted|prompt:15: {}",
+            "tool_loop_exhausted|prompt:13: {}",
             ErrorCode::ToolLoopExhausted.prose()
         )
     );
@@ -105,7 +105,7 @@ fn tool_loop_uses_the_default_cap_when_unspecified() {
     let error = trace.error();
     assert_eq!(
         error,
-        &placed(crate::error::make_tool_loop_exhausted_error(), 14)
+        &placed(crate::error::make_tool_loop_exhausted_error(), 12)
     );
     assert_eq!(gateway.call_count(), 24);
 }
@@ -126,7 +126,7 @@ fn the_ceiling_caps_a_larger_declared_cap() {
         .run();
     assert_eq!(
         trace.error(),
-        &placed(crate::error::make_tool_loop_exhausted_error(), 15)
+        &placed(crate::error::make_tool_loop_exhausted_error(), 13)
     );
     assert_eq!(gateway.call_count(), 10);
 }
@@ -136,8 +136,7 @@ fn run_resolves_cap_from_frontmatter_else_default() {
     // Mirrors the resolution in `run`: a declared budget wins, an absent
     // one falls back to the raised default.
     let default_cap = RunLimits::default().max_tool_iterations.get() as usize;
-    let declared =
-        "---\nname: t\ndescription: d\nmax_tool_iterations: 5\n---\n\n# T\n\n## S\n\np\n";
+    let declared = "---\nname: t\ndescription: d\nmax_tool_iterations: 5\n---\n\n## S\n\np\n";
     let p = Prompt::parse(&|_: &str| Ok(declared.to_owned()), "prompt").unwrap();
     assert_eq!(
         p.frontmatter()
@@ -146,7 +145,7 @@ fn run_resolves_cap_from_frontmatter_else_default() {
         5
     );
 
-    let absent = "---\nname: t\ndescription: d\n---\n\n# T\n\n## S\n\np\n";
+    let absent = "---\nname: t\ndescription: d\n---\n\n## S\n\np\n";
     let p = Prompt::parse(&|_: &str| Ok(absent.to_owned()), "prompt").unwrap();
     assert_eq!(
         p.frontmatter()
@@ -252,7 +251,7 @@ fn repeated_calls_to_a_failing_tool_exit_at_the_iteration_cap() {
     let error = trace.error();
     assert_eq!(
         error,
-        &placed(crate::error::make_tool_loop_exhausted_error(), 15)
+        &placed(crate::error::make_tool_loop_exhausted_error(), 13)
     );
     assert_eq!(
         gateway.call_count(),
@@ -307,7 +306,7 @@ fn a_caught_model_failure_reads_as_the_model_failure_kind() {
     let trace = loop_scenario(source).chat(&gateway).run();
     assert_eq!(
         trace.text(),
-        "model_failure:prompt:13: the model backend reported a fault of its own (status 500)"
+        "model_failure:prompt:11: the model backend reported a fault of its own (status 500)"
     );
 }
 
@@ -323,7 +322,7 @@ fn a_caught_missing_model_reads_as_the_model_required_kind() {
     assert_eq!(
         trace.text(),
         format!(
-            "model_required:prompt:13: {}",
+            "model_required:prompt:11: {}",
             ErrorCode::ModelRequired.prose()
         )
     );

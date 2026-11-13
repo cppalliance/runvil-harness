@@ -13,7 +13,6 @@ use crate::execute::tests::scheduler::ceiling;
 /// within the arm's limit and every ancestor's, and the run must not
 /// deadlock even at a ceiling of 1.
 const TRACE_6: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Nested\n\n\
     ## Main\n\n\
     ```lua\n\
     local arm = tasks.spawn('Arm')\n\
@@ -42,7 +41,6 @@ const TRACE_6: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
 /// admission order is spawn order, while the model replies themselves
 /// may land on either of a concurrently admitted pair.
 const TRACE_12: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Concurrency\n\n\
     ## Main\n\n\
     ```lua\n\
     local arm = tasks.spawn('Arm')\n\
@@ -69,7 +67,6 @@ const TRACE_12: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
 /// returns 4 - the clamp keeps prompts portable wherever they run,
 /// including where the ceiling is tighter.
 const TRACE_12_CLAMP: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Clamp\n\n\
     ## Main\n\n\
     ```lua\n\
     local n = tasks.concurrency(16)\n\

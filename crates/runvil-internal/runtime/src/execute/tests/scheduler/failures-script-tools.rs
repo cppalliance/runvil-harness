@@ -15,7 +15,6 @@ fn a_script_tools_call_dispatches_and_resumes_as_a_string() {
     // string, and the counts land in the same `tools.stats` table the
     // prose loop feeds.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.offer('tools/echo')\n\
@@ -32,7 +31,6 @@ fn a_script_tools_call_with_a_tool_object_dispatches_its_binding() {
     // the leading argument dispatches the tool it names, identically to the
     // bare id string.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.offer('tools/echo')\n\
@@ -50,7 +48,6 @@ fn a_script_tools_call_with_an_unbound_name_lists_the_offered_ids() {
     // so the unknown-name error lists every offered id, not the section's
     // frozen sets.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\ntools.offer('tools/echo')\nreturn tools.call('tools/missing', {})\n```\n";
     let trace = scheduler_scenario(md).offer("echo", echo_tool()).run();
@@ -58,7 +55,7 @@ fn a_script_tools_call_with_an_unbound_name_lists_the_offered_ids() {
         trace.error(),
         &crate::test_support::placed(
             crate::error::make_unbound_tool_error("tools/missing", &["tools/echo".to_owned()]),
-            13
+            11
         )
     );
 }
@@ -70,7 +67,6 @@ fn a_script_tools_call_reaches_an_offered_tool_outside_the_section_scope() {
     // offered, and the author's own code is not the model.
     // The count lands in the same shared map `tools.stats` reads.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         local out = tools.call('tools/echo', { value = 'hi' })\n\
@@ -87,7 +83,6 @@ fn a_script_tools_call_of_a_model_only_tool_is_refused_naming_it() {
     // dispatch: only a model receives arguments that suit the schema a
     // render answered.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.offer('tools/echo')\n\
@@ -101,7 +96,7 @@ fn a_script_tools_call_of_a_model_only_tool_is_refused_naming_it() {
         trace.error(),
         &crate::test_support::placed(
             crate::error::make_model_only_tool_error("tools/replace", "tools/replace"),
-            13
+            11
         )
     );
 }
@@ -111,7 +106,6 @@ fn a_script_pcall_catches_the_model_only_refusal_and_the_run_goes_on() {
     // The refusal is a Lua error like any other failed `tools.call`, so
     // an author can catch it and offer the tool instead.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.offer('tools/replace')\n\
@@ -130,7 +124,6 @@ fn a_script_tools_call_of_a_model_only_tool_by_its_object_is_refused_the_same_wa
     // The object form resolves through the same lookup as the id, so the
     // refusal cannot be skipped by holding the tool object.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.offer('tools/replace')\n\
@@ -153,7 +146,6 @@ fn a_model_only_tool_is_still_offerable_alone_and_with_its_pack() {
     // The flag forbids the call, never the offer: a prompt offers the
     // tool and the model calls it.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.offer('tools/replace')\n\
@@ -169,7 +161,6 @@ fn a_model_only_tool_is_still_offerable_alone_and_with_its_pack() {
 #[test]
 fn cancellation_cancels_a_slow_script_tools_call() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\ntools.offer('test/tools/slow')\nreturn tools.call('test/tools/slow', {})\n```\n";
     let started = Arc::new(AtomicUsize::new(0));
@@ -201,7 +192,6 @@ fn cancellation_cancels_a_slow_script_tools_call() {
 #[test]
 fn an_untrusted_script_tools_call_result_is_nonce_wrapped() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.offer('tools/untrusted_echo')\n\
@@ -224,7 +214,6 @@ fn an_untrusted_script_tools_call_result_is_nonce_wrapped() {
 #[test]
 fn a_structured_binding_resumes_as_a_lua_table() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         tools.offer('tools/structured')\n\
@@ -243,7 +232,6 @@ fn a_structured_binding_resumes_as_a_lua_table() {
 #[test]
 fn invalid_json_from_a_structured_tool_is_a_tool_error() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\ntools.offer('tools/structured')\nreturn tools.call('tools/structured', {})\n```\n";
     let trace = scheduler_scenario(md)
@@ -264,7 +252,6 @@ fn an_untrusted_structured_output_is_wrapped_before_classification() {
     // what restricts structured output to trusted tools. If classification
     // ever ran on the raw output, this test would resume a table and fail.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\ntools.offer('tools/structured')\nreturn tools.call('tools/structured', {})\n```\n";
     let trace = scheduler_scenario(md)
@@ -285,7 +272,6 @@ fn a_script_tools_call_before_infer_keeps_the_model_install() {
     // first must not swallow the install a later `models.infer` relies on.
     let gateway = ScriptedChat::new(vec![text("prose answer")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\ntools.offer('tools/echo')\ntools.call('tools/echo', { value = 'x' })\n```\n\n\
         Say something.\n\n\
@@ -302,7 +288,6 @@ fn a_first_tool_call_sets_sys_model_to_the_model_models_use_selected() {
     // The first tool call takes the section's current model, so the switch
     // `models.use` made before it is what `sys.model` names.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\n\
         models.use('strong')\n\
@@ -327,7 +312,6 @@ fn a_document_prompt_without_tools_call_is_unaffected() {
     // Bindings installed, shim present, `tools.call` never called: the
     // section runs exactly as before the dispatch arm existed.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # ToolCall\n\n\
         ## Only\n\n\
         ```lua\ntools.offer('tools/echo')\nreturn 'plain'\n```\n";
     let trace = scheduler_scenario(md).offer("echo", echo_tool()).run();

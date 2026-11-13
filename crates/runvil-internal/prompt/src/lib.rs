@@ -1,21 +1,23 @@
 //! Loads a prompt file: its frontmatter, its Markdown structure, and its Lua.
 //!
-//! A prompt is one markdown file: YAML frontmatter, a required H1, optional H1
-//! blocks, then H2 sections.
-//! H1 and section content are alternating sequences of exact `lua` fences and
-//! prose ([`Block`]). Sections nest recursively (H3 under H2, H4 under H3, and
-//! so on through H6). A section with a prologue, prose, and an epilog is
-//! exactly `[Lua, Prose, Lua]`.
+//! A prompt is one markdown file: YAML frontmatter, then a body. Every
+//! heading in the body starts a section, and the body's shallowest heading
+//! level is its top level. The preamble, the content before the first
+//! heading, is the first top-level section when it holds a `lua` fence, and
+//! commentary otherwise. A section's content is an alternating sequence of
+//! exact `lua` fences and prose ([`Block`]). Sections nest recursively, each
+//! heading one level deeper than its parent, through H6. A section with a
+//! prologue, prose, and an epilog is exactly `[Lua, Prose, Lua]`.
 //!
 //! Prose capture follows the pending-Markdown model: Markdown accumulates
-//! after each heading or ordinary `lua` fence, and each prose block is the
+//! from the body's start and after each heading or ordinary `lua` fence, and each prose block is the
 //! pending buffer the following `lua` fence consumes. A `---` thematic break
 //! resets the pending buffer without becoming part of the prose; it has
 //! no control-flow meaning, so content below a break parses and runs
 //! normally. Markdown left after the final `lua` fence is inert trailing
 //! commentary, never an error.
 //!
-//! Every `lua` fence in the H1 body and the sections compiles at load time, so
+//! Every `lua` fence in the body compiles at load time, so
 //! a loaded [`Prompt`] is ready to run: a syntax error surfaces here, never
 //! partway through a run.
 //!

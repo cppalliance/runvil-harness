@@ -7,14 +7,12 @@ use super::*;
 use crate::execute::tests::context::sequence;
 
 #[test]
-fn a_prompt_without_h1_blocks_runs_its_first_section_exactly_once() {
-    // `start_root_walk` reaches the ready queue through `start_root_chain`,
-    // which enqueues. Were the chain enqueued twice - the helper and a
-    // caller's own push - the drain would pop it a second time while it is
-    // still ready, stepping it past `First` before `First` had run, and the
-    // section order would lose `First`.
+fn the_root_start_runs_the_first_section_exactly_once() {
+    // `start_root_walk` starts the root chain and enqueues it once. Were
+    // the chain enqueued twice, the drain would pop it a second time while
+    // it is still ready, stepping it past `First` before `First` had run,
+    // and the section order would lose `First`.
     let md = "---\nname: once\ndescription: d\nrunvil: 0\n---\n\n\
-        # Once\n\n\
         ## First\n\n\
         ```lua\nstore.append('order.txt', 'First\\n')\n```\n\n\
         ## Second\n\n\
@@ -47,7 +45,6 @@ fn sections_run_in_fall_through_order() {
     // A section without a return falls through to the next section in
     // document order, as the order log shows.
     let md = "---\nname: walk\ndescription: d\nrunvil: 0\n---\n\n\
-        # Walk\n\n\
         ## First\n\n\
         ```lua\nstore.append('order.txt', 'First\\n')\n```\n\n\
         ## Second\n\n\
@@ -62,7 +59,6 @@ fn generic_result_when_nothing_produced() {
     // A walk that exhausts its slice with no reply yields the shared
     // generic completion.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Generic\n\n\
         ## Only\n\n\
         ```lua\nlocal x = 1\n```\n";
     let trace = scheduler_scenario(md).run();
@@ -72,17 +68,17 @@ fn generic_result_when_nothing_produced() {
 
 #[test]
 fn sys_id_increments_per_section() {
-    // Every section entry takes the walk chain's next entry id (`0.N`;
-    // entry 0 is the H1 pass, present or not).
+    // Every section entry takes the walk chain's next entry id (`0.N`),
+    // counted from zero: the first section the root chain enters is `0.0`,
+    // so the second is `0.1`.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Ids\n\n\
         ## First\n\n\
         ```lua\nlocal x = 1\n```\n\n\
         ## Second\n\n\
         ```lua\nreturn tostring(sys.id)\n```\n";
     let trace = scheduler_scenario(md).run();
 
-    assert_eq!(trace.text(), "0.2");
+    assert_eq!(trace.text(), "0.1");
 }
 
 #[test]
@@ -91,7 +87,6 @@ fn call_chain_over_off_walk_siblings_returns_to_the_caller() {
     // chain falls through to S2, and S2's reply returns to A. The main walk
     // ends at B and never runs S1 or S2.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Siblings\n\n\
         ## A\n\n\
         ```lua\n\
         local r = call('../S1')\n\
@@ -119,7 +114,6 @@ fn call_chain_over_off_walk_siblings_returns_to_the_caller() {
 fn var_persists_across_sections_in_fall_through() {
     // One section's `var` writes reach the next across fall-through.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Var\n\n\
         ## A\n\n\
         ```lua\nvar.from_a = 'a'\n```\n\n\
         ## B\n\n\
@@ -139,7 +133,6 @@ fn call_clones_var_in_and_discards_child_writes() {
     // `call` clones the caller's `var` in; the contained chain reads the
     // clone, and its writes are discarded when the chain ends.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Clone\n\n\
         ## Main\n\n\
         ```lua\n\
         var.shared = 'caller'\n\
@@ -164,16 +157,15 @@ fn a_call_chain_counts_its_own_entries_and_the_outer_walk_resumes_its_own_sequen
     // are `0.0.N`, and the outer walk resumes its own `0.N` sequence when
     // the chain ends.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Sequence\n\n\
         ## Main\n\n\
         ```lua\n\
-        assert(sys.id == '0.1', 'the first walked section takes entry 1 of the root chain')\n\
+        assert(sys.id == '0.0', 'the first section takes entry 0 of the root chain')\n\
         local r = call('../Sub')\n\
         store.append('order.txt', r .. '\\n')\n\
         ```\n\n\
         ## B\n\n\
         ```lua\n\
-        assert(sys.id == '0.2', 'the outer walk resumes its own sequence')\n\
+        assert(sys.id == '0.1', 'the outer walk resumes its own sequence')\n\
         return store.read('order.txt')\n\
         ```\n\n\
         ## Sub\n\n\
@@ -196,7 +188,6 @@ fn entering_the_same_section_twice_takes_two_ids() {
     // values - two call children of the walk, so two chains `0.0` and
     // `0.1`.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Twice\n\n\
         ## Main\n\n\
         ```lua\n\
         local a = call('../Sub')\n\
@@ -215,7 +206,6 @@ fn a_return_with_no_value_fires_section_finished_for_the_section_it_ends() {
     // The section completed at its `return`, so its armed frame drop fires
     // SECTION_FINISHED, and no later section starts.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Boundaries\n\n\
         ## One\n\n\
         ```lua\nreturn\n```\n\n\
         ## Two\n\n\
@@ -245,7 +235,6 @@ fn fall_through_fires_section_finished_before_the_next_section_starts() {
     // Each entered section's armed frame drop fires SECTION_FINISHED at the
     // fall-through, before the next section's SECTION_STARTED.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Boundaries\n\n\
         ## One\n\n\
         ```lua\nlocal x = 1\n```\n\n\
         ## Two\n\n\

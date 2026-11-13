@@ -353,7 +353,6 @@ pub fn runvil::Host::parse(&self, name: &str) -> core::result::Result<runvil::Pr
 pub fn runvil::Prompt::file(&self) -> &str
 pub fn runvil::Prompt::frontmatter(&self) -> &runvil::prompt::Frontmatter
 pub fn runvil::Prompt::parse(finder: &dyn runvil::PromptFinder, name: &str) -> core::result::Result<runvil::Prompt, runvil::Error>
-pub fn runvil::Prompt::title(&self) -> &str
 pub fn runvil::PromptFinder::find(&self, name: &str) -> core::result::Result<alloc::string::String, runvil::Error>
 pub fn runvil::RunControl::cancel(&self)
 pub fn runvil::RunControl::send(&self, text: alloc::string::String) -> bool

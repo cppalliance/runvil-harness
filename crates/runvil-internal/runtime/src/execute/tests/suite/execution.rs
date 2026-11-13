@@ -66,7 +66,9 @@ fn log_fixture_reports_exact_author_checkpoints() {
     assert_eq!(
         checkpoints(&trace.records()),
         [
-            Record::new("Log Checkpoints", "Lua: H1 ran"),
+            // The preamble's record is under its section name, the empty
+            // string.
+            Record::new("", "Lua: preamble ran"),
             Record::new("Prepare", "Lua: prepare started"),
             Record::new("Prepare", "Lua: prepare finished"),
             Record::new("Finish", "Lua: finish started"),
@@ -132,10 +134,11 @@ fn concurrent_runs_keep_their_records_separate() {
             ],
             "each interleaved run must retain its own checkpoints"
         );
+        // The run's terminal record is under the prompt's frontmatter name.
         let terminals = records
             .iter()
             .filter(|record| {
-                record.section == "Store Fall-through"
+                record.section == "store_fallthrough"
                     && record.detail == detail::RUN_SUCCEEDED.to_string()
             })
             .count();

@@ -7,11 +7,7 @@ models:
     min_context: 40000
 ---
 
-# Analyst Example
-
----
-
-Demonstrates model selection by role. The frontmatter `models:` key sets a context minimum for the `strong` role, and the Host decides which model fills that role. A prompt whose `strong` model is too small is refused before it runs. A section that calls `models.use("strong")` runs its completions on that role's model, and a section that omits `models.use` runs on the `default` role.
+Demonstrates model selection by role. The frontmatter `models:` key sets a context minimum for the `strong` role, and the Host decides which model fills that role. A prompt whose `strong` model is too small is refused before it runs. A run starts on the `default` role's model, and a section that calls `models.use("strong")` runs the completions after that call on the `strong` role's model.
 
 ## Analyze
 

@@ -24,16 +24,15 @@
 //!   vocabulary (the `Effect` a leaf arm issues, its JSON record, and the
 //!   `EffectAnswer` the caller returns).
 //! - `scheduler` - the chain scheduler driving the coroutine protocol:
-//!   the H1 pass, the walk, call chains, fanout, and the `chat` and
+//!   the root walk, call chains, fanout, and the `chat` and
 //!   `tool_call` rounds that `models.loop`
 //!   yields over the section's `messages`.
 //! - `scope` - the merge that builds and checks a section entry's frozen
 //!   sets, and the schemas a round projects from its Static Set.
 //! - `section_context` - the per-section `SectionContext` frame the
 //!   scheduler's chains construct, run, and tear down.
-//! - `section_vm` - the section VM setup both frame constructors share: a
-//!   walked section's (a spawned task's first entry included) and the H1
-//!   pass's.
+//! - `section_vm` - the section VM setup every section entry runs, a
+//!   spawned task's first entry included.
 //! - `turn` - the model-turn counter and the round report every served
 //!   completion goes through.
 //! - `walk_target` - the walk-target resolution helpers.

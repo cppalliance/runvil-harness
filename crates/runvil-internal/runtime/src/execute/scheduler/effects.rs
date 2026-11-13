@@ -305,17 +305,6 @@ impl EffectTable {
         self.outstanding.is_empty()
     }
 
-    /// Moves every effect `from` awaits to `to`.
-    pub(super) fn reassign(&mut self, from: ChainIndex, to: ChainIndex) {
-        for entry in self.outstanding.values_mut() {
-            if let Outstanding::Awaited(pending) = entry
-                && pending.chain == from
-            {
-                pending.chain = to;
-            }
-        }
-    }
-
     /// Takes the step's outgoing queue: the effects issued since the step
     /// began, in issue order, and the effects withdrawn since the last
     /// step that still owe their answer, in id order.
@@ -564,19 +553,5 @@ mod tests {
         let orphan = expected.remove(3);
         table.orphan(orphan);
         assert_eq!(table.awaited_by(chain(0)), expected);
-    }
-
-    #[test]
-    fn reassigning_moves_only_the_awaited_effects_of_the_one_chain() {
-        let mut table = EffectTable::default();
-        let moved = issue_timer(&mut table, chain(0));
-        let kept = issue_timer(&mut table, chain(1));
-        let orphan = issue_timer(&mut table, chain(0));
-        table.orphan(orphan);
-        table.reassign(chain(0), chain(2));
-        assert_eq!(table.awaited_by(chain(2)), [moved]);
-        assert!(table.awaited_by(chain(0)).is_empty());
-        assert_eq!(table.awaited_by(chain(1)), [kept]);
-        assert!(matches!(table.arrive(orphan), Arrival::Orphaned));
     }
 }

@@ -4,8 +4,6 @@ description: Exercise read_numbered (numbered) vs read (verbatim) vs untrusted-w
 runvil: 0
 ---
 
-# Store Triad
-
 ## Write
 
 ```lua

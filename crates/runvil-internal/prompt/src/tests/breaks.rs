@@ -57,19 +57,51 @@ fn multiple_breaks_each_reset_the_pending_buffer() {
 }
 
 #[test]
-fn h1_break_resets_prose_and_lua_fence_below_stays_live() {
-    // The H1 follows the same reset rule: Markdown above the break is
+fn a_preamble_break_resets_prose_and_the_lua_fence_below_stays_live() {
+    // The preamble follows the same reset rule: Markdown above the break is
     // commentary that leaves an empty prose block, and a `lua` fence below
     // the break is live because a break makes nothing reader-only.
-    let h1 = "Description above.\n\n---\n\n```lua\nlocal live = 1\n```\n\nBelow prose.";
-    let prompt = parse_ok(&PromptSource::new().h1_prose(h1).prose("S", "p").build());
+    let preamble = "Description above.\n\n---\n\n```lua\nlocal live = 1\n```\n\nBelow prose.";
+    let src = PromptSource::new().preamble_prose(preamble);
+    let prompt = parse_ok(&src.prose("S", "p").build());
+    assert_eq!(prompt.sections[0].name, "", "the preamble comes first");
     assert!(matches!(
-        prompt.h1_blocks.as_slice(),
+        prompt.sections[0].blocks(),
         [Block::Prose { text: above, .. }, Block::Lua(program), Block::Prose { text: below, .. }]
             if above.as_str().is_empty()
                 && program.source() == "local live = 1"
                 && below == "Below prose."
     ));
+    assert_eq!(prompt.sections[1].name, "S");
+}
+
+#[test]
+fn preamble_prose_binds_to_the_following_lua_fence() {
+    // The preamble captures prose as a heading's section does: the Markdown
+    // above a fence is that fence's prose, and a break discards the
+    // Markdown above it.
+    for (preamble, pending) in [
+        (
+            "Gather the facts.\n\n```lua\nreturn 1\n```",
+            "Gather the facts.",
+        ),
+        (
+            "Draft notes.\n\n---\n\nAsk the question.\n\n```lua\nreturn 1\n```",
+            "Ask the question.",
+        ),
+    ] {
+        let src = PromptSource::new().preamble_prose(preamble);
+        let prompt = parse_ok(&src.prose("S", "p").build());
+        assert_eq!(prompt.sections[0].name, "", "the preamble comes first");
+        assert!(
+            matches!(
+                prompt.sections[0].blocks(),
+                [Block::Prose { text, .. }, Block::Lua(program)]
+                    if text == pending && program.source() == "return 1"
+            ),
+            "{preamble:?}"
+        );
+    }
 }
 
 #[test]

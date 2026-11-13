@@ -39,7 +39,6 @@ fn a_queued_arm_is_admitted_when_any_arm_frees_its_slot() {
     // `a`'s second infer. Admission keyed to the lowest-index arm's end
     // would hold `c` until `a` finished: `[a:1, b:1, a:2, c:1]`.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'a', 'b', 'c'})\n\
@@ -93,7 +92,6 @@ fn a_fatal_arm_gives_every_started_arm_exactly_one_terminal() {
     // the run never waits on the held round.
     let gateway = ScriptedChat::new(vec![text("boom-answer")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\ntasks.fanout('Worker', {'boom', 'slow', 'queued'})\n```\n\n\
         ### Worker\n\n\
@@ -139,7 +137,6 @@ fn an_arm_that_replies_hands_the_call_its_reply_and_ends_canceled() {
     // ended arm's cancel reports nothing. An arm left live would show in
     // `tasks.pending()` and be abandoned when the section ends.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'reply', 'return'})\n\
@@ -176,7 +173,6 @@ fn a_nested_fanout_nests_its_arm_ids_under_the_outer_arm() {
     // collection index at both levels, and all six arms start and succeed
     // exactly once.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Outer', {'a', 'b'})\n\
@@ -217,7 +213,6 @@ fn a_nested_fanout_nests_its_arm_ids_under_the_outer_arm() {
 /// Two arms that each infer twice, a `call` child after the fanout, and
 /// the caller's own id: every id the identity test compares.
 const IDENTITY: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Identity\n\n\
     ## Main\n\n\
     ```lua\n\
     local r = tasks.fanout('../Worker', {'a', 'b'})\n\
@@ -287,9 +282,9 @@ fn ids_are_identical_across_runs_whose_arms_finish_in_different_orders() {
     );
     assert_eq!(first_out, second_out, "finish order must not change any id");
     assert_eq!(
-        first_out, "0.0.0=A1A2|0.1.0=B1B2|0.2.0|0.1",
+        first_out, "0.0.0=A1A2|0.1.0=B1B2|0.2.0|0.0",
         "arms are the caller's children 0 and 1, the call child is child 2, \
-         and the caller keeps the walk's first entry id"
+         and the caller keeps the root chain's first entry id"
     );
 }
 
@@ -311,7 +306,6 @@ fn three_arms_running_models_loop_hold_three_model_rounds_in_flight_at_once() {
         text("final"),
     ]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'a', 'b', 'c'})\n\

@@ -342,7 +342,7 @@ fn parse_use_options(options: Value, rest: &MultiValue) -> mlua::Result<UseOptio
 }
 
 /// Installs the `models` table the module doc describes into one section VM;
-/// every section, H1 included, installs it through this one path.
+/// every section installs it through this one path.
 /// `models.use` stores its selection in `selection`, and `raw_ids` is the
 /// [`RawModelIds`] fallback `models.get` applies to a label outside the five
 /// roles.

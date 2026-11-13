@@ -28,8 +28,8 @@ use super::{Chain, ChainIndex, ChatAnchor, Counters, GENERIC_COMPLETION, Schedul
 pub(super) enum ChainStep {
     /// The run goes on.
     Continue,
-    /// The run ended with this result: the root's outcome, an H1
-    /// short-circuit, or a failure fatal to the whole run.
+    /// The run ended with this result: the root's outcome, or a failure
+    /// fatal to the whole run.
     RunEnded(Result<String>),
 }
 
@@ -52,19 +52,17 @@ impl Chain {
 pub(super) struct ChainStart {
     /// The chain's hierarchical id.
     pub(super) lineage: ChainId,
-    /// The id counters the chain continues from: zero for a fresh chain,
-    /// the H1 pass's for the root walk that follows it.
+    /// The id counters the chain starts from: zero for every chain.
     pub(super) counters: Counters,
     /// The chain's fork of the run state.
     pub(super) ctx: ChainState,
     /// The model the chain's current model starts on: the `default` binding
-    /// for the H1 pass and a root walk with no pass before it, the H1
-    /// pass's ending model for the walk that follows it, and a copy of the
+    /// for the root walk, and a copy of the
     /// parent's current model, taken when the call or spawn was dispatched,
     /// for a `call` child or a task.
     pub(super) model: Option<ModelBinding>,
-    /// The chain's VFS access capability: the root identity for the H1
-    /// pass and the walk, the caller's for a `call` child, a fork of the
+    /// The chain's VFS access capability: the root identity for the root
+    /// walk, the caller's for a `call` child, a fork of the
     /// spawner's for a task.
     pub(super) access: Arc<Access>,
     /// The section the chain starts at, which its walk continues from.
@@ -85,18 +83,17 @@ pub(super) struct ChainStart {
 impl Scheduler {
     /// Creates one chain from `start` and returns its arena index. A
     /// fresh chain enters its first section on its first step, taking
-    /// entry 0 of its own id; the root walk continues the counters of the
-    /// H1 pass it follows. Until its first entry the chain reports under
-    /// the section at its start, or the prompt's title when the start is
+    /// entry 0 of its own id. Until its first entry the chain reports under
+    /// the section at its start, or the prompt's name when the start is
     /// past its slice. The chain's task is its own id for a task
     /// chain, its call parent's for a `call` child, and task `0` for the
-    /// root walk and the H1 pass.
+    /// root walk.
     ///
     /// # Errors
     /// Returns an `Internal` failure when the run's chain count exceeds `u32`.
     pub(super) fn start_chain(&mut self, start: ChainStart) -> Result<ChainIndex> {
         let task = match &start.kind {
-            ChainKind::Root | ChainKind::H1 => TaskId::from(ChainId::root()),
+            ChainKind::Root => TaskId::from(ChainId::root()),
             ChainKind::Call { parent } => self.chains[*parent].task.clone(),
             ChainKind::Task => TaskId::from(start.lineage.clone()),
         };
@@ -121,49 +118,6 @@ impl Scheduler {
         })
     }
 
-    /// Starts a root chain and enqueues it: the H1 pass, the root walk, or
-    /// the walk a jump out of H1 starts. The root lineage and the root call
-    /// depth are what makes a chain a root chain, so neither is a
-    /// parameter, and `start` and `concurrency` are, because a walk
-    /// inherits the pass's start position and the pass's limit after
-    /// `tasks.concurrency` lowered it. A root start enqueues itself: the
-    /// chain is on the ready queue when this returns, and no caller pushes
-    /// it again.
-    ///
-    /// # Errors
-    /// Returns an `Internal` failure when the run's chain count exceeds
-    /// `u32`, leaving the ready queue unchanged.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "a root start inlines the `ChainStart` it would build, so no caller can set `lineage` or `call_depth`, and the five values it forwards verbatim from its site stay explicit"
-    )]
-    pub(super) fn start_root_chain(
-        &mut self,
-        kind: ChainKind,
-        counters: Counters,
-        ctx: ChainState,
-        model: Option<ModelBinding>,
-        access: Arc<Access>,
-        start: SectionPos,
-        var: serde_json::Value,
-        concurrency: NonZeroUsize,
-    ) -> Result<ChainIndex> {
-        let id = self.start_chain(ChainStart {
-            lineage: ChainId::root(),
-            counters,
-            ctx,
-            model,
-            access,
-            start,
-            kind,
-            var,
-            call_depth: CallDepth::ROOT,
-            concurrency,
-        })?;
-        self.ready.push_back(id);
-        Ok(id)
-    }
-
     /// Finishes one chain: the frame's teardown boundary when the chain
     /// ends mid-section, the chain-end rules for the tasks it owns (a live
     /// task makes the outcome `make_tasks_live_error` and is abandoned), then the
@@ -174,8 +128,7 @@ impl Scheduler {
     /// entry's outcome for a spawned chain.
     ///
     /// Delivery is one of those three ways and a `Determinism` outcome
-    /// takes none of them: it ends the run before the delivery match. The
-    /// frame is armed for completion only when the chain is not H1. A
+    /// takes none of them: it ends the run before the delivery match. A
     /// chain that ended with no text delivers by its kind: the run's result
     /// is the shared generic completion, a task's is the empty string, and
     /// a `call` child's answer holds no text, so the call returns nil.
@@ -198,12 +151,6 @@ impl Scheduler {
         // drops only when both are gone. The chain-end joins run while
         // this clone is still held.
         let access = chain.access.take();
-        // The H1 pass never arms completion: SECTION_FINISHED is a
-        // walked section's boundary, not the setup pass's. Its completion
-        // paths (fall-through, a `return`) handle the frame themselves;
-        // this guard keeps an H1 frame that reaches here - an error path -
-        // unarmed.
-        let is_h1 = chain.kind.is_h1();
         let outcome = outcome.and_then(|returned| {
             // A chain ending mid-section (a `return`, with a value or
             // without) reads its final var back before teardown, exactly as
@@ -219,9 +166,7 @@ impl Scheduler {
                     .frame
                     .read_var()
                     .map_err(|error| place(error, prompt.file(), line))?;
-                if !is_h1 {
-                    entered.frame.mark_completed();
-                }
+                entered.frame.mark_completed();
             }
             Ok(returned)
         });

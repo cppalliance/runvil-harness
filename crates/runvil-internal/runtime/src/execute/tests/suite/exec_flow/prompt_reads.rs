@@ -1,7 +1,7 @@
 //! `prompt.section` and `prompt.section_or`: what each returns for a
 //! relative path and for a path from the top, what each does when the
 //! path names no section, the calls that raise from both, and the reads
-//! from H1 and a library.
+//! from the preamble and a library.
 
 use super::*;
 
@@ -99,7 +99,7 @@ fn a_path_from_the_top_reads_any_section_from_any_place() {
           assert(prompt.section_or(path, 'list') == nil, path .. ' must read nil with a selector')
         end";
     let head = PromptSource::new()
-        .h1(reads)
+        .preamble(reads)
         .section(
             "Main",
             &format!("{reads}\nreturn call('../Tree') .. '|' .. prompt.section('/Rules')"),
@@ -114,7 +114,7 @@ fn a_path_from_the_top_reads_any_section_from_any_place() {
     assert_eq!(
         trace.text(),
         format!("leaf|{RULES}"),
-        "the H1, a top-level section, and a nested one read the same sections"
+        "the preamble, a top-level section, and a nested one read the same sections"
     );
 }
 
@@ -178,24 +178,24 @@ fn both_reads_raise_for_a_mistake_and_only_section_raises_for_a_miss() {
     );
 }
 
-/// Both reads work in H1, whose children are the top-level sections and
-/// which has no siblings, and in a library. A library's own `prompt`
-/// reads from the library, and `_G.prompt` in its code reads from the
-/// section that is using it: at load time, where each requiring section
+/// Both reads work in the preamble, whose siblings are the top-level
+/// sections and which has no children, and in a library. A library's own
+/// `prompt` reads from the library, and `_G.prompt` in its code reads from
+/// the section that is using it: at load time, where each requiring section
 /// loads the library for itself, and from a library function.
 #[test]
-fn prompt_reads_work_in_h1_and_a_library() {
+fn prompt_reads_work_in_the_preamble_and_a_library() {
     let head = PromptSource::new()
-        .h1(
+        .preamble(
             "
             require '/kid_reader'
-            assert(prompt.section('Main') ~= nil, 'a top-level section is a child of the H1')
-            assert(prompt.section_or('Kid') == nil, 'a nested section is no child of the H1')
-            assert(prompt.section_or('../Main') == nil, 'the H1 has no siblings')
-            assert(kids_at_load == nil, 'the load-time read through _G in the H1 resolves from the H1')
-            assert(kid_items() == nil, 'a library function reads through _G from the H1')
-            assert(own_kid() == 'own kid', 'a library reads its own child from the H1')
-            var.nums = table.concat(prompt.section('Nums', 'list').items, ',')",
+            assert(prompt.section('../Main') ~= nil, 'a top-level section is a sibling of the preamble')
+            assert(prompt.section_or('Main') == nil, 'the preamble has no children')
+            assert(prompt.section_or('../Kid') == nil, 'a nested section is no sibling of the preamble')
+            assert(kids_at_load == nil, 'the load-time read through _G in the preamble resolves from the preamble')
+            assert(kid_items() == nil, 'a library function reads through _G from the preamble')
+            assert(own_kid() == 'own kid', 'a library reads its own child from the preamble')
+            var.nums = table.concat(prompt.section('../Nums', 'list').items, ',')",
         )
         .section(
             "Main",
@@ -226,6 +226,6 @@ own kid\n";
     let out = trace.text();
     assert_eq!(
         out, "one,two,three|kid-one,kid-two|kid-one,kid-two|own kid",
-        "H1 reads the top-level list, the library reads its user's child through _G, and its own child by a plain name"
+        "the preamble reads the top-level list, the library reads its user's child through _G, and its own child by a plain name"
     );
 }

@@ -116,9 +116,11 @@ impl SectionPos {
         self.siblings(prompt).get(self.index.0)
     }
 
-    /// The section's name, or the prompt's title when the index is past
-    /// its slice: a chain's section name before its first entry.
+    /// The section's name, or the prompt's frontmatter `name` when the
+    /// index is past its slice: a chain's section name before its first
+    /// entry.
     pub(crate) fn name<'p>(&self, prompt: &'p Prompt) -> &'p str {
-        self.section(prompt).map_or(prompt.title(), Section::name)
+        self.section(prompt)
+            .map_or(prompt.frontmatter().name(), Section::name)
     }
 }

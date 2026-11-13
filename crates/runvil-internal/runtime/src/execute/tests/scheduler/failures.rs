@@ -15,7 +15,6 @@ fn two_arms_appending_one_path_boom_without_any_other_suspension() {
     // claims are never released during a run, so the conflict cannot
     // depend on timing.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'alpha', 'beta'})\n\
@@ -49,7 +48,6 @@ fn an_arm_rewriting_its_own_path_succeeds() {
     // The registry records (fanout token, arm index), so the same arm
     // writing the same path again is a rewrite, not a race.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'only'})\n\
@@ -72,7 +70,6 @@ fn sequential_fanouts_may_write_one_path() {
     // A later fanout takes a fresh write token, so its write overwrites the
     // earlier fanout's registry record instead of racing against it.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local a = tasks.fanout('Worker', {'one'})\n\
@@ -98,7 +95,6 @@ fn fatal_arm_aborts_queued_siblings() {
     // terminal observations: one FAILED, nothing else. The start event
     // fires at admission, so the queued siblings never report one.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\ntasks.fanout('Worker', {'boom', 'beta', 'gamma'})\n```\n\n\
         ### Worker\n\n\
@@ -149,7 +145,6 @@ fn fatal_arm_aborts_an_in_flight_sibling() {
     // on it.
     let gateway = ScriptedChat::new(vec![text("boom-answer")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\ntasks.fanout('Worker', {'boom', 'slow'})\n```\n\n\
         ### Worker\n\n\
@@ -218,7 +213,6 @@ fn a_caught_fanout_failure_lets_the_caller_continue() {
         text("after-answer"),
     ]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local ok, err = pcall(tasks.fanout, 'Worker', {'boom', 'slow'})\n\
@@ -251,7 +245,6 @@ fn cancellation_while_suspended_in_a_fanout_arm_cancels_the_run() {
     // `abandoned` terminal naming the run's end - not a cancel or a
     // failure of the arm's own.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'one', 'two'})\n\
@@ -316,7 +309,6 @@ fn a_spawn_failure_mid_fanout_cancels_the_queued_arms() {
     // still reaches Canceled.
     let gateway = ScriptedChat::new(vec![text("after-answer")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local ok, err = pcall(tasks.fanout, 'Worker', {'one', 'two', 'three'})\n\
@@ -382,7 +374,6 @@ fn an_answer_for_an_unknown_request_id_fails_loudly() {
     // discarded.
     let gateway = ScriptedChat::new(vec![text("real-answer")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Infer\n\n\
         ## Only\n\n\
         ```lua\nreturn models.infer('ask')\n```\n";
     let mut rig = Rig::start(scheduler_scenario(md).chat(&gateway));
@@ -407,7 +398,6 @@ fn aborting_an_effect_that_is_not_outstanding_records_no_orphan() {
     // of being discarded as an orphan's late answer.
     let gateway = ScriptedChat::new(vec![text("real-answer")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Infer\n\n\
         ## Only\n\n\
         ```lua\nreturn models.infer('ask')\n```\n";
     let mut rig = Rig::start(scheduler_scenario(md).chat(&gateway));
@@ -435,7 +425,6 @@ fn an_answer_for_a_chain_with_no_suspended_block_fails_loudly() {
     // both raise an `Internal` failure rather than drop the answer and strand
     // the chain off every queue.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n\
         ## Only\n\n\
         ```lua\nreturn 'done'\n```\n";
     let mut rig = Rig::start(scheduler_scenario(md));
@@ -458,7 +447,6 @@ fn a_second_delivery_before_resume_is_an_internal_error() {
     // delivery before then is a scheduler bug: it fails loudly and leaves
     // the first answer in place rather than overwrite it.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n\
         ## Only\n\n\
         ```lua\nreturn models.infer('ask')\n```\n";
     let mut rig =

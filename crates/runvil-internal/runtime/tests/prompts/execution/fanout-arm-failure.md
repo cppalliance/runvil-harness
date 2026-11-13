@@ -4,8 +4,6 @@ description: Arm error propagates to invoker
 runvil: 0
 ---
 
-# Fanout Arm Failure
-
 ## Research
 
 ```lua

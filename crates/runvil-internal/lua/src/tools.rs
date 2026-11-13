@@ -79,7 +79,7 @@ pub(crate) fn adhoc_handler(lua: &Lua, name: &str) -> mlua::Result<Function> {
     }
 }
 
-/// Installs the tool and Pack APIs into one section VM (H1 included: there
+/// Installs the tool and Pack APIs into one section VM (there
 /// is one install path for every section): the tool objects, the Pack
 /// objects, `tools.packs`, both offer verbs, `tools.adhoc`, and
 /// `tools.get`.

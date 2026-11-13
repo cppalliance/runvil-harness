@@ -13,7 +13,6 @@ fn fanout_empty_collection_errors_before_any_scheduling() {
     // created - no STARTED observation, and the worker's store tripwire
     // never fires.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\ntasks.fanout('Worker', {})\n```\n\n\
         ### Worker\n\n\
@@ -39,10 +38,9 @@ fn fanout_empty_collection_errors_before_any_scheduling() {
 }
 
 /// Alpha and Beta ping-pong calls through nested call chains, and the
-/// chain that lands at depth 8 calls fanout, on prompt line 13, where each
+/// chain that lands at depth 8 calls fanout, on prompt line 11, where each
 /// arm would run one level deeper than the cap allows.
 const DEPTH_FANOUT: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Depth\n\n\
     ## Alpha\n\n\
     ```lua\n\
     var.n = (var.n or 0) + 1\n\
@@ -72,7 +70,7 @@ fn fanout_depth_cap_reads_the_chain_field() {
         error,
         &crate::test_support::with_author_prose(
             crate::error::make_call_depth_exceeded_error(8),
-            13
+            11
         ),
         "expected the typed depth-cap error on Alpha's fanout line"
     );
@@ -91,7 +89,7 @@ fn an_uncaught_fanout_depth_error_lands_on_the_authors_fanout_line() {
     let trace = scheduler_scenario(DEPTH_FANOUT).run();
     assert_eq!(
         trace.error().at,
-        std::num::NonZeroU32::new(13)
+        std::num::NonZeroU32::new(11)
             .map(|line| runvil_types::error::SourceLoc::line("prompt", line)),
         "the run's error points at Alpha's `tasks.fanout(...)` line"
     );
@@ -115,7 +113,6 @@ fn an_exhausted_arm_becomes_the_incomplete_stub_and_its_sibling_still_lands() {
     ]);
     let md = format!(
         "---\nname: t\ndescription: d\nrunvil: 0\nmax_tool_iterations: {cap}\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {{'loop', 'plain'}})\n\
@@ -195,7 +192,6 @@ fn two_arms_writing_one_path_terminate_the_run_with_a_determinism_violation() {
     // loser is stranded mid-chain by the run's own failure, which is the
     // record of how it ended).
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'alpha', 'beta'})\n\
@@ -227,7 +223,7 @@ fn two_arms_writing_one_path_terminate_the_run_with_a_determinism_violation() {
     );
     assert_eq!(
         error.at,
-        at_line(19),
+        at_line(17),
         "the violation, which never reaches Lua, is placed on the losing arm's \
          `store.write` line: {error:?}"
     );
@@ -260,7 +256,6 @@ fn two_live_arms_appending_one_path_terminate_with_a_determinism_violation() {
     // fanout's own rounds deliver them. The conflict is the fatal
     // make_determinism_error violation, not a per-arm store error.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'alpha', 'beta'})\n\

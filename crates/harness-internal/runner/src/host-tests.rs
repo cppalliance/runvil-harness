@@ -105,7 +105,7 @@ fn missing_prompt(name: &str) -> Error {
 fn declaring(uses: &str) -> String {
     format!(
         "---\nname: research\ndescription: d\nrunvil: 0\n{uses}---\n\n\
-         # Research\n\n## Only\n\nDone.\n"
+         ## Only\n\nDone.\n"
     )
 }
 
@@ -116,7 +116,7 @@ fn a_prompt_whose_declared_packs_are_all_installed_parses_under_its_name() {
         .parse("research.md")
         .expect("every declared Pack is installed");
     assert_eq!(prompt.file(), "research.md");
-    assert_eq!(prompt.title(), "Research");
+    assert_eq!(prompt.frontmatter().name(), "research");
 }
 
 #[test]
@@ -170,9 +170,9 @@ fn a_finder_failure_comes_back_as_given() {
 
 #[test]
 fn a_parse_failure_comes_back_as_given_before_any_uses_check() {
-    let source = declaring("uses:\n  - acme/gone\n").replace("# Research\n", "");
+    let source = declaring("uses:\n  - acme/gone\n").replace("## Only", "##");
     let expected = Prompt::parse(&|_: &str| Ok(source.clone()), "research.md")
-        .expect_err("a prompt with no H1 fails to parse");
+        .expect_err("a prompt with an empty heading fails to parse");
     let host = host(&[("research.md", source)]);
     let error = host
         .parse("research.md")

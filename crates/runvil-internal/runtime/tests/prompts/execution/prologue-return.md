@@ -4,8 +4,6 @@ description: Return from a prologue before prose or epilog can run
 runvil: 0
 ---
 
-# Prologue Return
-
 ## Stop Early
 
 ```lua

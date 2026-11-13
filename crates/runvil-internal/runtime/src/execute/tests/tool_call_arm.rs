@@ -63,10 +63,9 @@ impl Observer for ToolRecorder {
     }
 }
 
-/// A tool-call arm test's run of `source`: the loop models filled in (the
-/// arm tests bypass the H1 pass that would fill them), nothing
-/// offered unless the test offers it, and the raw protocol shims exposed
-/// so a section can yield a model-issued call.
+/// A tool-call arm test's run of `source`: the loop models bound from its
+/// start, nothing offered unless the test offers it, and the raw protocol
+/// shims exposed so a section can yield a model-issued call.
 fn arm_scenario(source: impl Into<String>) -> Scenario {
     loop_scenario(source).raw_shims()
 }
@@ -185,7 +184,7 @@ fn a_malformed_yield_fails_the_block_on_the_line_that_yielded() {
     let error = trace.error();
     assert_eq!(error.code, ErrorCode::LuaRuntime, "{error:?}");
     assert!(error.message.contains("yield directly"), "{error:?}");
-    assert_eq!(error.at, at_line(13), "{error:?}");
+    assert_eq!(error.at, at_line(11), "{error:?}");
 }
 
 /// The `tool_result` lines `recorder` saw, in order.

@@ -62,23 +62,14 @@ pub(crate) fn make_unsupported_version_error(version: u32) -> Error {
 }
 
 /// The environment's refusal of the prompt: `notice`, the model-readable
-/// refusal with one line per gap, is the prose, and the message follows it
-/// with the text of the failure the refusal stands in for, when one raised
-/// it.
-pub(crate) fn make_requirements_unmet_error(
-    notice: &str,
-    cause: Option<&(dyn std::error::Error + 'static)>,
-) -> Error {
-    let refusal = Error::new(ErrorCode::RequirementsUnmet, notice, notice);
-    match cause {
-        Some(cause) => refusal.with_cause(cause),
-        None => refusal,
-    }
+/// refusal with one line per gap, is both the message and the prose.
+pub(crate) fn make_requirements_unmet_error(notice: &str) -> Error {
+    Error::new(ErrorCode::RequirementsUnmet, notice, notice)
 }
 
 /// A `models.infer` or `models.loop` round that found no current model,
 /// because the caller supplied none. `section` is the section whose round
-/// had no binding, or the prompt's H1 title for a round in the H1 pass.
+/// had no binding.
 pub(crate) fn make_model_required_error(section: &str) -> Error {
     with_fact(
         make_failure_error(

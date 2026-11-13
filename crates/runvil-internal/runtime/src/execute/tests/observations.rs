@@ -88,7 +88,7 @@ fn a_two_section_run_reports_the_exact_observation_sequence() {
     assert_eq!(
         sequence(&trace),
         vec![
-            ("Test prompt".to_string(), detail::RUN_STARTED.to_string()),
+            ("t".to_string(), detail::RUN_STARTED.to_string()),
             ("First".to_string(), detail::SECTION_STARTED.to_string()),
             ("First".to_string(), detail::LUA_CHUNK_STARTED.to_string()),
             ("First".to_string(), detail::LUA_CHUNK_SUCCEEDED.to_string(),),
@@ -116,7 +116,7 @@ fn a_two_section_run_reports_the_exact_observation_sequence() {
                 detail::LUA_TEARDOWN_SUCCEEDED.to_string(),
             ),
             ("Second".to_string(), detail::SECTION_FINISHED.to_string()),
-            ("Test prompt".to_string(), detail::RUN_SUCCEEDED.to_string()),
+            ("t".to_string(), detail::RUN_SUCCEEDED.to_string()),
         ]
     );
 }
@@ -185,7 +185,7 @@ fn a_failing_run_still_reports_run_finished() {
     assert_eq!(
         sequence(&trace),
         vec![
-            ("Test prompt".to_string(), detail::RUN_STARTED.to_string()),
+            ("t".to_string(), detail::RUN_STARTED.to_string()),
             ("Only".to_string(), detail::SECTION_STARTED.to_string()),
             ("Only".to_string(), detail::LUA_CHUNK_STARTED.to_string()),
             ("Only".to_string(), detail::LUA_CHUNK_FAILED.to_string()),
@@ -194,7 +194,7 @@ fn a_failing_run_still_reports_run_finished() {
                 "Only".to_string(),
                 detail::LUA_TEARDOWN_SUCCEEDED.to_string(),
             ),
-            ("Test prompt".to_string(), detail::RUN_FAILED.to_string()),
+            ("t".to_string(), detail::RUN_FAILED.to_string()),
         ],
         "a section that errors reports no SectionFinished"
     );
@@ -290,7 +290,6 @@ fn the_records_span_the_complete_runtime_lifecycle() {
     let gateway = ScriptedChat::new(vec![text("aliased final")]);
     let (tool, called) = scoped_tool("echo", "Echo a test value.");
     let source = "---\nname: lifecycle\ndescription: Correlated lifecycle fixture\nrunvil: 0\nuses:\n  - tools\n---\n\n\
-         # Lifecycle\n\n\
          ## Gather\n\n```lua\ntools.offer('tools/echo')\nstore.write('state.txt', 'before')\n```\n\n\
          Use the echo tool.\n\n\
          ```lua\n\

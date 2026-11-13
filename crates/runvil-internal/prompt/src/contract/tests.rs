@@ -295,7 +295,7 @@ fn contract_errors_report_their_frontmatter_line_and_column() {
         "uses:\n",             // line 4
         "  - not a Pack id\n", // line 5: the offending scalar
         "---\n",
-        "\n# T\n\n## S\n\np\n",
+        "\n## S\n\np\n",
     );
     let error = parse_err(src);
     assert_eq!(error.code, ErrorCode::FrontmatterInvalid);

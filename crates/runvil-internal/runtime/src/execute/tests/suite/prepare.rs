@@ -29,7 +29,6 @@ const DECLARES_NOTHING: &str = concat!(
     "description: d\n",
     "runvil: 0\n",
     "---\n\n",
-    "# Title\n\n",
     "## Only\n\n",
     "Done.\n",
 );

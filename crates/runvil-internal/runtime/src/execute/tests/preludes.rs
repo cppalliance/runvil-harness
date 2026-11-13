@@ -24,11 +24,10 @@ const GREETER: &str = "greeter = { greeting = 'hello' }\n\
       return greeter.greeting .. ' ' .. name\n\
     end";
 
-/// A prompt whose H1 block writes to the store before any section runs, so
-/// a run that sets up its first section VM issues a store effect at once.
+/// A prompt whose preamble writes to the store, so a run that sets up its
+/// first section VM issues a store effect at once.
 const EFFECT_FIRST: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Preludes\n\n\
-    ```lua\nstore.write('h1.txt', 'x')\n```\n\n\
+    ```lua\nstore.write('preamble.txt', 'x')\n```\n\n\
     ## Only\n\n\
     ```lua\nreturn 'done'\n```\n";
 
@@ -111,7 +110,6 @@ fn two_preludes_defining_one_global_fail_the_run_as_lua_before_its_first_effect(
 #[test]
 fn a_prelude_global_named_like_an_offered_tools_wire_name_installs() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\nuses:\n  - tools\n---\n\n\
-        # Preludes\n\n\
         ## Only\n\n\
         ```lua\nreturn tools_echo .. '|' .. tools.get('tools/echo').id\n```\n";
     let trace = prelude_run(md, vec![prelude("echoes", "tools_echo = 'mine'")]);
@@ -125,7 +123,6 @@ fn a_prelude_global_named_like_an_offered_tools_wire_name_installs() {
 #[test]
 fn a_prelude_global_named_like_a_model_role_label_installs() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Preludes\n\n\
         ## Only\n\n\
         ```lua\nreturn strong .. '|' .. models.get('strong').name\n```\n";
     let trace = prelude_run(md, vec![prelude("strong", "strong = 'mine'")]);
@@ -153,7 +150,6 @@ fn a_prelude_defining_ui_or_item_collides_on_a_run_that_binds_neither() {
 #[test]
 fn a_library_a_fanout_arm_and_a_spawned_task_all_see_a_prelude_global() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Preludes\n\n\
         ## Main\n\n\
         ```lua\n\
         require '/greetings'\n\
@@ -183,7 +179,6 @@ fn a_library_a_fanout_arm_and_a_spawned_task_all_see_a_prelude_global() {
 #[test]
 fn a_prelude_write_across_two_arms_ends_the_run_with_determinism_caught_or_not() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Preludes\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', { 'alpha', 'beta' })\n\
@@ -209,7 +204,6 @@ fn a_prelude_write_across_two_arms_ends_the_run_with_determinism_caught_or_not()
 #[test]
 fn a_prelude_function_called_from_a_block_reaches_the_yielding_store_shims() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Preludes\n\n\
         ## Only\n\n\
         ```lua\nreturn notes.keep('kept')\n```\n";
     let notes = "notes = {}\n\
@@ -243,7 +237,6 @@ fn a_prelude_function_called_from_a_block_reaches_the_yielding_store_shims() {
 #[test]
 fn a_tool_call_made_inside_a_prelude_function_records_a_script_caller() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Preludes\n\n\
         ## Only\n\n\
         ```lua\nreturn echoer.say('hi')\n```\n";
     let echoer = "echoer = {}\n\
@@ -258,7 +251,7 @@ fn a_tool_call_made_inside_a_prelude_function_records_a_script_caller() {
             tool: ToolId::parse("tools/echo").expect("a valid id"),
             alias: "tools/echo".to_owned(),
             args: json!({ "value": "hi" }),
-            origin: ToolCallOrigin::new("Only", ToolCaller::Script).with_entry("0.1"),
+            origin: ToolCallOrigin::new("Only", ToolCaller::Script).with_entry("0.0"),
         }]
     );
 }

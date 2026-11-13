@@ -12,7 +12,6 @@ fn fanout_results_follow_collection_order_not_finish_order() {
     // join that keyed results by completion order would return "r2|r1:r3".
     let gateway = ScriptedChat::new(vec![text("r1"), text("r2"), text("r3")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'one', 'two'})\n\
@@ -45,7 +44,6 @@ fn fanout_arms_interleave_at_io_points_on_one_thread() {
     // of which arm's second answer lands first.
     let gateway = ScriptedChat::new(vec![text("r1"), text("r2"), text("r3"), text("r4")]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'one', 'two'})\n\
@@ -85,7 +83,6 @@ fn the_admission_limit_gates_the_arms_a_fanout_runs_at_once() {
         text("r6"),
     ]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'x', 'y', 'z'})\n\
@@ -121,7 +118,6 @@ fn fanout_arms_take_child_ids_in_collection_order_per_fanout_index_and_structure
     // merges the arm logs in order, because the fanout's join_any rounds
     // join every arm before it returns.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local r = tasks.fanout('Worker', {'a', 'b'})\n\
@@ -150,7 +146,7 @@ fn fanout_arms_take_child_ids_in_collection_order_per_fanout_index_and_structure
     );
     assert_eq!(
         trace.read("ids.txt").expect("the parent's ids log"),
-        "parent:0.1\n",
+        "parent:0.0\n",
         "the parent keeps the walk's first entry id"
     );
 }
@@ -168,7 +164,6 @@ fn fanout_over_a_large_collection_admits_arms_under_the_ceiling() {
     // live at once.
     let gateway = ScriptedChat::new(vec![text("r"); 1025]);
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Fanout\n\n\
         ## Parent\n\n\
         ```lua\n\
         local items = {}\n\

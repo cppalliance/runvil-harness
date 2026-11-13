@@ -8,8 +8,8 @@
 //! (the task-scoped event emitter and the turn counter) seeded out of the
 //! run context; a task chain's context is the spawn's fork, so the handles
 //! reach the frame and the task's nested chains through the one value.
-//! Each section entry is one construct-run-teardown cycle: a constructor
-//! (one for a walked section, one for the H1 pass) builds the frame, the
+//! Each section entry is one construct-run-teardown cycle: the constructor
+//! builds the frame, the
 //! scheduler's chain steps run the blocks, and the frame's [`Drop`] impl is
 //! the single teardown boundary.
 //!
@@ -29,7 +29,6 @@ use crate::lua::{
 };
 use crate::model::ModelBinding;
 use crate::prompt::Prompt;
-use crate::section_path::Origin;
 use crate::section_pos::SectionPos;
 use crate::{Result, error, subst};
 
@@ -66,11 +65,11 @@ pub(super) struct SectionSys {
     /// child reports its caller's task. A chain passes it to `tasks.*` to
     /// speak about itself.
     pub(super) taskid: TaskId,
-    /// The section's name, or the prompt's title for the H1 pass. Fixed at
+    /// The section's name, which is empty for the preamble. Fixed at
     /// construction, and the name the frame's `Drop` reports the teardown
     /// boundary and the completion observation under.
     pub(super) section_name: String,
-    /// The prompt's top-level section count.
+    /// The prompt's top-level section count, the preamble included.
     pub(super) section_count: usize,
     /// A spawned chain's `opts.index`, on its first entry only.
     pub(super) index: Option<u64>,
@@ -151,9 +150,9 @@ pub(super) struct SectionContext {
 }
 
 impl SectionContext {
-    /// Constructs the frame for one walked section and runs its setup
-    /// preamble: the section's `sys`, the section-started observation, VM
-    /// construction and limits, and the shared setup half
+    /// Constructs the frame for one section entry and runs its setup:
+    /// the section's `sys`, the section-started observation, VM
+    /// construction and limits, and the VM setup
     /// ([`section_vm::setup_section_vm`]), with the `prompt` reads of the
     /// section's own code resolved from the section.
     ///
@@ -194,7 +193,7 @@ impl SectionContext {
         ))?;
         let mut sys = ctx.section_sys(section_id, task_id, section.name());
         // A spawned chain's `sys.index` is the spawn's own value, verbatim;
-        // absent otherwise, so a walked section reading `sys.index` raises
+        // absent otherwise, so any other entry reading `sys.index` raises
         // the sealed-sys unknown-field error.
         sys.index = seed.index;
         ctx.emitter()
@@ -205,15 +204,12 @@ impl SectionContext {
         // The `prompt` reads resolve from the section, or from the library
         // whose code makes the read; the suspending calls (`call`,
         // `tasks.fanout`, `models.infer`) are the yield shims the setup
-        // half installs.
+        // installs.
         let prompt = Arc::clone(ctx.prompt());
         let pos = pos.clone();
         let read = move |path: String, from: Option<LibraryKey>| {
-            walk_target::read_section(&path, &prompt, Origin::Section(&pos), from.as_ref())
+            walk_target::read_section(&path, &prompt, &pos, from.as_ref())
         };
-        // The shared setup half ([`section_vm::setup_section_vm`]) follows;
-        // only the seed, the `sys` extras, and the callbacks' position are
-        // the walk's own.
         let sys_json = sys.to_json();
         let setup = ctx.vm_setup(
             &sys_json,
@@ -229,76 +225,17 @@ impl SectionContext {
         // Setup runs on the bare VM and tears it down itself on failure:
         // the frame does not exist yet, so its `Drop` cannot own this path.
         let vm = section_vm::setup_section_vm(vm, &setup, read, resolve, render)?;
-        Ok(Self::assemble(vm, sys, seed.item, ctx))
-    }
-
-    /// Constructs the frame for the H1 pass - section 0 - through the same
-    /// install path as any walked section: the section's `sys`
-    /// (`section_id`, the root chain's entry 0, and `task_id`, the root
-    /// chain's task, under the prompt's title, with the run's `when` like
-    /// every section after it), VM construction over the run's shared
-    /// sets, limits, and the shared setup half
-    /// ([`section_vm::setup_section_vm`]).
-    ///
-    /// H1's only deltas from a walked section: no `SECTION_STARTED`
-    /// observation, and no `SECTION_FINISHED` since the scheduler never arms
-    /// the pass's completion (the pass is not a walked section), an empty
-    /// `var` seed (it runs first and is never re-entered), and
-    /// [`Origin::H1`] behind the `prompt` reads, so a relative path names a
-    /// top-level section.
-    ///
-    /// # Errors
-    /// Returns the failure of whichever step failed (see [`section_vm`]
-    /// for which failures tear the VM down).
-    pub(crate) fn new_h1(
-        ctx: &ChainState,
-        access: &Arc<Access>,
-        scope: &ScopeHandle,
-        selection: &Arc<Mutex<Option<ModelBinding>>>,
-        section_id: &str,
-        task_id: &TaskId,
-    ) -> Result<Self> {
-        let title = ctx.prompt().title();
-        let sys = ctx.section_sys(section_id, task_id, title);
-        let vm = limited_vm(ctx, title)?;
-        let resolve = library_resolver(Arc::clone(ctx.prompt()));
-        let render = prose_renderer(ctx, None);
-        let prompt = Arc::clone(ctx.prompt());
-        let read = move |path: String, from: Option<LibraryKey>| {
-            walk_target::read_section(&path, &prompt, Origin::H1, from.as_ref())
-        };
-        let sys_json = sys.to_json();
-        let setup = ctx.vm_setup(
-            &sys_json,
-            VmSeed::default(),
-            access,
-            scope,
-            selection,
-            title,
-        );
-        // Setup runs on the bare VM and tears it down itself on failure:
-        // the frame does not exist yet, so its `Drop` cannot own this path.
-        let vm = section_vm::setup_section_vm(vm, &setup, read, resolve, render)?;
-        Ok(Self::assemble(vm, sys, None, ctx))
-    }
-
-    /// The live frame over a set-up `vm`: not yet completed, with no
-    /// tool-call counts and no open adhoc call.
-    fn assemble(
-        vm: SectionVm,
-        sys: SectionSys,
-        item: Option<serde_json::Value>,
-        ctx: &ChainState,
-    ) -> Self {
-        Self {
+        // The live frame: not yet completed, with no tool-call counts and
+        // no open adhoc call.
+        Ok(Self {
             vm: Some(vm),
             completed: false,
             sys,
-            item,
+            item: seed.item,
             counts: None,
             adhoc_calls: Vec::new(),
             reporting: ctx.reporting().clone(),
-        }
+        })
     }
 
     /// Reads the section's final `var` out of the VM, so the walk rolls it

@@ -22,7 +22,6 @@ use crate::test_support::rig::Rig;
 pub(super) fn tasks_prompt(main: &str, sections: &[(&str, &str)]) -> String {
     let mut md = format!(
         "---\nname: waits\ndescription: d\nrunvil: 0\n---\n\n\
-         # Waits\n\n\
          ## Main\n\n\
          ```lua\n{main}\n```\n"
     );

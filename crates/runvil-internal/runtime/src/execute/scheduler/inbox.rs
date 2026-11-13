@@ -2,9 +2,8 @@
 //! `receive`, `send`, `reply`, `arrivals`, and the inbox check before a
 //! `chat` round. An inbox is a queue of text messages, oldest first. The main
 //! chain and each task have one, keyed by task id, and a `call` child reads
-//! its caller's, since it runs inside its caller's task. The H1 pass and
-//! the walk after it are both the main chain, task `0`, so they read one
-//! inbox.
+//! its caller's, since it runs inside its caller's task. The main chain is
+//! the root walk, task `0`.
 //!
 //! Only `Run::deliver` fills the main chain's inbox. It queues a message
 //! between steps and returns the events the answers resumed since the last
@@ -53,7 +52,7 @@ use super::chain_record::Parked;
 use super::tasks::TaskBacking;
 use super::{ChainIndex, Scheduler};
 
-/// The main chain's task, `0`, which the H1 pass, the walk, and their
+/// The main chain's task, `0`, which the root walk and its
 /// `call` children share.
 pub(super) fn main_task() -> TaskId {
     TaskId::from(ChainId::root())
@@ -127,14 +126,14 @@ impl Scheduler {
     /// order: those the answers resumed since the last step produced, then
     /// the `InboxMessage` event that reports the message. That event takes
     /// the main chain's next provenance and reports under the section the
-    /// main chain is in, or the prompt's title while no main chain is
+    /// main chain is in, or the prompt's name while no main chain is
     /// live, before the run starts and after it ends.
     pub(crate) fn deliver_message(&mut self, text: String) -> Vec<Event> {
         let section = self
             .chains
             .leaf_of(&main_task())
             .map_or_else(
-                || self.ctx.prompt().title(),
+                || self.ctx.prompt().frontmatter().name(),
                 |leaf| self.chains[leaf].section_name(),
             )
             .to_owned();

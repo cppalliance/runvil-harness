@@ -23,10 +23,8 @@ use crate::section_pos::SectionPos;
 use crate::{Result, error};
 
 /// A chain's local id counters: the indices its next child chain and its
-/// next section entry take under its lineage. Set at chain start and
-/// advanced as the chain hands out ids: zero for a fresh chain
-/// (`Default`), or the values the chain continues from when it takes over
-/// an earlier chain's identity (the walk after the H1 pass).
+/// next section entry take under its lineage. Zero at chain start
+/// (`Default`), and advanced as the chain hands out ids.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Counters {
     /// The next child index under the chain's lineage, which `call`
@@ -37,19 +35,13 @@ pub(super) struct Counters {
     pub(super) next_entry: u32,
 }
 
-/// What kind of chain a record is: the main walk, the H1 pass, a `call`
+/// What kind of chain a record is: the main walk, a `call`
 /// child, or a task's backing chain, each with the links only that kind
 /// has.
 #[derive(Debug)]
 pub(in crate::execute::scheduler) enum ChainKind {
     /// The main walk.
     Root,
-    /// The H1 pass: the prompt's H1 blocks under its title. It runs the
-    /// walk's rules with the deltas the `h1` module lists. Its `walk`
-    /// stays at the first top-level section, unused: the walk after the
-    /// pass is a separate root chain, started at the first section or at
-    /// the target a jump out of H1 resolves to.
-    H1,
     /// A `call` child, whose parent is blocked on it.
     Call {
         /// The call parent blocked on this chain.
@@ -61,21 +53,16 @@ pub(in crate::execute::scheduler) enum ChainKind {
 }
 
 impl ChainKind {
-    /// Whether the chain is the H1 pass.
-    pub(in crate::execute::scheduler) fn is_h1(&self) -> bool {
-        matches!(self, ChainKind::H1)
-    }
-
     /// The call parent blocked on the chain, when it is a `call` child.
     pub(in crate::execute::scheduler) fn parent(&self) -> Option<ChainIndex> {
         match self {
             ChainKind::Call { parent } => Some(*parent),
-            ChainKind::Root | ChainKind::H1 | ChainKind::Task => None,
+            ChainKind::Root | ChainKind::Task => None,
         }
     }
 }
 
-/// A block's position in the section, or the H1 pass, a chain runs.
+/// A block's position in the section a chain runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct BlockIndex(usize);
 
@@ -111,13 +98,13 @@ pub(in crate::execute::scheduler) struct Running {
     pub(in crate::execute::scheduler) answer: Option<Result<Answer>>,
 }
 
-/// The section a chain has entered: built at each section entry, the H1
-/// pass's included, and taken at the section's end, at chain end, and at
+/// The section a chain has entered: built at each section entry and taken
+/// at the section's end, at chain end, and at
 /// an abort. The frame's drop is the teardown boundary on every path that
 /// takes the `Entered`, and it reports `SECTION_FINISHED` only where the
 /// section completed: `end_section`, `apply_jump`, and `finish` arm the
-/// frame first, while the H1 pass's fall-through and `return`, an
-/// abort, and the run's teardown take it unarmed and are deliberately
+/// frame first, while an
+/// abort and the run's teardown take it unarmed and are deliberately
 /// silent.
 pub(in crate::execute::scheduler) struct Entered {
     /// The section's running or suspended Lua block, `None` between
@@ -170,7 +157,7 @@ const MAX_CALL_DEPTH: usize = 8;
 pub(super) struct CallDepth(usize);
 
 impl CallDepth {
-    /// The depth of the root walk and the H1 pass.
+    /// The depth of the root walk.
     pub(super) const ROOT: CallDepth = CallDepth(0);
 
     /// The depth a chain started one level deeper runs at.
@@ -361,14 +348,12 @@ impl ChatAnchor {
 pub(super) struct Chain {
     /// The chain's hierarchical [`ChainId`], allocated under the scheme
     /// [`runvil_types::ids`] states: every id the chain hands out extends
-    /// it. The H1 pass and the walk after it are two arena records under
-    /// the root lineage `0`.
+    /// it. The root walk's is the root lineage `0`.
     pub(super) lineage: ChainId,
-    /// The chain's local child and entry counters under `lineage`. This is
-    /// the normative `0.1` statement for the run: the root chain's entry 0
-    /// is the H1 pass (section 0), consumed whether or not the prompt has
-    /// H1 blocks, so the first walked section is always `0.1`. Every other
-    /// site that names the first walked entry defers to this one.
+    /// The chain's local child and entry counters under `lineage`. Both
+    /// start at zero, so the first section the root walk enters is `0.0`.
+    /// Its first child chain's id is `0.0` as well: a section entry's id
+    /// and a chain's id are two kinds of id.
     pub(super) counters: Counters,
     /// What kind of chain this is, with the links only that kind has.
     pub(super) kind: ChainKind,
@@ -386,8 +371,7 @@ pub(super) struct Chain {
     /// when the chain is admitted or its answer resumes it. `None` while
     /// the chain runs or between blocks.
     pub(super) parked: Option<Parked>,
-    /// The chain's fork of the run state: the run's own for the H1 pass and
-    /// for the root walk,
+    /// The chain's fork of the run state: the run's own for the root walk,
     /// and the caller's for a `call` child or the spawner's for a task,
     /// through `with_args` when the call or spawn gave an input. A task's
     /// fork also reports under its own task id with its own turn counter
@@ -397,7 +381,7 @@ pub(super) struct Chain {
     /// it starts on the chain's starting model; `models.use` rewrites it.
     pub(super) selection: Arc<Mutex<Option<crate::model::ModelBinding>>>,
     /// The chain's VFS access capability, installed into each section VM
-    /// the chain enters: the walk and the H1 pass share one root
+    /// the chain enters: the root walk holds the run's root
     /// identity, a call chain borrows its parent's (a blocking child is
     /// the same serial thread - no new identity, no false conflicts), and
     /// a task chain forks its own from its spawner's, joined back into
@@ -411,14 +395,14 @@ pub(super) struct Chain {
     /// entered, `None` before the first entry and between sections.
     pub(super) entered: Option<Entered>,
     /// The chain's walk through the prompt tree the run shares, each
-    /// position named by path. The H1 pass's walk is never read.
+    /// position named by path.
     pub(super) walk: Walk,
     /// The name of the section the chain most recently entered: the name
     /// its reports carry on the walk, including between sections and after
     /// the walk runs off its slice, where the walk names no running
     /// section. Before the first entry, the name of the section at the
-    /// chain's start, or the prompt's title when the start is past its
-    /// slice. While a section is entered, this and the walk position name
+    /// chain's start, or the prompt's name when the start is past its
+    /// slice. The preamble's name is empty. While a section is entered, this and the walk position name
     /// the same section; this field is the only record between sections and
     /// after teardown, and it is written only after the frame is
     /// constructed.
@@ -616,31 +600,23 @@ impl Chain {
             .ok_or(error::make_internal_error("a live chain holds its frame"))
     }
 
-    /// The chain's current block sequence: the H1 pass's blocks, or the
-    /// current section's blocks on the walk, empty while the walk is past
+    /// The chain's current block sequence: the current section's blocks,
+    /// empty while the walk is past
     /// its slice. Resolved against the caller's handle on the tree so the
     /// result outlives a mutable borrow of the chain.
     pub(super) fn blocks<'p>(&self, prompt: &'p Prompt) -> &'p [Block] {
-        if self.kind.is_h1() {
-            crate::prompt::detail::h1_blocks(prompt)
-        } else {
-            self.walk
-                .current()
-                .section(prompt)
-                .map_or(&[], Section::blocks)
-        }
+        self.walk
+            .current()
+            .section(prompt)
+            .map_or(&[], Section::blocks)
     }
 
     /// The chain's current section name for observations and errors: the
-    /// prompt's title for the H1 pass, else the name of the section
+    /// name of the section
     /// the chain most recently entered - so a chain between sections, or
     /// past its slice's last section, reports the section it just left.
     pub(super) fn section_name(&self) -> &str {
-        if self.kind.is_h1() {
-            self.ctx.prompt().title()
-        } else {
-            &self.entered_name
-        }
+        &self.entered_name
     }
 }
 
@@ -658,10 +634,7 @@ impl Chain {
         use crate::section_pos::SectionIndex;
         use crate::test_support::scenario::{TEST_SEED, TEST_STARTED_AT};
 
-        let source = concat!(
-            "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n",
-            "# Title\n\n## Only\n\ndone\n",
-        );
+        let source = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n## Only\n\ndone\n";
         let prompt = Prompt::parse(&|_: &str| Ok(source.to_owned()), "prompt")
             .expect("the test prompt parses");
         let ctx = ChainState::root(

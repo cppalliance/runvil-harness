@@ -1,7 +1,7 @@
 //! A relative path in a library's code starts at the library's section.
 //!
 //! Whole prompts through the scheduler. In each, the library and the
-//! section using it both have a child with the same title, so a lookup
+//! section using it both have a child with the same name, so a lookup
 //! made from the wrong place returns the wrong text.
 
 use super::*;
@@ -9,14 +9,14 @@ use super::*;
 #[test]
 fn a_library_function_fans_out_over_the_librarys_worker_from_every_kind_of_caller() {
     let source = PromptSource::new()
-        .h1("var.h1 = tostring(require('/kit').run({ 'h' })[1])")
+        .preamble("var.first = tostring(require('/kit').run({ 'p' })[1])")
         .section(
             "Research",
             "
             local kit = require '/kit'
             local own = tostring(tasks.fanout('Worker', { 'r' })[1])
             local mine = table.concat(kit.run({ 'alpha', 'beta' }), ',')
-            return var.h1 .. '|' .. own .. '|' .. mine .. '|' .. call('Deep')",
+            return var.first .. '|' .. own .. '|' .. mine .. '|' .. call('Deep')",
         )
         .section("### Worker", "return 'research worker ' .. item")
         .section(
@@ -39,13 +39,13 @@ fn a_library_function_fans_out_over_the_librarys_worker_from_every_kind_of_calle
     assert_eq!(
         trace.text(),
         [
-            arm("h"),
+            arm("p"),
             "research worker r".to_owned(),
             format!("{},{}", arm("alpha"), arm("beta")),
             arm("deep"),
         ]
         .join("|"),
-        "from the H1 pass, a top-level section, and a nested section, the library's fanout \
+        "from the preamble, a top-level section, and a nested section, the library's fanout \
          runs the library's worker; the section's own fanout runs its own; each arm runs in \
          the library's subtree"
     );

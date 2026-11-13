@@ -333,8 +333,8 @@ impl Scenario {
         self
     }
 
-    /// Fills the run's model set with `set` before the run starts, as the
-    /// H1 pass would leave it, in place of the set the role map fills.
+    /// Fills the run's model set with `set` before the run starts, in
+    /// place of the set the role map fills.
     pub(crate) fn models(mut self, set: ModelSet) -> Scenario {
         self.prefill.models = Some(set);
         self
@@ -503,7 +503,7 @@ impl Scenario {
 }
 
 /// What a scenario fills into its run's state before the run starts, in
-/// place of what the role map and the H1 pass would leave there.
+/// place of what the role map would leave there.
 #[derive(Default)]
 struct Prefill {
     models: Option<ModelSet>,

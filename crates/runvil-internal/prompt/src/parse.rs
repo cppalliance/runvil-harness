@@ -1,14 +1,13 @@
-//! Parses a prompt's source into a [`Prompt`]: frontmatter, H1, and sections.
+//! Parses a prompt's source into a [`Prompt`]: frontmatter and sections.
 
-use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use runvil_types::error::{Error, ErrorCode};
+use runvil_types::error::Error;
 
 use crate::frontmatter::SplitSource;
-use crate::sections::{self, Heading, SectionWalker};
+use crate::sections::{self, SectionWalker};
 use crate::{
-    Block, Frontmatter, Prompt, PromptFinder, Result, contract, error, fence, frontmatter, position,
+    Frontmatter, Prompt, PromptFinder, Result, Section, contract, error, fence, frontmatter,
 };
 
 impl Prompt {
@@ -27,10 +26,10 @@ impl Prompt {
     ///   `Reason` fact `pack_duplicate` or `pack_reserved` and the Pack id
     ///   as its `Name` fact, and is located on the `uses:` line when one
     ///   line declares the key.
-    /// - `StructureInvalid` when the H1 is missing, there is more than one
-    ///   H1, the H1 title is empty, a section heading skips a level (such as
-    ///   an H4 directly under an H2), a section heading is empty, or two
-    ///   sibling sections have the same name.
+    /// - `StructureInvalid` when a heading skips a level (such as an H4
+    ///   directly under an H2, or a first heading deeper than a later
+    ///   one), a heading is empty, or two sibling sections have the same
+    ///   name.
     /// - `FenceInvalid` when a `lua` fence is left open, or anywhere in the
     ///   body a fence or line breaks the strict Lua fence rule. A `lua`
     ///   fence opens with a line that is exactly three backticks then `lua`
@@ -47,8 +46,7 @@ impl Prompt {
     ///   fact: `label`, `opener`, `closer`, or `lookalike`. Lines inside the
     ///   body of another fenced code block are never inspected, so a
     ///   document can show a Lua fence as an example.
-    /// - `LuaCompile` when a Lua block in the H1 or in a section fails to
-    ///   compile as Lua.
+    /// - `LuaCompile` when a Lua block fails to compile as Lua.
     /// - `Internal` when the parser fails through no fault of the prompt:
     ///   one of its own invariants breaks, or the Lua compiler cannot start.
     ///
@@ -94,79 +92,21 @@ impl Prompt {
         let shared: Arc<str> = Arc::from(split.body);
         let body: &str = &shared;
         let headings = sections::collect_headings(body)?;
-
-        let h1_positions: Vec<usize> = headings
-            .iter()
-            .enumerate()
-            .filter_map(|(index, heading)| (heading.level == 1).then_some(index))
-            .collect();
-        let [h1_index] = h1_positions.as_slice() else {
-            if h1_positions.is_empty() {
-                return Err(error::make_failure_error(
-                    ErrorCode::StructureInvalid,
-                    "prompt requires an H1 title",
-                ));
-            }
-            let lines = h1_positions
-                .iter()
-                .map(|&index| position::line_add(frontmatter_lines, headings[index].body_line))
-                .collect::<Result<Vec<_>>>()?;
-            let listed: Vec<String> = lines.iter().map(u32::to_string).collect();
-            let message = format!(
-                "prompt must contain exactly one H1 title, found {} at lines {}",
-                lines.len(),
-                listed.join(", ")
-            );
-            return Err(error::on_line(
-                error::make_failure_error(ErrorCode::StructureInvalid, message),
-                lines.get(1).copied().and_then(NonZeroU32::new),
-            ));
-        };
-        let h1 = &headings[*h1_index];
-        if h1.title.is_empty() {
-            return Err(error::on_line(
-                error::make_failure_error(
-                    ErrorCode::StructureInvalid,
-                    "prompt H1 title must not be empty",
-                ),
-                frontmatter_lines
-                    .checked_add(h1.body_line)
-                    .and_then(NonZeroU32::new),
-            ));
-        }
-        let title = h1.title.clone();
-        let h1_content = h1.content;
-        let h1_content_abs_line = position::line_add(frontmatter_lines, h1.content_body_line)?;
         if let Some(violation) = fence::first_fence_violation(body, frontmatter_lines) {
             return Err(violation);
         }
 
-        // Everything before the H1 is preface and has no prompt semantics.
-        // Sections are headings after the H1 at level 2 or deeper.
-        let section_headings: Vec<Heading<'_>> = headings
-            .into_iter()
-            .skip(*h1_index + 1)
-            .filter(|h| h.level >= 2)
-            .collect();
-        let mut walker = SectionWalker::new(&shared, &section_headings, frontmatter_lines, file);
-        let mut h1_blocks = walker.compile_blocks(
-            fence::split_section_blocks(h1_content, &title, h1_content_abs_line)?,
-            h1_content_abs_line,
-            |_| format!("H1 `{title}` lua"),
-        )?;
-        if matches!(
-            h1_blocks.as_slice(),
-            [Block::Prose { text, .. }] if text.as_str().is_empty()
-        ) {
-            h1_blocks.clear();
-        }
-        let sections = walker.build_sections(1)?;
+        // The top level is the shallowest heading level in the body, so
+        // every heading at that level is a top-level section, and a first
+        // heading deeper than a later one fails the walker's level check.
+        let top = headings.iter().map(|h| h.level).min().unwrap_or(1);
+        let mut walker = SectionWalker::new(&shared, &headings, frontmatter_lines, file);
+        let mut sections: Vec<Section> = walker.build_preamble(top)?.into_iter().collect();
+        sections.extend(walker.build_sections(top.saturating_sub(1))?);
 
         Ok(Prompt {
             file: file.to_owned(),
             frontmatter,
-            title,
-            h1_blocks,
             sections,
             key_lines: split.key_lines,
         })

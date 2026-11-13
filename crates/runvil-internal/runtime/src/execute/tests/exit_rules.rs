@@ -1,7 +1,7 @@
 //! Exit rules: the section walk's (fall-through, explicit return, a
-//! `return` that gives no value, the generic result, H1-only prompts, the
-//! version gate, a caller code ending the run as an internal error,
-//! cross-section store persistence) and the
+//! `return` that gives no value, the generic result, prompts whose only
+//! section is the preamble, the version gate, a caller code ending the run
+//! as an internal error, cross-section store persistence) and the
 //! `models.loop` shim's (the terminal reply, the model's clean empty exit
 //! after tool work, and the empty rounds that raise `empty_model_reply`).
 
@@ -141,9 +141,9 @@ fn a_return_inside_a_function_does_not_end_the_chain() {
 }
 
 #[test]
-fn sys_id_increments_per_section() {
-    // First section files nothing and falls through; second returns its id:
-    // entry 2 of the root chain (entry 0 is the H1 pass, present or not).
+fn sys_id_counts_the_sections_the_root_chain_enters_from_zero() {
+    // The first section is entry 0 of the root chain and falls through; the
+    // second returns its id, entry 1.
     let source = prompt(
         "",
         &[
@@ -151,20 +151,20 @@ fn sys_id_increments_per_section() {
             ("Second", "return tostring(sys.id)"),
         ],
     );
-    assert_eq!(Scenario::new(source).run().text(), "0.2");
+    assert_eq!(Scenario::new(source).run().text(), "0.1");
 }
 
-// --- H1-only prompts (no ## sections) ---
+// --- Prompts whose only section is the preamble ---
 
 #[test]
-fn h1_only_lua_return() {
-    let source = PromptSource::new().title("Title").h1("return \"hello\"");
+fn a_preamble_with_no_heading_after_it_ends_the_run_with_the_value_it_returns() {
+    let source = PromptSource::new().preamble("return \"hello\"");
     assert_eq!(Scenario::new(source.build()).run().text(), "hello");
 }
 
 #[test]
-fn h1_only_lua_no_return() {
-    let source = PromptSource::new().title("Title").h1("local x = 1");
+fn a_preamble_with_no_heading_after_it_that_returns_nothing_ends_with_the_generic_result() {
+    let source = PromptSource::new().preamble("local x = 1");
     assert_eq!(Scenario::new(source.build()).run().text(), "done");
 }
 
@@ -296,7 +296,7 @@ fn a_raised_error_table_with_a_caller_code_ends_the_run_with_an_internal_error()
         (
             ErrorCode::Internal,
             ErrorCode::Internal.prose(),
-            "the recorder refused the write (at prompt:16)".to_owned()
+            "the recorder refused the write (at prompt:14)".to_owned()
         ),
         "the caller code becomes internal and keeps the table's message and line"
     );
@@ -528,7 +528,7 @@ fn an_empty_reply_is_readable_at_the_call_site_and_appends_nothing() {
     let trace = loop_scenario(source).chat(&gateway).run();
     assert_eq!(
         trace.text(),
-        "empty_model_reply|stop|prompt:13: the model replied with no text and no tool calls"
+        "empty_model_reply|stop|prompt:11: the model replied with no text and no tool calls"
     );
 }
 
@@ -551,7 +551,7 @@ fn an_empty_reply_that_ignored_reasoning_says_so_at_the_call_site() {
     let trace = loop_scenario(source).chat(&gateway).run();
     assert_eq!(
         trace.text(),
-        "empty_model_reply|prompt:13: the model replied with no text and no tool calls: \
+        "empty_model_reply|prompt:11: the model replied with no text and no tool calls: \
          reasoning content was present but ignored"
     );
 }
@@ -575,6 +575,6 @@ fn an_empty_reply_with_whitespace_only_reasoning_keeps_the_plain_phrase() {
     let trace = loop_scenario(source).chat(&gateway).run();
     assert_eq!(
         trace.text(),
-        "empty_model_reply|prompt:13: the model replied with no text and no tool calls"
+        "empty_model_reply|prompt:11: the model replied with no text and no tool calls"
     );
 }

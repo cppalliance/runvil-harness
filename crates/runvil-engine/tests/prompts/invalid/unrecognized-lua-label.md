@@ -4,8 +4,6 @@ description: Invalid because a fence is labeled `lua extra` instead of exactly `
 runvil: 0
 ---
 
-# Unrecognized Lua Label
-
 ```lua extra
 local greeting = "hello"
 ```

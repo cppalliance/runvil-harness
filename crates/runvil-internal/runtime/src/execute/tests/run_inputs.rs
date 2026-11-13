@@ -1,8 +1,8 @@
 //! The caller-drawn inputs on `RunParams`: `seed` (the untrusted-envelope
-//! nonce derives from it), `started_at` (rendered as `sys.when` for the H1
-//! pass and every walked section alike), and `ui` (the snapshot the `ui()`
-//! global serves). Two runs under the same inputs agree byte for byte, and
-//! `sys.now` is an unknown field.
+//! nonce derives from it), `started_at` (rendered as `sys.when` in the
+//! preamble and in every other section alike), and `ui` (the snapshot the
+//! `ui()` global serves). Two runs under the same inputs agree byte for
+//! byte, and `sys.now` is an unknown field.
 
 use runvil_types::seed::RunSeed;
 use runvil_types::timestamp::Timestamp;
@@ -42,7 +42,6 @@ fn nonce_in(text: &str) -> String {
 }
 
 const WHEN_AND_WRAP: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-    # Title\n\n\
     ## Only\n\n\
     ```lua\n\
     return sys.when .. '|' .. untrusted('data')\n\
@@ -87,11 +86,10 @@ fn a_different_seed_changes_the_nonce_but_not_sys_when() {
 }
 
 #[test]
-fn the_h1_pass_reads_the_same_sys_when_as_the_walk() {
-    // The H1 pass and the walk both read the run's `started_at`. A scalar
-    // H1 return short-circuits the run with that value.
+fn the_preamble_reads_the_runs_started_at_as_sys_when() {
+    // The preamble reads the run's `started_at` as every section does. A
+    // `return` in the preamble ends the run with that value.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n\
         ```lua\n\
         return sys.when\n\
         ```\n\n\
@@ -108,7 +106,6 @@ fn sys_when_is_timestamp_to_rfc3339_for_any_started_at() {
     // rendering: here one on a whole second, so the fraction is omitted,
     // which the millisecond fixture above cannot show.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n\
         ## Only\n\n\
         ```lua\n\
         return sys.when\n\
@@ -141,7 +138,6 @@ fn a_run_params_debug_shows_no_seed() {
 #[test]
 fn sys_now_is_absent_from_the_globals() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n\
         ## Only\n\n\
         ```lua\n\
         return sys.now\n\
@@ -158,7 +154,6 @@ fn sys_now_is_absent_from_the_globals() {
 #[test]
 fn the_ui_global_serves_the_snapshot_taken_at_run_start() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n\
         ## Only\n\n\
         ```lua\n\
         return ui().selected_model .. '/' .. tostring(ui().workspace_root)\n\
@@ -177,7 +172,6 @@ fn the_ui_global_serves_the_snapshot_taken_at_run_start() {
 #[test]
 fn a_run_without_a_ui_snapshot_installs_no_ui_global() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Title\n\n\
         ## Only\n\n\
         ```lua\n\
         return type(ui)\n\

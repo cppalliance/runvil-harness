@@ -4,8 +4,6 @@ description: Exercise a required library section and nested author prose
 runvil: 0
 ---
 
-# Require Library
-
 The helper library is available to each section that requires it.
 
 ## Prepare

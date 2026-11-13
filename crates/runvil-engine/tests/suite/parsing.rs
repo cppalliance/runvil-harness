@@ -10,7 +10,11 @@ use runvil_engine::Prompt;
 use super::support::TestResult;
 
 const INVALID_FIXTURES: [(&str, ErrorCode, &str); 5] = [
-    ("missing-h1", ErrorCode::StructureInvalid, "requires an H1"),
+    (
+        "orphan-heading",
+        ErrorCode::StructureInvalid,
+        "section `Run` is an orphan H2 heading with no parent H1",
+    ),
     (
         "unrecognized-lua-label",
         ErrorCode::FenceInvalid,

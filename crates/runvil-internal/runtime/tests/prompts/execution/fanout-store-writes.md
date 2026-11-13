@@ -4,8 +4,6 @@ description: Arms write to store with sys.index
 runvil: 0
 ---
 
-# Fanout Store Writes
-
 ## Research
 
 ```lua

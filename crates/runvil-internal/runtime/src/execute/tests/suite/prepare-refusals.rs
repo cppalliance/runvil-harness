@@ -24,7 +24,6 @@ const DECLARES_STRONG: &str = concat!(
     "    thinking: true\n",
     "    min_context: 200000\n",
     "---\n\n",
-    "# Title\n\n",
     "## Only\n\n",
     "```lua\n",
     "return 'done'\n",
@@ -76,7 +75,6 @@ const DECLARES_NO_THINKING: &str = concat!(
     "  small:\n",
     "    thinking: false\n",
     "---\n\n",
-    "# Title\n\n",
     "## Only\n\n",
     "```lua\n",
     "models.use('small')\n",
@@ -124,7 +122,6 @@ const DECLARES_LONG_CONTEXT: &str = concat!(
     "  creative:\n",
     "    min_context: 200000\n",
     "---\n\n",
-    "# Title\n\n",
     "## Only\n\n",
     "Done.\n",
 );
@@ -154,7 +151,7 @@ fn an_unsupported_version_is_reported_before_an_unmet_requirement() {
             ErrorCode::UnsupportedVersion,
             "unsupported runvil version: 7 (this build supports major 0)"
         ),
-        "the version gate refuses the run first"
+        "the version check refuses the run first"
     );
     assert_eq!(
         error.at.as_ref().map(|at| at.start_line.get()),

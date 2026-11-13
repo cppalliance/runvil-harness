@@ -291,8 +291,8 @@ pub enum ErrorCode {
     /// The frontmatter is missing, unclosed, not valid YAML, or breaks its
     /// schema.
     FrontmatterInvalid = 101,
-    /// The document structure is invalid, such as a missing H1 or a
-    /// duplicate sibling section.
+    /// The document structure is invalid, such as a heading that skips a
+    /// level or a duplicate sibling section.
     StructureInvalid = 102,
     /// A `lua` fence is unclosed or breaks the strict fence rule.
     FenceInvalid = 103,
@@ -620,9 +620,9 @@ impl ErrorCode {
                  frontmatter schema."
             }
             ErrorCode::StructureInvalid => {
-                "The prompt's headings are invalid. Give the prompt exactly one H1 title, and give \
-                 every section a non-empty name that is unique among its siblings and a parent \
-                 heading."
+                "The prompt's headings are invalid. Give every section a non-empty name that is \
+                 unique among its siblings, and put every heading exactly one level below its \
+                 parent, with no heading above the level of the first one."
             }
             ErrorCode::FenceInvalid => {
                 "A Lua code fence is malformed. Open it with exactly ```lua and close it with \

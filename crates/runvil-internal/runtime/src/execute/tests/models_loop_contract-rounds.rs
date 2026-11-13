@@ -292,7 +292,7 @@ fn the_scheduler_reports_the_whole_trace_of_a_bound_round_an_adhoc_round_and_a_r
         calls(&[("call_2", "grab", "{\"value\":\"b\"}")]),
         text("done"),
     ]);
-    let source = PromptSource::new().title("Loop").section(
+    let source = PromptSource::new().name("loop").section(
         "Only",
         "tools.offer('tools/echo')
          tools.offer(tools.adhoc({ name = 'grab', description = 'Local grab', parameters = { value = 'string' } }, function(args)
@@ -312,7 +312,7 @@ fn the_scheduler_reports_the_whole_trace_of_a_bound_round_an_adhoc_round_and_a_r
     // The first round renders the tool list under the validation pair; the
     // later rounds reuse it.
     let expected = vec![
-        "Loop: Run started",
+        "loop: Run started",
         "Only: Section started",
         "Only: Lua chunk started",
         "Only: Tool scope validation started",
@@ -331,7 +331,7 @@ fn the_scheduler_reports_the_whole_trace_of_a_bound_round_an_adhoc_round_and_a_r
         "Only: Lua teardown started",
         "Only: Lua teardown succeeded",
         "Only: Section finished",
-        "Loop: Run succeeded",
+        "loop: Run succeeded",
     ];
     assert_eq!(recorder.lines(), expected);
 }

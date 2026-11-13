@@ -10,7 +10,7 @@ use super::*;
 /// `Self`, `Top` holds a second `Helpers`, and `Lib` is laid out as prose,
 /// Lua, Lua, prose, Lua, then trailing prose.
 const LIBRARY_TREE: &str = concat!(
-    "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n# Title\n\n",
+    "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n",
     "## Top\n\nx\n\n",
     "### Helpers\n\nx\n\n",
     "## Grand\n\nx\n\n",
@@ -69,28 +69,40 @@ fn template_lines(library: &Library) -> Vec<Option<u32>> {
 fn a_jump_to_a_child_descends_and_a_jump_to_a_sibling_does_not() {
     let prompt = library_tree();
     let parent = at(&prompt, "/Grand/Parent");
-    let child = resolve_jump_target("Self", &prompt, Origin::Section(&parent), None)
-        .expect("a child resolves");
+    let child = resolve_jump_target("Self", &prompt, &parent, None).expect("a child resolves");
     assert_eq!(child.pos, at(&prompt, "/Grand/Parent/Self"));
     assert!(child.descends, "a child target starts a child-level walk");
-    let sibling = resolve_jump_target("../Helpers", &prompt, Origin::Section(&parent), None)
-        .expect("a sibling resolves");
+    let sibling =
+        resolve_jump_target("../Helpers", &prompt, &parent, None).expect("a sibling resolves");
     assert_eq!(sibling.pos, at(&prompt, "/Grand/Helpers"));
     assert!(!sibling.descends, "a sibling stays in the caller's slice");
 }
 
 #[test]
-fn a_jump_from_the_h1_lands_on_a_top_level_section_and_never_descends() {
-    let prompt = library_tree();
+fn a_jump_from_the_preamble_names_a_sibling_and_never_descends() {
+    let source = concat!(
+        "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n",
+        "```lua\nlocal ready = true\n```\n\n",
+        "## Grand\n\nx\n\n",
+        "### Parent\n\nx\n",
+    );
+    let prompt = Prompt::parse(&|_: &str| Ok(source.to_owned()), "prompt").expect("it parses");
+    let preamble = SectionPos::top(SectionIndex::FIRST);
     let target =
-        resolve_jump_target("Grand", &prompt, Origin::H1, None).expect("a section resolves");
+        resolve_jump_target("../Grand", &prompt, &preamble, None).expect("a sibling resolves");
     assert_eq!(target.pos, at(&prompt, "/Grand"));
     assert!(!target.descends, "the walk already runs at the top level");
+    let error = resolve_jump_target("Grand", &prompt, &preamble, None)
+        .expect_err("the preamble has no child");
+    assert_eq!(
+        error.to_string(),
+        "section `Grand` not found: the preamble has no child `Grand`"
+    );
 }
 
 /// The Markdown a read of `path` from `origin` finds, or the message of
 /// its not-found error.
-fn read(prompt: &Prompt, origin: Origin<'_>, path: &str) -> std::result::Result<String, String> {
+fn read(prompt: &Prompt, origin: &SectionPos, path: &str) -> std::result::Result<String, String> {
     match read_section(path, prompt, origin, None).expect("the path is well-formed") {
         SectionRead::Found(text) => Ok(text.markdown().to_owned()),
         SectionRead::Missing(error) => Err(error.to_string()),
@@ -101,7 +113,7 @@ fn read(prompt: &Prompt, origin: Origin<'_>, path: &str) -> std::result::Result<
 fn a_read_finds_the_named_sections_own_markdown_or_the_not_found_error() {
     let prompt = library_tree();
     let own = at(&prompt, "/Grand/Parent/Self");
-    let origin = Origin::Section(&own);
+    let origin = &own;
     for path in ["../Sibling", "/Grand/Parent/Sibling", "/Top/Helpers"] {
         assert_eq!(read(&prompt, origin, path).as_deref(), Ok("x"), "{path}");
     }
@@ -134,7 +146,7 @@ fn a_path_in_a_librarys_code_starts_at_the_library_whatever_section_is_running()
     let prompt = library_tree();
     let library = resolve_library(&prompt, "/Grand").expect("the library resolves");
     let from = Some(&library.key);
-    for origin in [Origin::H1, Origin::Section(&at(&prompt, "/Top"))] {
+    for origin in [&at(&prompt, "/Lib"), &at(&prompt, "/Top/Helpers")] {
         let child = resolve_jump_target("Parent", &prompt, origin, from).expect("a child");
         assert_eq!(child.pos, at(&prompt, "/Grand/Parent"));
         let sibling = resolve_jump_target("../Lib", &prompt, origin, from).expect("a sibling");
@@ -218,7 +230,7 @@ fn resolve_library_builds_a_parsed_section_without_its_trailing_prose() {
     let lines = template_lines(&library);
     assert_eq!(
         (lines[0], lines[2]),
-        (Some(43), Some(53)),
+        (Some(41), Some(51)),
         "each template keeps the file line it starts on: {lines:?}"
     );
 }

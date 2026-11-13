@@ -5,8 +5,6 @@ runvil: 0
 max_tool_iterations: 3
 ---
 
-# Phase Boundaries
-
 Transform one model response.
 
 ## Transform

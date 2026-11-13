@@ -4,8 +4,6 @@ description: Write store state in one section and read it in the next
 runvil: 0
 ---
 
-# Store Fall-through
-
 ## Write
 
 ```lua

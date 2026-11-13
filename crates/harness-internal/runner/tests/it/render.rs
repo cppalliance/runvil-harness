@@ -41,11 +41,10 @@ const ECHO: &str = "render/echo";
 /// The tool only the model sees, which every render adds.
 const SECRET: &str = "render/secret";
 
-/// The frontmatter and H1 every prompt here shares: the render Pack
-/// declared and a title.
-const PREAMBLE: &str = "---\nname: renders\ndescription: d\nrunvil: 0\n\
-    uses:\n  - tests/render\n---\n\n\
-    # Renders\n\n";
+/// The frontmatter every prompt here shares, which declares the render
+/// Pack.
+const FRONTMATTER: &str = "---\nname: renders\ndescription: d\nrunvil: 0\n\
+    uses:\n  - tests/render\n---\n\n";
 
 /// One render as the render Pack saw it.
 #[derive(Debug, Clone, PartialEq)]
@@ -268,10 +267,10 @@ fn render_harness(
     )
 }
 
-/// A prompt over [`PREAMBLE`] whose sections are `sections`, each a
+/// A prompt over [`FRONTMATTER`] whose sections are `sections`, each a
 /// heading and the Lua of its one block.
 fn prompt(sections: &[(&str, &str)]) -> String {
-    let mut source = PREAMBLE.to_owned();
+    let mut source = FRONTMATTER.to_owned();
     for (heading, lua) in sections {
         writeln!(source, "## {heading}\n\n```lua\n{lua}\n```\n").expect("a String takes any write");
     }

@@ -1,6 +1,6 @@
 //! Holds the parsed prompt tree: [`Prompt`], its [`Section`]s, and their [`Block`]s.
 //!
-//! Code outside the Engine reads a prompt's title and frontmatter; the tree
+//! Code outside the Engine reads a prompt's file and frontmatter; the tree
 //! below them is the Engine's, reached through [`crate::detail`].
 //!
 //! Construction happens in the parsing modules; this module holds the value
@@ -19,7 +19,8 @@ pub enum Block {
     /// An exact `lua` fence compiled at parse time.
     Lua(LuaProgram),
     /// Author prose: the pending Markdown accumulated since the nearest
-    /// preceding heading, `lua` fence, or thematic break.
+    /// preceding heading, `lua` fence, or thematic break, or since the
+    /// body's start.
     ///
     /// The executor installs it as the following Lua block's lazy `prose`
     /// template.
@@ -33,11 +34,15 @@ pub enum Block {
 }
 
 /// One section of a prompt: a heading, ordered blocks, and children.
+///
+/// The preamble, the content before the body's first heading, is a section
+/// too when it holds a `lua` fence: it has an empty name, no children, and
+/// the top level.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
-    /// The heading text (the section's address).
+    /// The heading text (the section's address), empty for the preamble.
     pub(crate) name: String,
-    /// The heading level, 2 through 6.
+    /// The heading level, 1 through 6.
     pub(crate) level: u8,
     /// Ordered lua/prose blocks for this section.
     pub(crate) blocks: Vec<Block>,
@@ -50,13 +55,14 @@ pub struct Section {
 }
 
 impl Section {
-    /// Returns the heading text (the section's address).
+    /// Returns the heading text (the section's address), which is empty
+    /// for the preamble alone.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Returns the heading level (2 through 6).
+    /// Returns the heading level (1 through 6).
     #[must_use]
     pub fn level(&self) -> u8 {
         self.level
@@ -139,11 +145,8 @@ pub struct Prompt {
     pub(crate) file: String,
     /// The parsed YAML frontmatter.
     pub(crate) frontmatter: Frontmatter,
-    /// The required H1 title.
-    pub(crate) title: String,
-    /// Ordered live Lua and prose blocks from the H1.
-    pub(crate) h1_blocks: Vec<Block>,
-    /// Top-level sections (H2s) in file order.
+    /// The top-level sections in file order: the preamble first, when the
+    /// prompt has one, then each heading at the body's shallowest level.
     pub(crate) sections: Vec<Section>,
     /// The file line of each top-level frontmatter key that exactly one
     /// line declares, by the key's name; the Engine reaches it through
@@ -163,12 +166,6 @@ impl Prompt {
     #[must_use]
     pub fn frontmatter(&self) -> &Frontmatter {
         &self.frontmatter
-    }
-
-    /// Returns the prompt's title, the text of its required H1 heading.
-    #[must_use]
-    pub fn title(&self) -> &str {
-        &self.title
     }
 
     /// The entry-point section: the first top-level section in file order;

@@ -54,14 +54,9 @@ const fn _public_execution_types_are_send_sync_static() {
     assert_send_sync_static::<Result<String, crate::Error>>();
 }
 
-/// Parses `md`, adding a `# Test prompt` title when the source has none.
+/// Parses `md` as the prompt `prompt`.
 pub(super) fn parse(md: &str) -> Prompt {
-    let source = if md.lines().any(|line| line.starts_with("# ")) {
-        md.to_string()
-    } else {
-        md.replacen("---\n\n", "---\n\n# Test prompt\n\n", 1)
-    };
-    Prompt::parse(&|_: &str| Ok(source.clone()), "prompt").unwrap()
+    Prompt::parse(&|_: &str| Ok(md.to_owned()), "prompt").unwrap()
 }
 
 /// An [`Observer`] that keeps every observation it is handed, in order, so a test

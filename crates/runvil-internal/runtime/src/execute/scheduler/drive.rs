@@ -26,7 +26,7 @@ use crate::{Error, Result, error};
 use super::chain::ChainStep;
 use super::effects::Arrival;
 use super::inbox::main_task;
-use super::{GENERIC_COMPLETION, Phase, Scheduler};
+use super::{Phase, Scheduler};
 
 impl Scheduler {
     /// Drains the ready queue and returns the step's outcome: the effects
@@ -34,8 +34,8 @@ impl Scheduler {
     /// result once it is over and every issued effect is answered. Every
     /// call first applies the messages `Run::deliver` queued since the last
     /// one. The first call checks that the run can start, then starts the
-    /// H1 pass when the prompt has H1 blocks, else the root chain over the
-    /// prompt's sections. A run that cannot start ends with that failure,
+    /// root chain over the prompt's top-level sections. A run that cannot
+    /// start ends with that failure,
     /// or as canceled when its cancel flag is already set, and reports no
     /// run events.
     pub(crate) fn step(&mut self) -> Step {
@@ -55,10 +55,11 @@ impl Scheduler {
                 // The run's boundaries are events like every other report:
                 // pushed into the buffer under the root task, so the caller
                 // sees them in order with the sections between them.
-                self.ctx
-                    .emitter()
-                    .report(self.ctx.prompt().title(), event_lifecycle::RUN_STARTED);
-                if let Err(error) = self.start() {
+                self.ctx.emitter().report(
+                    self.ctx.prompt().frontmatter().name(),
+                    event_lifecycle::RUN_STARTED,
+                );
+                if let Err(error) = self.start_root_walk() {
                     self.end(Err(error));
                 }
             }
@@ -161,24 +162,6 @@ impl Scheduler {
         if let Err(error) = self.apply_answer(parked, answer) {
             self.end(Err(error));
         }
-    }
-
-    /// Starts the run's first chain: the H1 pass when the prompt has H1
-    /// blocks; an H1-less prompt goes straight to the walk, so no VM is set
-    /// up for a throwaway section 0. A prompt with neither ends at once
-    /// with the generic completion.
-    fn start(&mut self) -> Result<()> {
-        let prompt = self.prompt();
-        if crate::prompt::detail::h1_blocks(&prompt).is_empty() {
-            if crate::prompt::detail::sections(&prompt).is_empty() {
-                self.end(Ok(GENERIC_COMPLETION.to_owned()));
-                return Ok(());
-            }
-            self.start_root_walk()?;
-        } else {
-            self.start_h1()?;
-        }
-        Ok(())
     }
 
     /// Checks that the run can start: the version gate, then the declared
@@ -293,7 +276,7 @@ impl Scheduler {
         self.settle_all_tasks(AbandonReason::RunTerminated);
         self.teardown();
         self.ctx.emitter().report(
-            self.ctx.prompt().title(),
+            self.ctx.prompt().frontmatter().name(),
             if result.is_ok() {
                 event_lifecycle::RUN_SUCCEEDED
             } else {

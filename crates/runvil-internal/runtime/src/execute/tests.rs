@@ -152,12 +152,10 @@ fn untrusted_nonce_differs_across_runs_under_different_seeds() {
 /// The two-section fixture the fall-through test uses: the first section
 /// falls through, the second returns from Lua.
 const TWO_SECTIONS: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-# Test prompt\n\n\
 ## First\n\n```lua\nlocal x = 1\n```\n\n\
 ## Second\n\n```lua\nreturn \"second\"\n```\n";
 
 const STORE_SECTIONS: &str = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-# Test prompt\n\n\
 ## First\n\n```lua\nstore.write('state.txt', 'first')\n```\n\n\
 ## Second\n\n```lua\nstore.append('state.txt', '\\nsecond')\nreturn \"second\"\n```\n";
 
