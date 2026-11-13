@@ -42,6 +42,7 @@ runvil-vfs = { path = "crates/runvil-internal/vfs" }
 # parser, and build-xtask's doctest scan) read only the core event stream,
 # never the `html` renderer or the `getopts` binary.
 pulldown-cmark = { version = "0.12", default-features = false }
+schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
 # `float_roundtrip` makes `from_str` reproduce the exact `f64` that
