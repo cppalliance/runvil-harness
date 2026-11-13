@@ -1,11 +1,11 @@
 //! Section VM state reads, and the two installs that follow injection:
-//! `var`, `argv`, the frozen sets' entries, the section's offered tools
+//! `var`, the frozen sets' entries, the section's offered tools
 //! and the catalog Packs they come from, and its current model;
 //! `set_global_json` for fanout's `item`, and `tools.stats`.
 
 use std::sync::Mutex;
 
-use mlua::{LuaSerdeExt, Value};
+use mlua::LuaSerdeExt;
 use runvil_model_client::model::ModelBinding;
 use runvil_types::packs::PackId;
 use runvil_types::tools::{ToolId, ToolInfo};
@@ -14,7 +14,7 @@ use serde_json::Value as Json;
 use super::SectionVm;
 use crate::adhoc::AdhocTools;
 use crate::bindings::{ToolBinding, ToolSet};
-use crate::error::{self, Result, make_lua_runtime_error};
+use crate::error::{self, Result};
 use crate::models::SELECTION_POISONED;
 use crate::packs::is_adhoc;
 use crate::scope::{OFFERS_POISONED, OfferMode, OfferTarget, OfferedTool, Offers, ToolCallCounts};
@@ -30,35 +30,6 @@ impl SectionVm {
     /// global, or if `var` cannot be represented as JSON.
     pub fn var(&self) -> Result<Json> {
         var_to_json(&self.lua)
-    }
-
-    /// Reads the `argv` global back as JSON at the H1 freeze: `None` when
-    /// nil, its JSON form otherwise. Call this on the H1 VM only - a frozen
-    /// section's `argv` sits behind the guard proxy, which is not the
-    /// read-back path.
-    ///
-    /// # Errors
-    /// Returns a `LuaRuntime` failure when H1 left `argv` as a function,
-    /// userdata, or thread, or when its value cannot be represented as
-    /// JSON.
-    pub fn argv_json(&self) -> Result<Option<Json>> {
-        let value: Value = self
-            .lua
-            .globals()
-            .get("argv")
-            .map_err(error::make_lua_error)?;
-        match value {
-            Value::Nil => Ok(None),
-            Value::Function(_) | Value::UserData(_) | Value::Thread(_) => {
-                Err(make_lua_runtime_error(format!(
-                    "argv must be JSON data, got {}",
-                    value.type_name()
-                )))
-            }
-            other => Ok(Some(
-                self.lua.from_value(other).map_err(error::make_lua_error)?,
-            )),
-        }
     }
 
     /// Sets a global in the VM to the Lua form of a JSON value, overwriting

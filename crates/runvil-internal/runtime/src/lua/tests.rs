@@ -31,7 +31,7 @@ use runvil_types::untrusted::GuardNonce;
 use serde_json::json;
 
 use crate::execute::section_vm::{SectionVmSetup, VmSeed, setup_section_vm};
-use crate::lua::{Answer, Argv, Library, Request, SectionRead, SectionVm, ToolSet, YieldParse};
+use crate::lua::{Answer, Library, Request, SectionRead, SectionVm, ToolSet, YieldParse};
 use crate::model::ModelSet;
 use crate::test_support::fresh_access;
 use crate::test_support::recording::null_emitter;
@@ -87,7 +87,7 @@ fn scheduler_vm_with_tools(
         section: "Test",
         tools,
         models,
-        argv: Argv::Frozen(None),
+        argv: None,
         seed: VmSeed { var, item: None },
         ui: None,
     })
@@ -103,7 +103,7 @@ struct VmBinds<'a> {
     section: &'a str,
     tools: &'a ToolSet,
     models: &'a ModelSet,
-    argv: Argv<'a>,
+    argv: Option<&'a serde_json::Value>,
     seed: VmSeed<'a>,
     ui: Option<&'a Arc<serde_json::Value>>,
 }

@@ -131,10 +131,10 @@ fn library_code_reaches_every_engine_global_it_does_not_bind() {
 }
 
 #[test]
-fn library_code_reads_the_frozen_argv_and_cannot_assign_it() {
+fn library_code_reads_argv_and_cannot_assign_it() {
     let argv = json!({ "topic": "x" });
     let vm = env_vm(
-        TestVm::new().argv(Argv::Frozen(Some(&argv))),
+        TestVm::new().argv(Some(&argv)),
         kit(&[
             "topic_at_load = argv.topic\nfunction assign() argv = { topic = 'y' } end\n\
              function topic() return argv.topic end",
@@ -148,26 +148,11 @@ fn library_code_reads_the_frozen_argv_and_cannot_assign_it() {
     .expect("the block returns its text");
     assert!(
         value.starts_with("x|false|") && value.ends_with("|x"),
-        "the read serves the frozen value and the write is refused, got {value}"
+        "the read serves the installed value and the write is refused, got {value}"
     );
     assert!(
         value.contains(crate::argv::ASSIGNMENT_REFUSAL),
         "the refusal is the guard's own, got {value}"
-    );
-}
-
-#[test]
-fn a_library_loaded_by_the_h1_pass_repairs_argv_in_the_vms_globals() {
-    let vm = env_vm(
-        TestVm::new().argv(Argv::Writable(None)),
-        kit(&["argv = { repaired = true }"]),
-    );
-    let value = returned(&vm, "require '/kit'\nreturn tostring(argv.repaired)");
-    assert_eq!(value.as_deref(), Some("true"));
-    assert_eq!(
-        vm.argv_json().expect("the repaired argv reads back"),
-        Some(json!({ "repaired": true })),
-        "the write went to the VM's globals, where the executor reads the repair"
     );
 }
 

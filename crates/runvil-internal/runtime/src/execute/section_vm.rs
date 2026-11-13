@@ -51,12 +51,9 @@ pub(crate) struct VmSeed<'a> {
 pub(crate) struct SectionVmSetup<'a> {
     /// The run's argument string, installed as the `args` global.
     pub(crate) args: &'a str,
-    /// The run's `argv` (`ChainState::argv`; `None` installs nil),
-    /// with its mode: writable for the H1 pass alone, so the repair pattern
-    /// can assign it, and frozen for every other section. The caller picks
-    /// the mode at construction, so a writable value cannot reach a
-    /// non-H1 section.
-    pub(crate) argv: crate::lua::Argv<'a>,
+    /// The chain's `argv` (`ChainState::argv`), installed read-only;
+    /// `None` installs nil.
+    pub(crate) argv: Option<&'a serde_json::Value>,
     /// The `sys` JSON the frame constructor built for this section entry.
     pub(crate) sys: &'a serde_json::Value,
     /// The chain step's VFS access capability backing the Lua `store`

@@ -11,7 +11,7 @@ use serde_json::json;
 use super::install_preludes;
 use crate::test_vm::{BuiltVm, TestVm};
 use crate::tests::refusal_line;
-use crate::{Argv, CoroStep, LuaProgram, Request, SectionVm, YieldParse, install_ui};
+use crate::{CoroStep, LuaProgram, Request, SectionVm, YieldParse, install_ui};
 
 #[path = "prelude-tests-environment.rs"]
 mod environment;
@@ -23,7 +23,7 @@ mod environment;
 #[track_caller]
 fn prelude_vm(setup: TestVm<'_>) -> BuiltVm {
     let argv = json!({ "mode": "argv" });
-    setup.argv(Argv::Frozen(Some(&argv))).shims().build()
+    setup.argv(Some(&argv)).shims().build()
 }
 
 /// [`section_vm`] with the guarded `var` seeded from `var`.

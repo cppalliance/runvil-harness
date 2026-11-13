@@ -167,8 +167,8 @@ impl Scheduler {
         let depth = chain.call_depth.deeper()?;
         // An explicit input forks the chain's args (and `argv` re-derives
         // from them); a no-input call inherits the caller's context whole,
-        // so the run's frozen `argv` - H1's repair included - reaches the
-        // chain rather than re-deriving from the unchanged args.
+        // so the caller's `argv` reaches the chain rather than re-deriving
+        // from the unchanged args.
         let child_ctx = match input {
             Some(input) => chain.ctx.with_args(input),
             None => chain.ctx.clone(),

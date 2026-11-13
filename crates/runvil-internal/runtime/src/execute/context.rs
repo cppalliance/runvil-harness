@@ -24,7 +24,7 @@ use runvil_types::untrusted::GuardNonce;
 use runvil_vfs::{Access, ScopeHandle, VfsRef};
 
 use crate::Error;
-use crate::lua::{Argv, RosterEntry, ToolSet};
+use crate::lua::{RosterEntry, ToolSet};
 use crate::model::{ModelBinding, ModelRole, ModelSet};
 use crate::prompt::Prompt;
 
@@ -105,8 +105,7 @@ struct SharedState {
 ///
 /// Cheap to clone: a clone shares the run's state and this chain's
 /// reporting handles, so it advances the same turn counter.
-/// The three sanctioned forks: [`with_walk_state`](Self::with_walk_state)
-/// at the H1-to-walk handoff, [`with_task`](Self::with_task) giving a
+/// The two sanctioned forks: [`with_task`](Self::with_task) giving a
 /// spawned chain its own task emitter and turn counter, and
 /// [`with_args`](Self::with_args) passing a `call` or task-spawning arm's
 /// input override into its contained chain.
@@ -122,10 +121,8 @@ pub(crate) struct ChainState {
     reporting: ReportingHandles,
     /// The run's argument string for `{{ args }}` substitution.
     args: Arc<str>,
-    /// The run's `argv`, as `derive_argv` derives it from `args`. At
-    /// construction this is the value the H1 pass starts from; the walk's
-    /// fork holds the value H1 left behind at the freeze, so an H1 repair
-    /// reaches every downstream section.
+    /// The chain's `argv`, as `derive_argv` derives it from `args`: every
+    /// section the chain enters reads it, and nothing writes it.
     argv: Option<Arc<serde_json::Value>>,
 }
 
@@ -248,8 +245,7 @@ impl ChainState {
         &self.args
     }
 
-    /// The run's `argv`, as `derive_argv` derives it; on the walk,
-    /// the value H1 left behind at the freeze.
+    /// The chain's `argv`, as `derive_argv` derives it.
     pub(super) fn argv(&self) -> Option<&Arc<serde_json::Value>> {
         self.argv.as_ref()
     }
@@ -330,18 +326,6 @@ impl ChainState {
         crate::prompt::detail::sections(&self.shared.prompt).len()
     }
 
-    /// The H1-to-walk handoff: the `argv` H1 left behind at the freeze,
-    /// set on a cheap clone so the state H1 saw stays untouched. The
-    /// run-wide state needs no delta: the tool and model sets were built at
-    /// construction and nothing writes either during the run, and `when`
-    /// is the run's `started_at`, the same for the pass and the walk.
-    #[must_use]
-    pub(super) fn with_walk_state(&self, argv: Option<serde_json::Value>) -> Self {
-        let mut ctx = self.clone();
-        ctx.argv = argv.map(Arc::from);
-        ctx
-    }
-
     /// The context a contained chain runs under: `args` in place of the
     /// run's own, because a `call`, a `tasks.spawn`, or a `tasks.fanout`
     /// arm that was given an input overrides the run's args for the chain -
@@ -374,16 +358,7 @@ impl ChainState {
     /// its own deltas: the `sys` JSON, the seed, the chain step's access
     /// capability (the walk's own, a call chain's borrowed parent
     /// capability, a task chain's spawned one) and the handle on the run's
-    /// scope, the section's current-model selection, the section name, and
-    /// whether `argv` installs writable.
-    ///
-    /// `argv_writable` picks the [`Argv`] mode that
-    /// [`SectionVmSetup::argv`] describes; the H1 pass is the only
-    /// production caller that passes `true`.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "each input is one of the constructor's own deltas, borrowed separately for the setup's life"
-    )]
+    /// scope, the section's current-model selection, and the section name.
     pub(super) fn vm_setup<'a>(
         &'a self,
         sys: &'a serde_json::Value,
@@ -392,16 +367,10 @@ impl ChainState {
         scope: &'a ScopeHandle,
         selection: &'a Arc<Mutex<Option<ModelBinding>>>,
         section_name: &'a str,
-        argv_writable: bool,
     ) -> SectionVmSetup<'a> {
-        let argv = if argv_writable {
-            Argv::Writable(self.argv.as_deref())
-        } else {
-            Argv::Frozen(self.argv.as_deref())
-        };
         SectionVmSetup {
             args: &self.args,
-            argv,
+            argv: self.argv.as_deref(),
             sys,
             access,
             scope,
@@ -524,7 +493,7 @@ mod tests {
 
     use super::*;
     use crate::execute::section_vm::VmSeed;
-    use crate::lua::{Argv, RosterEntry};
+    use crate::lua::RosterEntry;
     use crate::model::{ModelRole, ThinkingMode};
     use crate::test_support::fresh_access;
     use crate::test_support::scenario::{TEST_SEED, test_model_with};
@@ -598,45 +567,17 @@ mod tests {
     }
 
     #[test]
-    fn vm_setup_hands_the_vm_the_runs_argv_in_the_mode_the_caller_asks_for() {
+    fn vm_setup_hands_the_vm_the_chains_argv() {
         let prompt = test_prompt();
         let ctx = test_state(&prompt).with_args("{\"query\":\"papers\"}");
         let sys = json!({});
         let (access, scope) = fresh_access();
-        let requested = ctx.argv().cloned();
-        let expected = requested.as_deref();
-        assert!(
-            expected.is_some(),
-            "the fixture's args must derive an argv, or neither mode is observable"
-        );
         let selection = Arc::new(Mutex::new(None));
-        let frozen = ctx.vm_setup(
-            &sys,
-            VmSeed::default(),
-            &access,
-            &scope,
-            &selection,
-            "Only",
-            false,
-        );
-        assert!(
-            matches!(frozen.argv, Argv::Frozen(value) if value == expected),
-            "an unprivileged constructor must get the run's argv frozen: {:?}",
-            frozen.argv
-        );
-        let writable = ctx.vm_setup(
-            &sys,
-            VmSeed::default(),
-            &access,
-            &scope,
-            &selection,
-            "Only",
-            true,
-        );
-        assert!(
-            matches!(writable.argv, Argv::Writable(value) if value == expected),
-            "the H1 pass's flag must get the run's argv writable: {:?}",
-            writable.argv
+        let setup = ctx.vm_setup(&sys, VmSeed::default(), &access, &scope, &selection, "Only");
+        assert_eq!(
+            setup.argv,
+            Some(&json!({ "prose": "{\"query\":\"papers\"}" })),
+            "the setup holds the argv the chain's args derive"
         );
     }
 

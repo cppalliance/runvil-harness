@@ -225,7 +225,6 @@ impl SectionContext {
             scope,
             selection,
             section.name(),
-            false,
         );
         // Setup runs on the bare VM and tears it down itself on failure:
         // the frame does not exist yet, so its `Drop` cannot own this path.
@@ -244,10 +243,9 @@ impl SectionContext {
     /// H1's only deltas from a walked section: no `SECTION_STARTED`
     /// observation, and no `SECTION_FINISHED` since the scheduler never arms
     /// the pass's completion (the pass is not a walked section), an empty
-    /// `var` seed (it runs first and is never re-entered), `argv` installed
-    /// writable so the repair pattern can assign it, and [`Origin::H1`]
-    /// behind the `prompt` reads, so a relative path names a top-level
-    /// section.
+    /// `var` seed (it runs first and is never re-entered), and
+    /// [`Origin::H1`] behind the `prompt` reads, so a relative path names a
+    /// top-level section.
     ///
     /// # Errors
     /// Returns the failure of whichever step failed (see [`section_vm`]
@@ -269,9 +267,6 @@ impl SectionContext {
         let read = move |path: String, from: Option<LibraryKey>| {
             walk_target::read_section(&path, &prompt, Origin::H1, from.as_ref())
         };
-        // `argv` installs writable, the H1 delta `SectionVmSetup::argv`
-        // describes; the executor reads the value back at the freeze (see
-        // the scheduler's H1-to-walk handoff).
         let sys_json = sys.to_json();
         let setup = ctx.vm_setup(
             &sys_json,
@@ -280,7 +275,6 @@ impl SectionContext {
             scope,
             selection,
             title,
-            true,
         );
         // Setup runs on the bare VM and tears it down itself on failure:
         // the frame does not exist yet, so its `Drop` cannot own this path.
@@ -318,16 +312,6 @@ impl SectionContext {
     /// from happening in practice).
     pub(super) fn read_var(&self) -> Result<serde_json::Value> {
         self.vm().var()
-    }
-
-    /// Reads the H1 pass's `argv` back as JSON while the frame is live: the
-    /// value the walk's sections inherit frozen - the derived parse, or H1's
-    /// repair. `None` reads as nil.
-    ///
-    /// # Errors
-    /// Returns a `LuaRuntime` failure when H1 left `argv` as non-JSON data.
-    pub(super) fn read_argv(&self) -> Result<Option<serde_json::Value>> {
-        self.vm().argv_json()
     }
 
     /// Arms the completion flag: the block walk completed (a jump or

@@ -1,16 +1,16 @@
 //! The args/argv surface: `args` is the exact passed string always; `argv`
 //! is the parsed JSON on success and nil otherwise (`if argv then` is the
 //! malformed check); a default-declared prompt wraps interface prose into
-//! `argv.prose`; `argv` is writable in H1 only and frozen when H1 completes,
-//! so an H1 repair reaches every downstream section while an H2 assignment
-//! is an error; and `{{ argv }}` joins the prose substitution namespaces.
+//! `argv.prose`; `argv` is read-only in every section, so a prompt that
+//! gets malformed input builds its own from `args` and passes it on in
+//! `var`; and `{{ argv }}` joins the prose substitution namespaces.
 
 use runvil_prompt::test_support::{PromptSource, prompt};
 
 use crate::test_support::scenario::Scenario;
 
 /// One declared (required) `query` string. The declaration advertises and
-/// documents; it never enforces - enforcement is the prompt's H1.
+/// documents; it never enforces - enforcement is the prompt's own Lua.
 const QUERY: &str = "args: { query: { type: string } }";
 
 /// A prompt declaring [`QUERY`] whose one section `Only` runs `lua`.
@@ -86,7 +86,7 @@ fn valid_json_scalars_make_argv_a_number_or_boolean_and_null_reads_as_nil() {
 #[test]
 fn the_executor_never_hard_errors_on_shape() {
     // `query` is declared a string and arrives as a number: the run
-    // succeeds; shape enforcement belongs to the prompt's H1.
+    // succeeds; shape enforcement belongs to the prompt's own Lua.
     let source = query_prompt("return tostring(argv.query)");
     let trace = Scenario::new(source).args("{\"query\":5}").run();
     assert_eq!(trace.text(), "5");
@@ -107,68 +107,79 @@ fn a_strict_h1_errors_on_a_missing_field() {
 }
 
 #[test]
-fn an_h1_repair_is_visible_to_every_downstream_section() {
+fn a_section_builds_its_input_from_args_and_passes_it_on_in_var() {
     let source = PromptSource::new()
         .front(QUERY)
-        .h1("
-            assert(argv == nil, 'the broken input starts as nil argv')
-            argv = { query = 'repaired' }")
-        .prose(
+        .section(
             "First",
             "
-            Query: {{ argv.query }}
-
-            ```lua
-            assert(argv.query == 'repaired', 'the repair reaches the first section')
-            var.from_first = prose
-            ```",
+            assert(argv == nil, 'the malformed input reads as nil argv')
+            var.input = { query = args }",
         )
-        .section(
+        .prose(
             "Second",
             "
-            assert(argv.query == 'repaired', 'the repair reaches every downstream section')
-            assert(var.from_first == 'Query: repaired', 'the repair reaches substitution')
-            return argv.query",
+            Query: {{ var.input.query }}
+
+            ```lua
+            assert(argv == nil, 'argv is still nil in the next section')
+            return prose
+            ```",
         );
     let trace = Scenario::new(source.build()).args("broken json").run();
-    assert_eq!(trace.text(), "repaired");
+    assert_eq!(trace.text(), "Query: broken json");
 }
 
 #[test]
-fn an_h1_argv_holding_json_null_passes_the_freeze_and_reads_the_field_as_json_null() {
-    let source = PromptSource::new()
-        .front(QUERY)
-        .h1("argv = { a = json.null }")
-        .section(
-            "Only",
-            "
-            assert(argv ~= nil, 'the repaired argv passes the freeze')
-            assert(argv.a == json.null, 'a null field read as nil once frozen, not json.null')
-            return 'ok'",
-        );
-    let trace = Scenario::new(source.build()).args("broken json").run();
-    assert_eq!(trace.text(), "ok");
-}
-
-#[test]
-fn assigning_argv_in_an_h2_section_is_an_error() {
+fn assigning_argv_is_an_error() {
     let source = query_prompt("argv = { query = 'hijacked' }");
     let trace = Scenario::new(source).args("{\"query\":\"x\"}").run();
     let error = trace.error();
     assert!(
-        error.to_string().contains("argv is frozen"),
-        "the error names the freeze: {error}"
+        error
+            .to_string()
+            .contains("argv is read-only: assign to `var` or a section global instead"),
+        "the error names the rule: {error}"
     );
 }
 
 #[test]
-fn an_h2_field_write_on_argv_is_an_error() {
+fn assigning_a_nil_argv_is_an_error() {
+    let source = query_prompt("argv = { query = 'built' }");
+    let trace = Scenario::new(source).args("broken json").run();
+    let error = trace.error();
+    assert!(
+        error.to_string().contains("argv is read-only"),
+        "the error names the rule: {error}"
+    );
+}
+
+#[test]
+fn a_field_write_on_argv_is_an_error() {
     let source = query_prompt("argv.query = 'hijacked'");
     let trace = Scenario::new(source).args("{\"query\":\"x\"}").run();
     let error = trace.error();
     assert!(
-        error.to_string().contains("argv is frozen"),
-        "the error names the freeze: {error}"
+        error
+            .to_string()
+            .contains("argv is read-only: cannot set field 'query'"),
+        "the error names the rule: {error}"
+    );
+}
+
+#[test]
+fn argv_is_read_only_in_the_h1_too() {
+    let source = PromptSource::new()
+        .front(QUERY)
+        .h1("argv = { query = 'hijacked' }")
+        .section("Only", "return 'unreachable'");
+    let trace = Scenario::new(source.build())
+        .args("{\"query\":\"x\"}")
+        .run();
+    let error = trace.error();
+    assert!(
+        error.to_string().contains("argv is read-only"),
+        "the error names the rule: {error}"
     );
 }
 
@@ -292,7 +303,7 @@ fn substituting_a_nil_argv_is_an_error() {
 }
 
 #[test]
-fn a_call_chain_derives_argv_from_its_own_args_frozen() {
+fn a_call_chain_derives_argv_from_its_own_args_read_only() {
     let source = prompt(
         QUERY,
         &[
@@ -303,7 +314,7 @@ fn a_call_chain_derives_argv_from_its_own_args_frozen() {
                 assert(args == '{\"query\":\"chain\"}', 'the chain sees its own args')
                 assert(argv.query == 'chain', 'argv derives from the chain args')
                 local wrote = pcall(function() argv.query = 'x' end)
-                assert(not wrote, 'the chain argv is frozen')
+                assert(not wrote, 'the chain argv is read-only')
                 return argv.query",
             ),
         ],
@@ -313,17 +324,21 @@ fn a_call_chain_derives_argv_from_its_own_args_frozen() {
 }
 
 #[test]
-fn a_no_input_call_inherits_the_repaired_argv() {
-    let source = PromptSource::new()
-        .front(QUERY)
-        .h1("argv = { query = 'repaired' }")
-        .section("Main", "return call('../Sub')")
-        .section(
-            "Sub",
-            "
-            assert(argv.query == 'repaired', 'a no-input call inherits the run argv')
-            return argv.query",
-        );
-    let trace = Scenario::new(source.build()).args("broken").run();
-    assert_eq!(trace.text(), "repaired");
+fn a_no_input_call_inherits_its_callers_argv() {
+    let source = prompt(
+        QUERY,
+        &[
+            ("Main", "return call('../Mid', '{\"query\":\"mid\"}')"),
+            ("Mid", "return call('../Sub')"),
+            (
+                "Sub",
+                "
+                assert(args == '{\"query\":\"mid\"}', 'a no-input call inherits its caller args')
+                assert(argv.query == 'mid', 'a no-input call inherits its caller argv')
+                return argv.query",
+            ),
+        ],
+    );
+    let trace = Scenario::new(source).args("{\"query\":\"run\"}").run();
+    assert_eq!(trace.text(), "mid");
 }

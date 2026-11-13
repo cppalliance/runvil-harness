@@ -14,13 +14,13 @@ fn query_source() -> PromptSource {
 }
 
 #[test]
-fn a_library_defaults_metatable_works_beside_frozen_argv_and_read_only_prose() {
+fn a_library_defaults_metatable_works_beside_read_only_argv_and_prose() {
     let source = query_source()
         .h1(
             "
             require '/defaults'
             assert(tone == 'friendly', 'H1 reads the default')
-            argv = { query = 'repaired' }
+            assert(not pcall(function() argv = 'hijacked' end), 'argv is read-only in H1')
             assert(not pcall(function() prose = 'x' end), 'prose is read-only in H1')",
         )
         .prose(
@@ -33,7 +33,7 @@ fn a_library_defaults_metatable_works_beside_frozen_argv_and_read_only_prose() {
             assert(prose == 'Tone: friendly.', 'a default renders in prose: ' .. prose)
             assert(missing == nil, 'a global with no default reads nil')
             local ok, err = pcall(function() argv = 'hijacked' end)
-            assert(not ok and tostring(err):find('argv is frozen outside H1: assign it in H1 only', 1, true), 'argv stays frozen: ' .. tostring(err))
+            assert(not ok and tostring(err):find('argv is read-only: assign to `var` or a section global instead', 1, true), 'argv stays read-only: ' .. tostring(err))
             var.n = 2
             ```
 
@@ -50,8 +50,8 @@ fn a_library_defaults_metatable_works_beside_frozen_argv_and_read_only_prose() {
             "Second",
             "
             require '/defaults'
-            assert(argv.query == 'repaired', 'the H1 repair reaches a later section')
-            assert(not pcall(function() argv = 'hijacked' end), 'argv stays frozen in a later section')
+            assert(argv.query == 'x', 'argv reads in a later section')
+            assert(not pcall(function() argv = 'hijacked' end), 'argv stays read-only in a later section')
             return argv.query .. ' ' .. tone",
         )
         .section(
@@ -60,8 +60,10 @@ fn a_library_defaults_metatable_works_beside_frozen_argv_and_read_only_prose() {
             defaults = { tone = 'friendly' }
             setmetatable(_G, { __index = defaults })",
         );
-    let trace = Scenario::new(source.build()).args("broken json").run();
-    assert_eq!(trace.text(), "repaired friendly");
+    let trace = Scenario::new(source.build())
+        .args("{\"query\":\"x\"}")
+        .run();
+    assert_eq!(trace.text(), "x friendly");
 }
 
 #[test]
@@ -104,18 +106,17 @@ fn a_strict_metatable_raises_its_own_error_while_the_guard_serves_argv_prose_and
 }
 
 #[test]
-fn an_h1_repair_lands_under_a_strict_index_and_a_write_hook() {
+fn a_nil_argv_reads_nil_under_a_strict_index_and_a_write_hook_never_sees_it() {
     let source = query_source()
-        .h1("
-            require '/hooks'
-            if argv == nil then argv = { query = 'repaired' } end
-            assert(seen.argv == nil, 'the write hook never sees argv')")
         .section(
             "Only",
             "
             require '/hooks'
-            assert(argv.query == 'repaired', 'the repair reaches the walk')
-            return argv.query",
+            assert(argv == nil, 'a nil argv reads nil, not the strict handler error')
+            assert(not pcall(function() argv = { query = 'built' } end), 'a nil argv is read-only')
+            assert(seen.argv == nil, 'the write hook never sees argv')
+            assert(argv == nil, 'the refused assignment wrote nothing')
+            return 'guarded'",
         )
         .section(
             "hooks",
@@ -127,7 +128,7 @@ fn an_h1_repair_lands_under_a_strict_index_and_a_write_hook() {
             })",
         );
     let trace = Scenario::new(source.build()).args("broken json").run();
-    assert_eq!(trace.text(), "repaired");
+    assert_eq!(trace.text(), "guarded");
 }
 
 #[test]
@@ -158,7 +159,7 @@ fn setmetatable_on_g_in_a_block_frees_neither_argv_nor_prose() {
         ```lua
         assert(prose == 'Second.', 'the next fence installs its prose under the author metatable')
         assert(getmetatable(_G).__newindex ~= nil, 'the author metatable survives the next fence')
-        assert(not pcall(function() argv = 'x' end), 'argv is still frozen')
+        assert(not pcall(function() argv = 'x' end), 'argv is still read-only')
         return 'guarded'
         ```",
     );

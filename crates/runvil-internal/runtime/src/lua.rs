@@ -17,8 +17,8 @@
 //! - The test suites, which build VM fixtures by hand.
 
 pub(crate) use runvil_lua::{
-    AdhocToolOutcome, Answer, Argv, Blocked, ChatOutcome, ChatResult, CoroStep, DiscoveryTool,
-    Library, LibraryBlock, LibraryKey, LuaBlockResult, MessageList, ModelCall, NonEmpty, OfferMode,
+    AdhocToolOutcome, Answer, Blocked, ChatOutcome, ChatResult, CoroStep, DiscoveryTool, Library,
+    LibraryBlock, LibraryKey, LuaBlockResult, MessageList, ModelCall, NonEmpty, OfferMode,
     OfferedTool, OverflowReason, ProseState, RenderedTools, Request, RosterEntry, ScriptReport,
     SectionRead, SectionText, SectionVm, TaskDelivery, TaskPhase, TaskStatus, ToolBinding,
     ToolCallCounts, ToolCallOutcome, ToolCallRecord, ToolSet, Uninjected, UsageAnchor, VfsOp,

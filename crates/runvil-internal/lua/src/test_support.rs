@@ -13,7 +13,6 @@ use runvil_types::packs::PackId;
 use runvil_types::tools::ToolInfo;
 use runvil_vfs::Access;
 
-use crate::argv::Argv;
 use crate::bindings::{RosterEntry, ToolBinding, ToolSet};
 use crate::coro::MODEL_TOOL_CALL_REGISTRY;
 use crate::error::{self, Error, Result, UNNAMED_FILE};
@@ -154,7 +153,7 @@ impl LuaProgram {
 
 impl SectionVm<Uninjected> {
     /// Installs the section's Engine values, ahead of the Pack preludes,
-    /// with an empty `var`, a frozen nil `argv`, and a selection that starts
+    /// with an empty `var`, a nil `argv`, and a selection that starts
     /// on the `default` binding, if the model set has one.
     ///
     /// # Errors
@@ -168,7 +167,7 @@ impl SectionVm<Uninjected> {
     ) -> std::result::Result<SectionVm, InjectFailure> {
         let set = &self.bound_models;
         let selection = Arc::new(Mutex::new(set.binding("default").cloned()));
-        self.inject_values(args, sys, access, None, Argv::Frozen(None), &selection)
+        self.inject_values(args, sys, access, None, None, &selection)
     }
 }
 

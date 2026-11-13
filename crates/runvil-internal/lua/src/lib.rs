@@ -131,7 +131,6 @@ mod tests;
 
 // The executor-facing surface: every item `runvil-runtime` names crosses here.
 pub use crate::adhoc::AdhocTools;
-pub use crate::argv::Argv;
 pub use crate::bindings::{
     DiscoveryTool, RosterEntry, ToolBinding, ToolOutputKind, ToolSet, wire_name_of,
 };

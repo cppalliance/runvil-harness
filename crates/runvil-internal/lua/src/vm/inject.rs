@@ -10,7 +10,6 @@ use runvil_vfs::Access;
 use serde_json::Value as Json;
 
 use super::{Injected, SectionVm, Uninjected};
-use crate::argv::Argv;
 use crate::compactors::install_compactors;
 use crate::error::{self, Error, Result};
 use crate::messages::install_messages;
@@ -58,10 +57,8 @@ impl SectionVm<Uninjected> {
     /// to the arm's spawned identity, and a conflicting access from an
     /// identity not ordered after the arm's surfaces as a write race.
     ///
-    /// `argv` is the parsed form of the args string, installed per its
-    /// [`Argv`] mode: writable for the H1 pass (whose repaired value the
-    /// executor reads back with [`argv_json`](SectionVm::argv_json)), frozen
-    /// for every other section.
+    /// `argv` is the parsed form of the args string, installed read-only;
+    /// `None` installs nil.
     ///
     /// `selection` holds the current model: `models.use` writes it, and
     /// [`current_model`](SectionVm::current_model) reads it.
@@ -79,7 +76,7 @@ impl SectionVm<Uninjected> {
         sys: &Json,
         access: &Arc<Access>,
         initial_var: Option<&Json>,
-        argv: Argv<'_>,
+        argv: Option<&Json>,
         selection: &Arc<Mutex<Option<ModelBinding>>>,
     ) -> std::result::Result<SectionVm, InjectFailure> {
         if let Err(error) = self.install_values(args, sys, initial_var, argv, selection) {
@@ -104,17 +101,14 @@ impl SectionVm<Uninjected> {
         args: &str,
         sys: &Json,
         initial_var: Option<&Json>,
-        argv: Argv<'_>,
+        argv: Option<&Json>,
         selection: &Arc<Mutex<Option<ModelBinding>>>,
     ) -> Result<()> {
         let globals = self.lua.globals();
         globals
             .raw_set("args", args)
             .map_err(error::make_lua_error)?;
-        match argv {
-            Argv::Writable(value) => crate::argv::install_writable(&self.lua, value)?,
-            Argv::Frozen(value) => crate::argv::install_frozen(&self.lua, value)?,
-        }
+        crate::argv::install(&self.lua, argv)?;
         let sys_table = seal_sys(&self.lua, sys)?;
         globals
             .raw_set("sys", sys_table)

@@ -5,8 +5,8 @@
 -- strips the raw functions it captures and before any other chunk
 -- captures `setmetatable` or `getmetatable`. The chunk arguments are
 -- privileged captures, never globals: `globals` is the VM's globals table,
--- `state` is the Engine's slot table (`argv_frozen` and `argv` once a
--- section freezes `argv`, `prose` once a block installs its render,
+-- `state` is the Engine's slot table (`argv` once injection installs it,
+-- `prose` once a block installs its render,
 -- `messages` once injection installs the section's list, and `author` for
 -- the metatable author code set on `_G`), and `refuse_argv()`,
 -- `refuse_prose()`, and `refuse_messages()` raise the Engine's assignment
@@ -29,9 +29,8 @@ local guard = { __metatable = "_G is guarded" }
 -- `_G` keeps the author's other metamethods but never becomes weak.
 local own = { __index = true, __newindex = true, __metatable = true }
 
--- `argv`, `prose`, and `messages` never reach the author: `argv` serves the
--- frozen value once a section freezes it and is otherwise a plain global,
--- so the H1 repair always lands in `_G`, and `messages` always serves the
+-- `argv`, `prose`, and `messages` never reach the author: `argv` always
+-- serves the value injection installed, and `messages` always serves the
 -- section's one list. Every other key goes to the author's handler, read
 -- raw from the author's metatable on each access the way Lua reads a
 -- metamethod, and tail-called so the handler's error levels and yields
@@ -57,9 +56,7 @@ end
 
 function guard.__newindex(t, key, value)
   if key == "argv" then
-    if state.argv_frozen then return refuse_argv() end
-    rawset(t, key, value)
-    return
+    return refuse_argv()
   end
   if key == "prose" then
     return refuse_prose()

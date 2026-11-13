@@ -11,12 +11,11 @@ use mlua::{Lua, LuaOptions, StdLib};
 use serde_json::json;
 
 use super::{GLOBALS_CHUNK_NAME, GLOBALS_SOURCE, RESERVED_NAMES, Reserved, reserved_name};
-use crate::Argv;
 use crate::test_vm::{BuiltVm, TestVm};
 use crate::tests::{assert_chunk_name_resolves, refusal_line};
 
-/// The refusal line of an assignment to the frozen `argv` global.
-const ARGV_REFUSAL: &str = "argv is frozen outside H1: assign it in H1 only";
+/// The refusal line of an assignment to the `argv` global.
+const ARGV_REFUSAL: &str = "argv is read-only: assign to `var` or a section global instead";
 
 /// The refusal line of an assignment to `prose`.
 const PROSE_REFUSAL: &str = "prose is read-only: assign to `var` or a section global instead";
@@ -30,19 +29,13 @@ const MESSAGES_REFUSAL: &str = "messages is the section's conversation and canno
 const PROSE: &str = "the block's prose";
 
 /// Builds a section VM the way section setup does up to the Pack
-/// preludes: frozen `argv`, the Engine globals, the control globals, and the
+/// preludes: `argv`, the Engine globals, the control globals, and the
 /// coroutine shims, with a block's lazy `prose` installed and one `kept`
 /// user record in `messages`.
 #[track_caller]
-fn frozen_vm() -> BuiltVm {
+fn guarded_vm() -> BuiltVm {
     let argv = json!({ "query": "papers" });
-    prose_vm(Argv::Frozen(Some(&argv)))
-}
-
-/// [`frozen_vm`] with `argv` installed in the given mode.
-#[track_caller]
-fn prose_vm(argv: Argv<'_>) -> BuiltVm {
-    let vm = TestVm::new().argv(argv).shims().build();
+    let vm = TestVm::new().argv(Some(&argv)).shims().build();
     vm.install_lazy_prose(|_| Ok(PROSE.to_owned()))
         .expect("the prose guard installs");
     vm.exec("messages:user('kept')");
@@ -78,7 +71,7 @@ fn assert_guards_hold(vm: &BuiltVm, after: &str) {
     let [argv_refusal, prose_refusal, messages_refusal] = assignment_refusals(vm);
     assert_eq!(
         argv_refusal, ARGV_REFUSAL,
-        "argv stays frozen after {after}"
+        "argv stays read-only after {after}"
     );
     assert_eq!(
         prose_refusal, PROSE_REFUSAL,
@@ -120,7 +113,7 @@ fn no_setmetatable_call_on_g_frees_argv_prose_or_messages() {
         "setmetatable(_G, { __index = function() return 'author' end, \
          __newindex = function() end })",
     ] {
-        let vm = frozen_vm();
+        let vm = guarded_vm();
         vm.eval::<()>(attempt);
         assert_guards_hold(&vm, attempt);
         let captured: bool = vm.eval(
@@ -135,43 +128,30 @@ fn no_setmetatable_call_on_g_frees_argv_prose_or_messages() {
 }
 
 #[test]
-fn the_h1_argv_is_a_plain_global_that_no_author_metatable_intercepts() {
-    let vm = prose_vm(Argv::Writable(None));
-    let (absent, hooked, query): (bool, bool, String) = vm.eval(
+fn a_nil_argv_reads_nil_under_a_strict_index_and_no_write_hook_sees_it() {
+    let vm = TestVm::new().shims().build();
+    let (absent, refusal, hooked, still_absent): (bool, String, bool, bool) = vm.eval(
         "seen = {}\n\
          setmetatable(_G, {\n\
            __index = function(_, key) error('undefined global ' .. key, 2) end,\n\
            __newindex = function(_, key, value) seen[key] = value end,\n\
          })\n\
          local absent = argv == nil\n\
-         argv = { query = 'repaired' }\n\
-         return absent, seen.argv ~= nil, argv.query",
+         local _, err = pcall(function() argv = { query = 'hijacked' } end)\n\
+         return absent, tostring(err), seen.argv ~= nil, argv == nil",
     );
     assert!(
         absent,
-        "a nil H1 argv reads nil, not the strict handler's error"
+        "a nil argv reads nil, not the strict handler's error"
     );
+    assert_eq!(refusal_line(&refusal), Some(ARGV_REFUSAL));
     assert!(!hooked, "the author's write hook never sees argv");
-    assert_eq!(query, "repaired", "the repair lands in _G");
-    assert_eq!(
-        vm.argv_json().expect("the repair reads back"),
-        Some(json!({ "query": "repaired" }))
-    );
-    let (prose_refusal, messages_refusal, unseen, cleared): (String, String, bool, bool) = vm.eval(
-        "local _, err = pcall(function() prose = 'x' end)\n\
-             local _, messages_err = pcall(function() messages = {} end)\n\
-             argv = nil\n\
-             return tostring(err), tostring(messages_err), seen.messages == nil, argv == nil",
-    );
-    assert_eq!(refusal_line(&prose_refusal), Some(PROSE_REFUSAL));
-    assert_eq!(refusal_line(&messages_refusal), Some(MESSAGES_REFUSAL));
-    assert!(unseen, "the author's write hook never sees messages");
-    assert!(cleared, "H1 can still clear argv");
+    assert!(still_absent, "the refused assignment wrote nothing");
 }
 
 #[test]
 fn editing_the_table_getmetatable_returns_cannot_free_argv_prose_or_messages() {
-    let vm = frozen_vm();
+    let vm = guarded_vm();
     let before: bool = vm.eval("return getmetatable(_G) == nil");
     assert!(before, "with no author metatable, getmetatable(_G) is nil");
     vm.eval::<()>(
@@ -186,7 +166,7 @@ fn editing_the_table_getmetatable_returns_cannot_free_argv_prose_or_messages() {
 
 #[test]
 fn no_sandbox_route_reaches_the_guard_or_a_raw_global() {
-    let vm = frozen_vm();
+    let vm = guarded_vm();
     let reachable: String = vm.eval(
         "local found = {}\n\
          for _, name in ipairs({ 'rawget', 'rawset', 'rawequal', 'rawlen', 'debug', 'load', \
@@ -204,7 +184,7 @@ fn no_sandbox_route_reaches_the_guard_or_a_raw_global() {
 
 #[test]
 fn getmetatable_on_g_returns_the_author_metatable_and_edits_take_effect_live() {
-    let vm = frozen_vm();
+    let vm = guarded_vm();
     let (same, untouched, returned): (bool, bool, bool) = vm.eval(
         "author = {}\n\
          local returned = setmetatable(_G, author) == _G\n\
@@ -251,7 +231,7 @@ fn getmetatable_on_g_returns_the_author_metatable_and_edits_take_effect_live() {
 
 #[test]
 fn an_author_metatable_with_a_metatable_field_protects_g_as_lua_would() {
-    let vm = frozen_vm();
+    let vm = guarded_vm();
     let (label, tone, replace, clear): (String, String, String, String) = vm.eval(
         "setmetatable(_G, { __metatable = 'locked', __index = { tone = 'friendly' } })\n\
          local _, replace = pcall(function() setmetatable(_G, {}) end)\n\
@@ -276,7 +256,7 @@ fn an_author_metatable_with_a_metatable_field_protects_g_as_lua_would() {
 
 #[test]
 fn setmetatable_on_g_rejects_what_the_base_function_rejects() {
-    let vm = frozen_vm();
+    let vm = guarded_vm();
     let (number, missing, boolean): (String, String, String) = vm.eval(
         "local _, number = pcall(setmetatable, _G, 5)\n\
          local _, missing = pcall(setmetatable, _G)\n\
@@ -301,7 +281,7 @@ fn setmetatable_on_g_rejects_what_the_base_function_rejects() {
 
 #[test]
 fn the_other_fields_of_the_author_metatable_apply_to_g_from_each_setmetatable() {
-    let vm = frozen_vm();
+    let vm = guarded_vm();
     let (called, shown): (String, String) = vm.eval(
         "author = {\n\
            __call = function(_, name) return 'called ' .. name end,\n\
@@ -368,14 +348,14 @@ out[#out + 1] = tostring(select(2, pcall(setmetatable, 1, {})))
 out[#out + 1] = tostring(select(2, pcall(setmetatable, setmetatable({}, { __metatable = 1 }), {})))
 out[#out + 1] = tostring(select(2, pcall(getmetatable)))
 return table.concat(out, '\\n')";
-    let vm = frozen_vm();
+    let vm = guarded_vm();
     let guarded: String = vm.eval(probe);
     assert_eq!(guarded, stock_eval(probe));
 }
 
 #[test]
 fn sealed_engine_values_keep_their_metatable_protection() {
-    let vm = frozen_vm();
+    let vm = guarded_vm();
     let (sys_label, argv_label, sys_refusal, var_refusal): (String, String, String, String) = vm
         .eval(
             "local _, sys_err = pcall(function() setmetatable(sys, {}) end)\n\
@@ -383,7 +363,7 @@ fn sealed_engine_values_keep_their_metatable_protection() {
          return getmetatable(sys), getmetatable(argv), tostring(sys_err), tostring(var_err)",
         );
     assert_eq!(sys_label, "sys is sealed");
-    assert_eq!(argv_label, "argv is frozen");
+    assert_eq!(argv_label, "argv is read-only");
     assert_eq!(
         sys_refusal,
         "[string \"probe\"]:1: cannot change a protected metatable"

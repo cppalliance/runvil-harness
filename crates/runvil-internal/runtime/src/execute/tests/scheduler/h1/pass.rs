@@ -1,7 +1,7 @@
 //! The H1 pass itself: its infer and default-model selection, the
 //! root entry ids of the chunk and the first walked section, H1 assertion
-//! failures and their reports and lines, `var` and `argv` read back after a
-//! scalar return and at the pass's end, a failed substitution that keeps
+//! failures and their reports and lines, `var` read back after a
+//! return and at the pass's end, a failed substitution that keeps
 //! its own code, a failing H1 library as the failed gate, and the section
 //! boundaries the pass does not fire.
 
@@ -208,14 +208,14 @@ fn an_h1_return_with_no_value_still_reads_var_back() {
 }
 
 #[test]
-fn an_h1_argv_read_back_failure_is_placed_on_the_pass_last_lua_block() {
+fn an_h1_var_read_back_failure_at_the_fall_through_is_placed_on_the_pass_last_lua_block() {
     // The pass falls through, so its block index is past its last block:
     // the failure lands on the last Lua block's first line.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        # Repair\n\n\
+        # Reassigned Var\n\n\
         ```lua\n\
         local broken = true\n\
-        argv = function() end\n\
+        var = 5\n\
         ```\n\n\
         Trailing commentary.\n\n\
         ## Result\n\n\

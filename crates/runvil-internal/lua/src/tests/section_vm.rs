@@ -108,7 +108,7 @@ fn a_refused_injection_hands_back_the_vm_for_its_teardown() {
             &json!({}),
             &fresh_access().access,
             Some(&json!(5)),
-            Argv::Frozen(None),
+            None,
             &Arc::new(Mutex::new(None)),
         )
         .expect_err("a non-object var seed is refused");

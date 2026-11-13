@@ -3,9 +3,8 @@
 //! When a section's Lua first reads the lazy `prose` value, the Engine
 //! resolves `{{ path }}` placeholders in the pending Markdown template. Lua
 //! source is never substituted. Five sources are available: `args` (the single
-//! raw input string), `argv` (the chain's `argv`: the derived value in the H1
-//! pass, the value the H1 left behind on the walk; nil when it holds no
-//! value), `item` (the item seeded into this section - a fanout arm's or a
+//! raw input string), `argv` (the chain's `argv`, derived from its args;
+//! nil when it holds no value), `item` (the item seeded into this section - a fanout arm's or a
 //! `tasks.spawn` task's first entry - nil otherwise), `var` (values the
 //! section's Lua wrote), and `sys` (runtime-provided metadata). An unknown
 //! first segment resolves as a bare global: a section-local Lua global
@@ -92,8 +91,7 @@ type SubstResult<T> = std::result::Result<T, Error>;
 pub(crate) struct Sources<'a> {
     /// The raw args string: `{{ args }}`.
     pub(crate) args: &'a str,
-    /// The chain's `argv`, which the H1 pass may repair: `{{ argv }}` and
-    /// dotted paths.
+    /// The chain's `argv`: `{{ argv }}` and dotted paths.
     pub(crate) argv: Option<&'a Value>,
     /// The item seeded into this section on a fanout arm's or a
     /// `tasks.spawn` task's first entry, rendered per

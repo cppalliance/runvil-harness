@@ -21,7 +21,7 @@ use serde_json::{Value as Json, json};
 use crate::error::{self, Result};
 use crate::section::scalar_return;
 use crate::tests::recording::null_emitter;
-use crate::{Argv, OfferedTool, RosterEntry, SectionRead, SectionVm, ToolSet};
+use crate::{OfferedTool, RosterEntry, SectionRead, SectionVm, ToolSet};
 
 /// The one guard-nonce seed of every test VM.
 pub(crate) const TEST_SEED: RunSeed = RunSeed::from_bytes([0x73; 32]);
@@ -266,7 +266,7 @@ type Selection = Arc<Mutex<Option<ModelBinding>>>;
 
 /// A section VM's setup as data. Unset, the VM shares an empty tool and
 /// model set, reports nowhere under [`TEST_SECTION`], gets a fresh store,
-/// empty `args` and `sys`, a frozen nil `argv`, and an empty `var`.
+/// empty `args` and `sys`, a nil `argv`, and an empty `var`.
 pub(crate) struct TestVm<'a> {
     tools: ToolSet,
     models: ModelSet,
@@ -275,7 +275,7 @@ pub(crate) struct TestVm<'a> {
     section: &'a str,
     args: &'a str,
     sys: Option<&'a Json>,
-    argv: Argv<'a>,
+    argv: Option<&'a Json>,
     var: Option<&'a Json>,
     limits: Option<(usize, u32)>,
     raw_model_ids: bool,
@@ -299,7 +299,7 @@ impl<'a> TestVm<'a> {
             section: TEST_SECTION,
             args: "",
             sys: None,
-            argv: Argv::Frozen(None),
+            argv: None,
             var: None,
             limits: None,
             raw_model_ids: false,
@@ -357,9 +357,10 @@ impl<'a> TestVm<'a> {
         self
     }
 
-    /// How Engine injection installs `argv`.
+    /// The `argv` value Engine injection installs read-only; `None`
+    /// installs nil.
     #[track_caller]
-    pub(crate) fn argv(mut self, argv: Argv<'a>) -> Self {
+    pub(crate) fn argv(mut self, argv: Option<&'a Json>) -> Self {
         self.argv = argv;
         self
     }

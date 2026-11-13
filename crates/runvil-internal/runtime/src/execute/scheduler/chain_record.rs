@@ -387,8 +387,7 @@ pub(super) struct Chain {
     /// the chain runs or between blocks.
     pub(super) parked: Option<Parked>,
     /// The chain's fork of the run state: the run's own for the H1 pass and
-    /// for a root walk with no pass before it, the hand-off fork holding
-    /// H1's frozen `argv` (`with_walk_state`) for the walk after the pass,
+    /// for the root walk,
     /// and the caller's for a `call` child or the spawner's for a task,
     /// through `with_args` when the call or spawn gave an input. A task's
     /// fork also reports under its own task id with its own turn counter

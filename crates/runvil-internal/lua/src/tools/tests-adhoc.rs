@@ -8,7 +8,6 @@ use serde_json::{Value as Json, json};
 
 use super::super::objects::TOOL_OBJECTS_REGISTRY;
 use super::parameters::search_set;
-use crate::Argv;
 use crate::test_vm::{TestVm, lua_over, offer_set, raised, scoped};
 
 /// The `grab` definition of the listing, held in a local.
@@ -307,10 +306,7 @@ fn an_adhoc_description_is_the_attrs_text_and_never_the_envelope() {
 
 #[test]
 fn the_adhoc_pack_exists_in_every_vm_with_nothing_defined() {
-    for vm in [
-        lua_over(offer_set()),
-        TestVm::new().argv(Argv::Writable(None)).build(),
-    ] {
+    for vm in [lua_over(offer_set()), TestVm::new().build()] {
         let pack: (bool, String, bool, i64) = vm.eval(
             "local adhoc = tools.packs.get('adhoc')\n\
              return adhoc ~= nil, adhoc.name, adhoc.required, #adhoc.tools",

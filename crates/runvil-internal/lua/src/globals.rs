@@ -1,10 +1,9 @@
 //! The `_G` guard: the one metatable on a section VM's globals table.
 //!
 //! The guard owns the three Engine-owned globals, and no metatable author
-//! code sets on `_G` ever sees any of their keys. `argv` outside H1
-//! ([`crate::argv`]) is never a raw global: reads return the frozen value
-//! and writes raise the freeze refusal. In the H1 pass it behaves as a
-//! plain global, so the repair always lands in `_G`. `prose`, each block's
+//! code sets on `_G` ever sees any of their keys. `argv`
+//! ([`crate::argv`]) is never a raw global: reads return the value
+//! injection installed and writes raise the read-only refusal. `prose`, each block's
 //! lazily rendered text ([`crate::prose`]), is never a raw global either:
 //! reads render through the Engine and writes raise the read-only refusal.
 //! `messages`, the section's one conversation ([`crate::messages`]), is
@@ -23,8 +22,7 @@
 //! guard. For every other value both behave as the base functions,
 //! argument errors and `__metatable` protection included. With no debug
 //! library, `rawset`, or code loading in the sandbox, author code has no
-//! route to the guard, to a raw `prose` or `messages` global, or to a raw
-//! `argv` global outside H1.
+//! route to the guard or to a raw `argv`, `prose`, or `messages` global.
 //!
 //! The Lua side lives in `__impl_globals.lua`; the Rust side is the slot
 //! table the chunk reads, held in the registry.
@@ -48,8 +46,8 @@ const GLOBALS_CHUNK_NAME: &str = "@crates/runvil-internal/lua/src/__impl_globals
 /// The guard source.
 const GLOBALS_SOURCE: &str = include_str!("__impl_globals.lua");
 
-/// The registry key of the slot table the guard chunk reads: `argv_frozen`
-/// and `argv`, `prose`, `messages`, and `author`.
+/// The registry key of the slot table the guard chunk reads: `argv`,
+/// `prose`, `messages`, and `author`.
 const STATE_REGISTRY: &str = "runvil.globals.state";
 
 /// The guard program.
@@ -97,19 +95,16 @@ pub(crate) fn install(lua: &Lua) -> Result<()> {
         .map_err(error::make_lua_error)
 }
 
-/// Freezes `argv` on the guard: reads return `frozen`, and every
-/// assignment of the global raises the freeze refusal.
+/// Puts `value` in the `argv` slot, which every later read of the global
+/// returns. Every assignment of the global raises the read-only refusal,
+/// with or without a value in the slot.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure if the guard's slot table is missing or cannot
 /// be written.
-pub(crate) fn freeze_argv(lua: &Lua, frozen: Value) -> Result<()> {
-    let state = state(lua)?;
-    state
-        .raw_set("argv", frozen)
-        .map_err(error::make_lua_error)?;
-    state
-        .raw_set("argv_frozen", true)
+pub(crate) fn set_argv(lua: &Lua, value: Value) -> Result<()> {
+    state(lua)?
+        .raw_set("argv", value)
         .map_err(error::make_lua_error)
 }
 

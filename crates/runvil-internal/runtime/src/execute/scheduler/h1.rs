@@ -5,12 +5,12 @@
 //! or with the generic completion when it gave none, a block's
 //! `LuaRuntime` failure is the prompt's failed hard gate, mapped to a
 //! `RequirementsUnmet` failure where it failed, and the pass's end hands
-//! off to the root walk. The frame's own deltas, writable `argv` among
-//! them, are listed on `SectionContext::new_h1`.
+//! off to the root walk. The frame's own deltas are listed on
+//! `SectionContext::new_h1`.
 //!
 //! The pass and the walk that follows it share the root lineage `0` and
 //! are two arena records: the hand-off starts the walk from the pass's
-//! `var` and frozen `argv`, continues the pass's child and entry counters,
+//! `var`, continues the pass's child and entry counters,
 //! so a child the pass started keeps its index and the first walked section
 //! takes the next entry after the pass's entry 0 (see [`Chain::counters`]
 //! for the normative statement), and hands the pass's tasks to the walk as
@@ -78,8 +78,8 @@ impl Scheduler {
     /// result is the shared generic completion.
     ///
     /// # Errors
-    /// Returns a `LuaRuntime` failure when the final `var` read-back fails or H1
-    /// left `argv` as non-JSON data, placed on the pass's last Lua block at
+    /// Returns a `LuaRuntime` failure when the final `var` read-back fails,
+    /// placed on the pass's last Lua block at
     /// a fall-through and on the jumping block for a jump out,
     /// or an `Internal` failure when the chain holds no frame, when the walk
     /// it hands off to cannot start because the run's chain count exceeds
@@ -96,11 +96,6 @@ impl Scheduler {
         let line = block.lua_line(chain.blocks(&prompt));
         let var = frame
             .read_var()
-            .map_err(|error| place(error, prompt.file(), line))?;
-        // The freeze: whatever `argv` H1 leaves behind - the derived parse
-        // or its repair - is what every walked section inherits, frozen.
-        let argv = frame
-            .read_argv()
             .map_err(|error| place(error, prompt.file(), line))?;
         drop(frame);
         // The root identity spans the pass and the walk: the walk reuses
@@ -125,14 +120,12 @@ impl Scheduler {
                 self.settle_owned_tasks(id, Ok(GENERIC_COMPLETION.to_owned())),
             ));
         }
-        // The H1-to-walk handoff: the walk's context takes the frozen
-        // `argv`; H1's prompt-wide records already landed in the shared
-        // sets the views read, and `when` is the run's own.
-        let walk_ctx = self.ctx.with_walk_state(argv);
+        // The H1-to-walk handoff: the walk runs under the run's own state,
+        // as the pass did.
         let root = self.start_root_chain(
             ChainKind::Root,
             counters,
-            walk_ctx,
+            self.ctx.clone(),
             model,
             walk_access,
             start,
