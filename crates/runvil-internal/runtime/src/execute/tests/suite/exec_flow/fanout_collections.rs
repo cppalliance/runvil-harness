@@ -329,8 +329,8 @@ fn a_section_that_holds_only_a_list_runs_as_a_worker_with_nothing_to_run() {
         .prose("### Items", "- a\n-\n- b");
     assert_eq!(
         Scenario::new(source.build()).run().text(),
-        "2||true||a,,b",
-        "each arm and the call run no Lua and reply nothing, and the list still reads, a bullet \
-         with no content as the empty item"
+        "2||true|nil|a,,b",
+        "each arm and the call run no Lua and reply nothing, so an arm's text is empty and the \
+         call returns nil, and the list still reads, a bullet with no content as the empty item"
     );
 }

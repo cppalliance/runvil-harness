@@ -139,12 +139,15 @@ impl Scheduler {
     /// running tasks becomes a `TasksLive` failure naming them in
     /// spawn order, placed on the line that spawned the first of them; an
     /// idle task is no leak. A failing chain keeps its own error - the leak
-    /// is the lesser fault - but its tasks end all the same.
-    pub(super) fn settle_owned_tasks(
+    /// is the lesser fault - but its tasks end all the same. The rules read
+    /// only whether the chain succeeded, so the outcome's value passes
+    /// through as given, whether it is the chain's text or the text it may
+    /// have ended without.
+    pub(super) fn settle_owned_tasks<T>(
         &mut self,
         owner: ChainIndex,
-        outcome: Result<String>,
-    ) -> Result<String> {
+        outcome: Result<T>,
+    ) -> Result<T> {
         let reason = match &outcome {
             Ok(_) => AbandonReason::OwnerReturned,
             Err(error) if error.code == ErrorCode::ToolLoopExhausted => {

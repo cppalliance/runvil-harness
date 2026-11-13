@@ -139,7 +139,9 @@ end
 
 -- `call` for the code it is installed for. `from` is nil for a section's
 -- own code and a library's identity for that library's code; the request
--- carries it, and the driver resolves the target's path from there.
+-- carries it, and the driver resolves the target's path from there. The
+-- driver resumes it with the called chain's final text, or with nil for a
+-- chain that ended with no text, and that is the call's value.
 local function call_from(from)
   return function(target, input)
     local ok, result = yield({

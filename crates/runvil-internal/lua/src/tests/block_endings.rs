@@ -1,7 +1,7 @@
 //! How a block coroutine ends, by result: a block that runs off its end, a
 //! `return` that gives text, a `return` that gives nil or no value, a
-//! `return` inside a function, and the same endings for a block that
-//! suspended first.
+//! `return` inside a function, the same endings for a block that
+//! suspended first, and a `call` that resumes with no text.
 
 use super::*;
 
@@ -17,6 +17,12 @@ fn ending(source: &str) -> Result<LuaBlockResult> {
 /// How `source` ends as a block coroutine that suspends once, on a
 /// `call`, and resumes with the text `answer`.
 fn ending_after_a_wait(source: &str) -> LuaBlockResult {
+    ending_resumed_with(source, (true, "answer"))
+}
+
+/// How `source` ends as a block coroutine that suspends once, on a
+/// `call`, and resumes with the envelope `answer`.
+fn ending_resumed_with(source: &str, answer: impl mlua::IntoLuaMulti) -> LuaBlockResult {
     let vm = TestVm::new().shims().build();
     let block = program(source);
     let CoroStep::Yielded(thread, _) = vm.start_block_coro(&block).expect("the block starts")
@@ -24,7 +30,7 @@ fn ending_after_a_wait(source: &str) -> LuaBlockResult {
         panic!("{source:?} must suspend on its call");
     };
     match vm
-        .resume_block_coro(&block, &thread, (true, "answer"))
+        .resume_block_coro(&block, &thread, answer)
         .expect("the resumed block ends")
     {
         CoroStep::Done(result) => result,
@@ -159,5 +165,29 @@ fn a_block_that_suspended_first_ends_the_same_ways() {
         ("return call('../worker')", text("answer")),
     ] {
         assert_eq!(ending_after_a_wait(source), expected, "{source:?}");
+    }
+}
+
+#[test]
+fn a_call_resumed_with_no_text_gives_the_block_nil() {
+    // The driver resumes a `call` whose chain ended with no text with nil,
+    // and the shim hands the block that nil as the call's value.
+    for (source, expected) in [
+        (
+            "local reply = call('../worker')\nreturn type(reply)",
+            text("nil"),
+        ),
+        ("return call('../worker') or 'fallback'", text("fallback")),
+        (
+            "if call('../worker') then return 'text' end",
+            LuaBlockResult::RanOff,
+        ),
+        ("return call('../worker')", LuaBlockResult::Returned(None)),
+    ] {
+        assert_eq!(
+            ending_resumed_with(source, (true, Value::Nil)),
+            expected,
+            "{source:?}"
+        );
     }
 }

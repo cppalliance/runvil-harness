@@ -131,8 +131,9 @@ impl Scheduler {
 
     /// Dispatches a `call` request: constructs the child chain and
     /// enqueues it; the parent blocks until the child's finish delivers
-    /// its final text as the answer. Its preparation fails on the depth
-    /// cap, target resolution, or child construction.
+    /// its final text as the answer, or no text, for which the call
+    /// returns nil. Its preparation fails on the depth cap, target
+    /// resolution, or child construction.
     fn dispatch_call(
         &mut self,
         id: ChainIndex,

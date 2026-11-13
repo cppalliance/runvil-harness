@@ -129,7 +129,7 @@ pub(crate) fn render_envelope(
     let mut retained = None;
     let values = match answer {
         Answer::Infer(text)
-        | Answer::Call(text)
+        | Answer::Call(Some(text))
         | Answer::Receive(text)
         | Answer::Reply(text)
         | Answer::ToolCallResult(ToolCallOutcome::Plain(text)) => {
@@ -155,7 +155,10 @@ pub(crate) fn render_envelope(
         Answer::Concurrency(limit) => {
             vec![Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX))]
         }
-        Answer::Note | Answer::Cancel => vec![Value::Nil],
+        // A chain that ended with no text has nothing for its `call` to
+        // return, so the call's value is nil and never the empty string,
+        // which a chain can return on purpose.
+        Answer::Call(None) | Answer::Note | Answer::Cancel => vec![Value::Nil],
         // The one serde-boundary conversion: the parsed JSON output
         // becomes the resumed Lua value, so the shim hands the script a
         // table with no codec in author reach.

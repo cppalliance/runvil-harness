@@ -22,8 +22,9 @@ fn an_ok_infer_answer_round_trips_through_lua() {
 #[test]
 fn an_ok_call_answer_round_trips_through_lua() {
     let lua = Lua::new();
-    let (envelope, retained) = answer_envelope(&lua, Ok(Answer::Call("chain text".to_owned())))
-        .expect("the envelope renders");
+    let (envelope, retained) =
+        answer_envelope(&lua, Ok(Answer::Call(Some("chain text".to_owned()))))
+            .expect("the envelope renders");
     assert!(retained.is_none());
     let (ok, result) = echo_through_lua(&lua, envelope);
     assert!(ok);
@@ -31,6 +32,31 @@ fn an_ok_call_answer_round_trips_through_lua() {
         panic!("expected a string result, got {result:?}");
     };
     assert_eq!(text.to_str().expect("the text is UTF-8"), "chain text");
+}
+
+#[test]
+fn a_call_answer_with_no_text_resumes_as_nil_and_an_empty_text_as_a_string() {
+    // A chain that ended with no text and a chain that returned the empty
+    // string are two answers, and the call's value tells them apart.
+    let lua = Lua::new();
+    let (envelope, retained) =
+        answer_envelope(&lua, Ok(Answer::Call(None))).expect("the envelope renders");
+    assert!(retained.is_none());
+    let (ok, result) = echo_through_lua(&lua, envelope);
+    assert!(ok, "a chain that ended with no text still succeeded");
+    assert!(
+        matches!(result, Value::Nil),
+        "expected nil for a chain with no text, got {result:?}"
+    );
+
+    let (envelope, _) =
+        answer_envelope(&lua, Ok(Answer::Call(Some(String::new())))).expect("the envelope renders");
+    let (ok, result) = echo_through_lua(&lua, envelope);
+    assert!(ok);
+    let Value::String(text) = result else {
+        panic!("expected a string for the empty text, got {result:?}");
+    };
+    assert_eq!(text.to_str().expect("the text is UTF-8"), "");
 }
 
 #[test]

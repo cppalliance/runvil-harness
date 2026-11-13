@@ -264,8 +264,11 @@ pub struct TaskStatus {
 pub enum Answer {
     /// The completion text for an `infer` request.
     Infer(String),
-    /// The contained chain's final text for a `call` request.
-    Call(String),
+    /// The contained chain's final text for a `call` request, or `None`
+    /// for a chain that ended with no text, by running past its last
+    /// section or at a `return` that gave nil or no value. `None` resumes
+    /// the call with nil.
+    Call(Option<String>),
     /// The started task's id for a `spawn` request, resumed as its path
     /// text; the shim wraps it in the methodless `Task` table.
     Spawn(TaskId),

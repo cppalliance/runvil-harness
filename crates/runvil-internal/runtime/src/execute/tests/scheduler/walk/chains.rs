@@ -53,16 +53,16 @@ fn a_return_with_no_value_inside_a_child_walk_ends_the_whole_chain() {
 }
 
 #[test]
-fn a_return_with_no_value_inside_a_chain_ends_the_chain_with_empty_text() {
+fn a_return_with_no_value_inside_a_chain_ends_the_chain_and_its_call_returns_nil() {
     // The called chain ends at its `return`: the rest of `Sub` and the
-    // section after it do not run, the caller gets the empty string, and
-    // the outer walk continues.
+    // section after it do not run, the chain has no text, so the caller's
+    // `call` returns nil, and the outer walk continues.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         # Scoped\n\n\
         ## A\n\n\
         ```lua\n\
         local r = call('../Sub')\n\
-        store.append('order.txt', 'A:[' .. r .. ']:' .. type(r) .. '\\n')\n\
+        store.append('order.txt', 'A:' .. tostring(r) .. '\\n')\n\
         ```\n\n\
         ## B\n\n\
         ```lua\n\
@@ -79,18 +79,18 @@ fn a_return_with_no_value_inside_a_chain_ends_the_chain_with_empty_text() {
         ```lua\nerror('a return must end the chain before fall-through')\n```\n";
     let rig = Rig::run(scheduler_scenario(md));
 
-    assert_eq!(rig.trace().text(), "Sub\nA:[]:string\nB\n");
+    assert_eq!(rig.trace().text(), "Sub\nA:nil\nB\n");
 }
 
 #[test]
 fn a_return_with_no_value_inside_a_called_child_walk_returns_to_the_caller() {
     // The call chain descended into `### S1`. Its `return` ends the whole
     // call chain, not the child level, so `### S2` and `## After` do not
-    // run and the caller goes on with the empty string.
+    // run and the caller goes on with nil.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         # CallDescend\n\n\
         ## Main\n\n\
-        ```lua\nreturn 'main:[' .. call('../Sub') .. ']'\n```\n\n\
+        ```lua\nreturn 'main:' .. tostring(call('../Sub'))\n```\n\n\
         ## Sub\n\n\
         ```lua\njump('S1')\n```\n\n\
         ### S1\n\n\
@@ -101,7 +101,136 @@ fn a_return_with_no_value_inside_a_called_child_walk_returns_to_the_caller() {
         ```lua\nerror('the return must end the chain before the parent resumes')\n```\n";
     let rig = Rig::run(scheduler_scenario(md));
 
-    assert_eq!(rig.trace().text(), "main:[]");
+    assert_eq!(rig.trace().text(), "main:nil");
+}
+
+#[test]
+fn a_called_chain_with_no_text_gives_its_call_nil_and_an_empty_text_gives_a_string() {
+    // `Quiet` runs off the chain's last section, `Bare` ends at a `return`
+    // with no value, and `Empty` returns the empty string on purpose. The
+    // first two chains have no text, so `call` returns nil, and the third
+    // has one, so `call` returns it.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Values\n\n\
+        ## Main\n\n\
+        ```lua\n\
+        local quiet, bare, empty = call('Quiet'), call('Bare'), call('Empty')\n\
+        return type(quiet) .. '|' .. type(bare) .. '|' .. type(empty) .. ':[' .. empty .. ']'\n\
+        ```\n\n\
+        ### Empty\n\n\
+        ```lua\nreturn ''\n```\n\n\
+        ### Bare\n\n\
+        ```lua\nreturn\n```\n\n\
+        ### Quiet\n\n\
+        ```lua\nvar.ran = true\n```\n";
+    let rig = Rig::run(scheduler_scenario(md));
+
+    assert_eq!(rig.trace().text(), "nil|nil|string:[]");
+}
+
+#[test]
+fn a_call_with_no_text_reads_as_false_and_takes_a_fallback() {
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Fallback\n\n\
+        ## Main\n\n\
+        ```lua\n\
+        local seen = 'no text'\n\
+        if call('Quiet') then seen = 'text' end\n\
+        return seen .. '|' .. (call('Quiet') or 'fallback') .. '|' .. (call('Loud') or 'fallback')\n\
+        ```\n\n\
+        ### Loud\n\n\
+        ```lua\nreturn 'loud'\n```\n\n\
+        ### Quiet\n\n\
+        ```lua\nvar.ran = true\n```\n";
+    let rig = Rig::run(scheduler_scenario(md));
+
+    assert_eq!(rig.trace().text(), "no text|fallback|loud");
+}
+
+#[test]
+fn returning_a_call_with_no_text_ends_the_chain_with_no_text() {
+    // `return call(...)` ends the chain it runs in whatever the called
+    // chain gave. With no text from `Quiet`, `Middle` ends with no text
+    // too, so its own caller gets nil, and the main walk, which returns
+    // that call in turn, ends the run with the generic completion.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Passed On\n\n\
+        ## Main\n\n\
+        ```lua\n\
+        store.write('seen.txt', tostring(call('Middle')))\n\
+        return call('Middle')\n\
+        ```\n\n\
+        ```lua\nerror('a return must end the chain before the next block')\n```\n\n\
+        ### Middle\n\n\
+        ```lua\nreturn call('../Quiet')\n```\n\n\
+        ```lua\nerror('a return must end the chain before the next block')\n```\n\n\
+        ### Quiet\n\n\
+        ```lua\nvar.ran = true\n```\n\n\
+        ## After\n\n\
+        ```lua\nerror('a return must end the chain before fall-through')\n```\n";
+    let rig = Rig::run(scheduler_scenario(md));
+
+    assert_eq!(rig.trace().text(), "done");
+    assert_eq!(rig.trace().read("seen.txt").expect("the note"), "nil");
+}
+
+#[test]
+fn concatenating_a_call_with_no_text_fails_on_the_callers_line() {
+    // The call's value is nil, so the author's concatenation is a Lua
+    // error where the call is written, and it names the nil.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Concat\n\n\
+        ## Main\n\n\
+        ```lua\n\
+        local prefix = 'got: '\n\
+        return prefix .. call('Quiet')\n\
+        ```\n\n\
+        ### Quiet\n\n\
+        ```lua\nvar.ran = true\n```\n";
+    let rig = Rig::run(scheduler_scenario(md));
+
+    let error = rig.trace().error();
+    assert_eq!(
+        error.code,
+        runvil_types::error::ErrorCode::LuaRuntime,
+        "{error}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("attempt to concatenate a nil value"),
+        "the failure names the nil: {error}"
+    );
+    assert_eq!(error.at, crate::test_support::at_line(13), "{error:?}");
+}
+
+#[test]
+fn a_task_and_an_arm_that_return_a_call_with_no_text_have_empty_text() {
+    // Inside a worker the call returns nil, and the worker's `return` of
+    // it ends the worker with no text, which a task and an arm still
+    // report as the empty string.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        # Workers\n\n\
+        ## Main\n\n\
+        ```lua\n\
+        local results = tasks.join({ tasks.spawn('Worker') })\n\
+        assert(results[1].ok == true, 'the task succeeded')\n\
+        assert(results[1].result == '', 'a task with no text has the empty string')\n\
+        local r = tasks.fanout('Worker', {'a', 'b'})\n\
+        assert(r[1].ok and r[2].ok, 'both arms succeeded')\n\
+        assert(r[1].text == '' and r[2].text == '', 'an arm with no text has the empty string')\n\
+        return 'three workers returned'\n\
+        ```\n\n\
+        ### Worker\n\n\
+        ```lua\n\
+        assert(call('../Quiet') == nil, 'the call returns nil inside a worker')\n\
+        return call('../Quiet')\n\
+        ```\n\n\
+        ### Quiet\n\n\
+        ```lua\nvar.ran = true\n```\n";
+    let rig = Rig::run(scheduler_scenario(md));
+
+    assert_eq!(rig.trace().text(), "three workers returned");
 }
 
 #[test]

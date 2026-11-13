@@ -39,7 +39,8 @@ pub enum Request {
         binding: Option<ModelBinding>,
     },
     /// `call(target, input?)`: run a contained chain over the target's
-    /// slice.
+    /// slice. The call returns the chain's final text, or nil for a chain
+    /// that ended with none.
     Call {
         /// The target's section path, as the author wrote it.
         target: String,

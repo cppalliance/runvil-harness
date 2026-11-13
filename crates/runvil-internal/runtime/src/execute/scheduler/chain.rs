@@ -175,7 +175,10 @@ impl Scheduler {
     ///
     /// Delivery is one of those three ways and a `Determinism` outcome
     /// takes none of them: it ends the run before the delivery match. The
-    /// frame is armed for completion only when the chain is not H1.
+    /// frame is armed for completion only when the chain is not H1. A
+    /// chain that ended with no text delivers by its kind: the run's result
+    /// is the shared generic completion, a task's is the empty string, and
+    /// a `call` child's answer holds no text, so the call returns nil.
     ///
     /// `outcome` is the chain's end: the text a `return` gave, `None` for
     /// a `return` that gave nil or no value and for a walk that ran off its
@@ -220,17 +223,7 @@ impl Scheduler {
                     entered.frame.mark_completed();
                 }
             }
-            let text = match returned {
-                Some(value) => value,
-                // A walk that ran off its slice, or a `return` that gave
-                // nil or no value, produced no text:
-                // the top-level chain falls back to the shared generic
-                // completion; a call chain or a task chain to the empty
-                // string.
-                None if parent.is_none() && !is_task => GENERIC_COMPLETION.to_owned(),
-                None => String::new(),
-            };
-            Ok(text)
+            Ok(returned)
         });
         // The frame drops here: the single teardown boundary.
         drop(entered);
@@ -260,17 +253,25 @@ impl Scheduler {
             }
             outcome => outcome,
         };
+        // A walk that ran off its slice, or a `return` that gave nil or no
+        // value, produced no text. Each kind of chain delivers that in its
+        // own way: a task's result is the empty string, the top-level
+        // chain falls back to the shared generic completion, and a call
+        // chain answers with no text, which its `call` returns as nil.
+        //
         // A scheduler bug that strands the outcome - a missing task entry,
         // or a parent or waiting owner with no suspended block to take it -
         // fails the run loudly rather than losing it.
         if is_task {
-            return match self.complete_task(id, outcome) {
+            return match self.complete_task(id, outcome.map(Option::unwrap_or_default)) {
                 Ok(()) => ChainStep::Continue,
                 Err(error) => ChainStep::RunEnded(Err(error)),
             };
         }
         match parent {
-            None => ChainStep::RunEnded(outcome),
+            None => ChainStep::RunEnded(
+                outcome.map(|text| text.unwrap_or_else(|| GENERIC_COMPLETION.to_owned())),
+            ),
             Some(parent_id) => match self.answer_inline(parent_id, outcome.map(Answer::Call)) {
                 Ok(()) => ChainStep::Continue,
                 Err(error) => ChainStep::RunEnded(Err(error)),
