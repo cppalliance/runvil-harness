@@ -6,7 +6,7 @@ use runvil::Error;
 use runvil::model::{ModelCatalog, ModelId, ModelInfo, ThinkingMode};
 use serde::Deserialize;
 
-use crate::config::SecretString;
+use crate::config::{GatewayEndpoint, SecretString};
 use crate::failure::{make_malformed_error, make_transport_failure_error, with_detail};
 use crate::transport::PLAN_PROOF_HEADER;
 use crate::wire::classify::make_classify_http_failure_error;
@@ -121,15 +121,23 @@ async fn read_error_body_bounded(
     Ok(escaped)
 }
 
-/// Returns the process-wide catalog HTTP client, building it once on first use.
+/// Returns the process-wide catalog HTTP client for `loopback` or for any
+/// other address, building each once on first use.
 ///
-/// A single reusable client (MODEL-018) lets catalog fetches share one
-/// connection pool and transport configuration rather than each constructing a
-/// throwaway client with its own pool. The returned handle is a cheap clone of
-/// the shared client (its state is reference-counted internally).
-fn catalog_client() -> reqwest::Client {
-    static CATALOG_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
-    CATALOG_CLIENT.get_or_init(reqwest::Client::new).clone()
+/// A loopback catalog fetch uses the same direct, no-redirect client as a
+/// loopback [`crate::GatewayChat`]. The two pools stay separate so a remote
+/// catalog can still follow a redirect and use a proxy. Neither client
+/// carries a default header: the proof is set on the single request.
+fn catalog_client(loopback: bool) -> reqwest::Client {
+    static LOCAL: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    static REMOTE: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    if loopback {
+        LOCAL
+            .get_or_init(|| crate::transport::http_client(true))
+            .clone()
+    } else {
+        REMOTE.get_or_init(reqwest::Client::new).clone()
+    }
 }
 
 /// Sends a bearer-authed GET through the shared client (MODEL-018) and
@@ -142,10 +150,11 @@ fn catalog_client() -> reqwest::Client {
 /// send failure.
 async fn get_authed(
     url: String,
+    loopback: bool,
     token: &str,
     plan_proof: Option<&str>,
 ) -> std::result::Result<reqwest::Response, Error> {
-    let mut request = catalog_client().get(url).bearer_auth(token);
+    let mut request = catalog_client(loopback).get(url).bearer_auth(token);
     if let Some(proof) = plan_proof {
         request = request.header(PLAN_PROOF_HEADER, proof);
     }
@@ -170,6 +179,8 @@ async fn get_authed(
 /// # Errors
 /// Returns an [`Error`]. Its [`code`](Error::code) is:
 ///
+/// - `InvalidValue` when `base_url` is not a valid API root, as
+///   [`GatewayEndpoint::new`] defines one; no request is sent;
 /// - `Transport` or `Timeout` when the HTTP request or a response read fails;
 /// - the code [`make_classify_http_failure_error`] picks for the response when the
 ///   Gateway returns a status outside the 2xx range;
@@ -205,8 +216,18 @@ async fn fetch_catalog(
     token: &str,
     plan_proof: Option<&str>,
 ) -> std::result::Result<ModelCatalog, Error> {
-    let base = base_url.trim_end_matches('/');
-    let response = get_authed(format!("{base}/models"), token, plan_proof).await?;
+    // The validation a chat endpoint gets, before any request. An API root
+    // that names the local machine but is not a bare root (a query, a
+    // fragment, embedded credentials) is refused here, so it can never be
+    // sent with the client that follows redirects and uses the process proxy.
+    let endpoint = GatewayEndpoint::new(base_url)?;
+    let response = get_authed(
+        format!("{}/models", endpoint.url()),
+        endpoint.is_loopback(),
+        token,
+        plan_proof,
+    )
+    .await?;
     // Bound the success body BEFORE decoding so an oversized (or unbounded)
     // model list cannot exhaust memory, matching the bound the error path applies.
     let body = read_catalog_body_capped(response, MAX_CATALOG_BODY).await?;

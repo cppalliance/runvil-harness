@@ -59,6 +59,28 @@ const DEFAULT_RECEIVE_TIMEOUT: Duration = Duration::from_secs(120);
 /// Default response-body ceiling.
 const DEFAULT_MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
+/// The HTTP client for one Gateway.
+///
+/// A loopback Gateway is reached directly and a redirect is returned as
+/// its own status. Any other address keeps reqwest's defaults, including a
+/// proxy when the process has one.
+pub(crate) fn http_client(loopback: bool) -> reqwest::Client {
+    if !loopback {
+        return reqwest::Client::new();
+    }
+    // A failed build must not fall back to a client that follows
+    // redirects or uses a proxy. `Client::new` panics on the same TLS
+    // failure this build can hit.
+    match reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => panic!("the loopback gateway client builds: {error}"),
+    }
+}
+
 #[derive(Clone)]
 enum GatewayTransport {
     Http(reqwest::Client),
@@ -102,11 +124,13 @@ impl GatewayChat {
     ///
     /// The endpoint is a validated [`GatewayEndpoint`], and the key is a
     /// [`SecretString`], which keeps it redacted. [`GatewayChat::from_env`]
-    /// builds its client this way when a key is set.
+    /// builds its client this way when a key is set. A loopback endpoint
+    /// is contacted directly and a redirect is not followed.
     #[must_use]
     pub fn new(endpoint: GatewayEndpoint, key: SecretString) -> GatewayChat {
+        let transport = GatewayTransport::Http(http_client(endpoint.is_loopback()));
         GatewayChat {
-            transport: GatewayTransport::Http(reqwest::Client::new()),
+            transport,
             base_url: endpoint.url,
             key: Some(key),
             plan_proof: None,
@@ -129,8 +153,9 @@ impl GatewayChat {
     /// [`GatewayChat::from_env`] decides by [`GatewayEndpoint::is_loopback`].
     #[must_use]
     pub fn keyless(endpoint: GatewayEndpoint) -> GatewayChat {
+        let transport = GatewayTransport::Http(http_client(endpoint.is_loopback()));
         GatewayChat {
-            transport: GatewayTransport::Http(reqwest::Client::new()),
+            transport,
             base_url: endpoint.url,
             key: None,
             plan_proof: None,

@@ -78,6 +78,6 @@ Every command in [AGENTS.md](../AGENTS.md) on each commit: format, clippy, nexte
 ## What the build found
 
 - **The public API listings are unchanged.** `xtask api --check` reports no violation, and neither `public-api.txt` lists this crate.
-- **`reqwest` is now a dev-dependency too.** The integration test is its own crate and needs a client for the canary.
+- **No manifest changes.** The integration test's canary client is the `reqwest` the crate already depends on.
 - **One test fails on macOS, with and without this change.** `lifecycle::the_fixture_is_loaded_invoked_unloaded_once_and_closed` in `harness-test-plugin` fails the same way on `9dd953b5`. The other 3,647 tests pass.
 - **Run on macOS arm64 only.** The Windows job was not run.
