@@ -41,13 +41,19 @@ impl Vfs for VfsRef {
 /// under the caller's identity. Paths arrive canonical, so the
 /// capability's canonicalization at receipt is an idempotent re-check.
 ///
-/// Byte-range reads and the POSIX extras keep their trait defaults: the
-/// public capability exposes neither, so there is nothing to forward to.
+/// The POSIX extras keep their trait defaults: the public capability
+/// exposes none of them, so there is nothing to forward to.
 struct HandleAccess(Access);
 
 impl VfsAccess for HandleAccess {
     fn read(&self, path: &VfsPath) -> Result<Vec<u8>, VfsError> {
         self.0.read(path.as_str())
+    }
+
+    fn read_range(&self, path: &VfsPath, offset: u64, len: u64) -> Result<Vec<u8>, VfsError> {
+        // Forwarded, not defaulted, so a base backend that can seek never
+        // materializes the file.
+        self.0.read_range(path.as_str(), offset, len)
     }
 
     fn write(&mut self, path: &VfsPath, contents: &[u8]) -> Result<(), VfsError> {

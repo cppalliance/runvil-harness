@@ -230,6 +230,31 @@ fn a_read_range_passes_its_offset_and_length_through_unclamped() -> Result<(), V
 }
 
 #[test]
+fn a_read_range_through_an_overlay_reaches_the_base_backend_as_that_range() -> Result<(), VfsError>
+{
+    let ranges: Ranges = Arc::new(Mutex::new(Vec::new()));
+    let base = handle(RangeSpy {
+        memory: MemoryBackend::new(),
+        ranges: Arc::clone(&ranges),
+    });
+    // A path outside the overlay's prefix routes to the base handle,
+    // which the overlay mounts as a backend.
+    let access = access(&base.overlay("/scratch", MemoryBackend::new()))?;
+    access.write("/f.txt", b"hello")?;
+    assert_eq!(access.read_range("/f.txt", 3, 16_777_217)?, b"lo");
+    // Were the range lost at the mounted handle, the base backend would
+    // get a whole-file read and record nothing.
+    assert_eq!(
+        ranges
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_slice(),
+        &[(3, 16_777_217)]
+    );
+    Ok(())
+}
+
+#[test]
 fn a_read_range_slices_on_the_memory_backend() -> Result<(), VfsError> {
     let access = access(&VfsRef::default())?;
     access.write("/f.txt", b"hello world")?;
