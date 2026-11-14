@@ -204,4 +204,5 @@ mod tool_listings;
 mod tool_loop;
 mod tool_scoping;
 mod unified_pipeline;
+mod views;
 mod waits;

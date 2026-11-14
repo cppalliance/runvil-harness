@@ -4,7 +4,7 @@ use mlua::{Lua, LuaSerdeExt, Value};
 use serde_json::Value as Json;
 
 use crate::error::{self, Result, make_lua_runtime_error};
-use crate::proxy::key_path;
+use crate::proxy::{key_path, plain, view_len};
 use crate::walk_budget::WalkBudget;
 
 /// The registry key holding the `var` proxy's hidden data table.
@@ -69,6 +69,7 @@ fn guarded_table(
     guarded_data.raw_set(proxy.clone(), data.clone())?;
     let metatable = lua.create_table()?;
     metatable.set("__index", data.clone())?;
+    metatable.set("__len", view_len(lua, &data)?)?;
 
     let write_data = data;
     let nested_data = guarded_data.clone();
@@ -87,13 +88,18 @@ fn guarded_table(
                     value.type_name()
                 )));
             }
+            let too_large = || mlua::Error::runtime(format!("{target} is too large to store"));
+            // `from_value` reads a view as the empty table it is, so the
+            // value is first read through every view inside it.
+            let value = plain(lua, value).map_err(|error| match error {
+                mlua::Error::DeserializeError(_) => too_large(),
+                other => other,
+            })?;
             // `from_value` reads a shared table once per reference and builds
             // the result on the Rust heap before any Lua allocation, so a
             // value that outgrows the heap is refused before it converts.
             if WalkBudget::for_vm(lua).check_value(&value).is_err() {
-                return Err(mlua::Error::runtime(format!(
-                    "{target} is too large to store"
-                )));
+                return Err(too_large());
             }
             let json = lua.from_value::<Json>(value)?;
             let rebuilt = guarded_json_value(lua, &json, &target, &nested_data)?;
@@ -142,10 +148,13 @@ fn materialize_guarded_value(
 /// table.
 ///
 /// The proxy is empty; reads go through `__index` against the data table, so
-/// present values surface directly and absent keys read as Lua nil.
+/// present values surface directly and absent keys read as Lua nil. `__len`
+/// is the data table's length, and `pairs` and `next` walk the data table,
+/// so a `var` table measures and iterates as the table it stands for.
 /// `__newindex` validates the assigned value for JSON-representability
 /// through the serde bridge - a function, userdata, or thread is rejected at
-/// the assigning line, and nested tables are deep-checked by the bridge -
+/// the assigning line, nested tables are deep-checked by the bridge, and a
+/// view inside the value is stored as the data it stands for -
 /// then rebuilds it as fresh guarded data before writing through. Assigning nil
 /// removes the key. Every nested table is itself an empty proxy over hidden
 /// data, so later incremental writes cross the same validation boundary instead

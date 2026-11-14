@@ -27,6 +27,7 @@ use mlua::{Lua, LuaSerdeExt, Value};
 use serde_json::Value as Json;
 
 use crate::error::{self, Result, make_lua_runtime_error};
+use crate::proxy::plain;
 use crate::sys::SYS_LIVE_POISONED;
 use crate::var::var_to_json;
 
@@ -125,7 +126,13 @@ where
                         value.type_name()
                     )))
                 }
-                other => Ok(Some(lua.from_value(other).map_err(error::make_lua_error)?)),
+                // A view the global holds is read as the table it stands
+                // for.
+                other => Ok(Some(
+                    plain(lua, other)
+                        .and_then(|value| lua.from_value(value))
+                        .map_err(error::make_lua_error)?,
+                )),
             }
         };
         let rendered = render(ProseState {

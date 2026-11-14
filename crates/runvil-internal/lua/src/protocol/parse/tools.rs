@@ -4,6 +4,7 @@
 use mlua::{Lua, LuaSerdeExt, MultiValue, Value};
 
 use crate::protocol::{AdhocToolOutcome, ModelCall, Request, ToolCallRecord};
+use crate::proxy::plain;
 use crate::section::scalar_return;
 use crate::tools::{model_tool_name, tool_id};
 
@@ -47,7 +48,8 @@ pub(super) fn parse_tool_call(
 /// decoded through the one id-or-tool polymorphism; a model-issued call
 /// names it by the wire name the model sent. An absent or nil `args`
 /// parses as the empty object (the empty-argument call every tool
-/// accepts). A wrong `alias` for a script call, or a non-table or
+/// accepts), and a view inside `args` is read as the table it stands for.
+/// A wrong `alias` for a script call, or a non-table or
 /// JSON-unrepresentable `args`, is the call's error. `call_id` is set only
 /// by the loop shim for a model-issued call, so a present non-string is a
 /// malformed yield rather than a call error; `turn`, set by the same shim,
@@ -71,14 +73,16 @@ fn read_tool_call(
     };
     let args = match table.raw_get::<Value>("args") {
         Ok(Value::Nil) => serde_json::Value::Object(serde_json::Map::new()),
-        Ok(value @ Value::Table(_)) => match lua.from_value(value) {
-            Ok(args) => args,
-            Err(error) => {
-                return Err(call_error(format!(
-                    "args must be a JSON-representable table: {error}"
-                )));
+        Ok(value @ Value::Table(_)) => {
+            match plain(lua, value).and_then(|value| lua.from_value(value)) {
+                Ok(args) => args,
+                Err(error) => {
+                    return Err(call_error(format!(
+                        "args must be a JSON-representable table: {error}"
+                    )));
+                }
             }
-        },
+        }
         Ok(other) => {
             return Err(call_error(format!(
                 "args must be a table, got {}",

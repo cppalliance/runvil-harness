@@ -394,6 +394,14 @@ fn append_stores_a_record_without_its_extra_fields() {
 }
 
 #[test]
+fn append_reads_a_view_as_the_record_it_stands_for() {
+    let saved = json!({ "saved": { "role": "user", "content": "kept" } });
+    let vm = TestVm::new().var(&saved).build();
+    vm.exec("messages:append(var.saved)");
+    assert_eq!(vm.messages().to_records(), vec![user("kept")]);
+}
+
+#[test]
 fn index_assignment_is_refused_and_len_counts_the_records() {
     let vm = TestVm::new().build();
     let empty: usize = vm.eval("return #messages");

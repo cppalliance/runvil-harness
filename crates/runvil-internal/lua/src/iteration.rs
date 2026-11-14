@@ -9,6 +9,11 @@
 //! still wins, as in stock Lua; any other non-table value, a userdata without
 //! `__pairs` included, is refused.
 //!
+//! A sealed view (see [`crate::proxy::unseal`]) walks as the table it
+//! stands for: the keys are its data table's, each value is the one a
+//! read through the view gives, and the state `pairs` returns is the view
+//! itself, so a walk never hands out the data table.
+//!
 //! `pairs` captures that order once and advances it by position, so a key
 //! whose value becomes `nil` mid-traversal is skipped rather than visited with
 //! a nil value, whatever its type: a cleared key is skipped without a lookup
@@ -42,6 +47,7 @@ use mlua::{Lua, MultiValue, Table, Value};
 
 use crate::error::{self, Result};
 use crate::order::{SortKey, sort_key};
+use crate::proxy::view_data;
 
 /// Installs the deterministic `next` and `pairs` globals, replacing the base
 /// library's hash-order versions.
@@ -106,24 +112,27 @@ impl WalkOrder {
 }
 
 /// The `next(table, key)` replacement: the key strictly after `key` in the
-/// sorted order, with its value, or `(nil, nil)` at the end.
+/// sorted order, with its value, or `(nil, nil)` at the end. A sealed view
+/// is read as the table it stands for.
 fn deterministic_next(
     _lua: &Lua,
     (table, previous): (Table, Value),
 ) -> mlua::Result<(Value, Value)> {
-    let keys = ordered_keys(&table).map_err(mlua::Error::external)?;
+    let data = view_data(&table)?;
+    let keys = ordered_keys(&data).map_err(mlua::Error::external)?;
     let Some(index) = next_index(&keys, &previous) else {
         return Ok((Value::Nil, Value::Nil));
     };
     let key = keys[index].key.clone();
-    let value: Value = table.raw_get(&key)?;
+    let value: Value = data.raw_get(&key)?;
     Ok((key, value))
 }
 
 /// The `pairs(value)` replacement: a `__pairs` metamethod's results when the
 /// table's or userdata's metatable holds one, otherwise a stateful iterator
-/// over the table's walk order. A userdata without `__pairs` is refused like
-/// any other non-table value.
+/// over the table's walk order, where a sealed view is read as the table it
+/// stands for. A userdata without `__pairs` is refused like any other
+/// non-table value.
 fn pairs(lua: &Lua, value: Value) -> mlua::Result<MultiValue> {
     let metamethod = match &value {
         Value::Table(table) => match table.metatable() {
@@ -162,15 +171,16 @@ fn pairs(lua: &Lua, value: Value) -> mlua::Result<MultiValue> {
     // snapshot rather than re-deriving order from the live table makes the
     // walk independent of a key's sortability: a key cleared mid-loop reads as
     // nil and is skipped, and no key-based lookup can end the walk early.
-    let keys = ordered_keys(&table)?;
+    let data = view_data(&table)?;
+    let keys = ordered_keys(&data)?;
     // The VM is single-threaded, so the cursor is a plain `usize` mutated in
     // place rather than an atomic.
-    let state = table.clone();
+    let state = table;
     let mut position = 0usize;
     let iterator = lua.create_function_mut(move |_, ()| {
         while let Some(entry) = keys.get(position) {
             position += 1;
-            let value: Value = table.raw_get(&entry.key)?;
+            let value: Value = data.raw_get(&entry.key)?;
             if !matches!(value, Value::Nil) {
                 return Ok((entry.key.clone(), value));
             }

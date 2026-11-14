@@ -44,6 +44,7 @@ use serde_json::{Map, Value as Json};
 use crate::bindings::ToolBinding;
 use crate::error::{self, Error, Result, author_refusal, make_lua_runtime_error};
 use crate::protocol::{MessageRecord, RecordRole, parse_record};
+use crate::proxy::plain;
 use crate::scope::{OfferMode, RenderedTools};
 
 /// The refusal of an assignment of the `messages` global.
@@ -322,12 +323,15 @@ fn handle(this: &AnyUserData) -> mlua::Result<MessageList> {
     Ok(this.borrow::<MessageList>()?.clone())
 }
 
-/// One Lua value in its JSON form, or why it has none.
+/// One Lua value in its JSON form, or why it has none. A view inside the
+/// value is read as the table it stands for.
 fn json(lua: &Lua, value: Value) -> std::result::Result<Json, String> {
-    lua.from_value(value).map_err(|error| match error {
-        mlua::Error::DeserializeError(reason) => reason,
-        other => other.to_string(),
-    })
+    plain(lua, value)
+        .and_then(|value| lua.from_value(value))
+        .map_err(|error| match error {
+            mlua::Error::DeserializeError(reason) => reason,
+            other => other.to_string(),
+        })
 }
 
 /// A whole record given to `append` or `replace`, in its JSON form, for

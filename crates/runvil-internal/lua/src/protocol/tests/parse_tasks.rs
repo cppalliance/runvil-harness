@@ -89,6 +89,25 @@ fn a_spawn_item_holding_json_null_parses_to_a_null_field() {
 }
 
 #[test]
+fn a_view_as_a_spawn_item_parses_as_the_table_it_stands_for() {
+    let data = json!({ "rows": [{ "n": 1 }, { "n": 2 }] });
+    let vm = crate::test_vm::TestVm::new().var(&data).build();
+    for (item, parsed) in [
+        ("var.rows[1]", json!({ "n": 1 })),
+        ("{ row = var.rows[2] }", json!({ "row": { "n": 2 } })),
+        ("var.rows", json!([{ "n": 1 }, { "n": 2 }])),
+    ] {
+        let table: mlua::Table = vm.eval(&format!(
+            "return {{ op = 'spawn', target = '../Child', item = {item}, var = {{}} }}"
+        ));
+        match expect_request(Request::from_yield(vm.lua(), &Value::Table(table))) {
+            Request::Spawn { item, .. } => assert_eq!(item, Some(parsed)),
+            other => panic!("expected a spawn request, got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn spawn_seed_shape_errors_are_the_calls_error() {
     // `item` and `index` are author options: a wrong shape returns as
     // the call's answer so `tasks.spawn` raises it at the call site.

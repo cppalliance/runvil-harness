@@ -101,8 +101,15 @@ fn a_table_global_is_sealed_at_its_top_level() {
     );
     let seal: String = vm.eval("return getmetatable(kit)");
     assert_eq!(seal, "kit is sealed");
-    let seen: i64 = vm.eval("local n = 0\nfor _ in pairs(kit) do n = n + 1 end\nreturn n");
-    assert_eq!(seen, 0, "pairs over the sealed proxy sees nothing");
+    let seen: String = vm.eval(
+        "local names = {}\n\
+         for name in pairs(kit) do names[#names + 1] = name end\n\
+         return table.concat(names, ',')",
+    );
+    assert_eq!(
+        seen, "greet",
+        "pairs over the sealed proxy walks the table it stands for"
+    );
 }
 
 #[test]

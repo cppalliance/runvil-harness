@@ -7,12 +7,14 @@
 //! follows as `{ key, value }` pair tables sorted by key, because Lua's
 //! `pairs` order depends on the string hash seed and a fanout's arm order
 //! must not. An array member arrives as the arm's `item` value as itself; a
-//! hash member arrives as the pair table (`item.key` / `item.value`).
+//! hash member arrives as the pair table (`item.key` / `item.value`). A
+//! collection that is a sealed view enumerates as the table it stands for.
 
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 
 use crate::error::{self, Result, make_lua_runtime_error};
 use crate::order::{KeyError, SortKey, sort_key};
+use crate::proxy::{plain, view_data};
 
 /// Enumerates fanout's collection argument as the sequence of members the
 /// shim spawns arms over: the array part (`1..=#t`) in order, then the hash
@@ -32,6 +34,7 @@ pub(crate) fn collection_members(lua: &Lua, collection: &Value) -> Result<Table>
             collection.type_name()
         )));
     };
+    let table = &view_data(table).map_err(error::make_lua_error)?;
     let border = table.raw_len();
     let members = lua
         .create_table_with_capacity(border, 0)
@@ -125,7 +128,9 @@ pub fn render_item(item: &serde_json::Value) -> String {
 /// # Errors
 /// Returns a `LuaRuntime` failure when the value has no JSON form.
 pub(crate) fn render_item_value(lua: &Lua, item: Value) -> Result<String> {
-    let json: serde_json::Value = lua.from_value(item).map_err(error::make_lua_error)?;
+    let json: serde_json::Value = plain(lua, item)
+        .and_then(|item| lua.from_value(item))
+        .map_err(error::make_lua_error)?;
     Ok(render_item(&json))
 }
 
@@ -269,6 +274,23 @@ mod tests {
     }
 
     #[test]
+    fn collection_members_enumerates_a_view_as_the_table_it_stands_for() {
+        let lua = mlua::Lua::new();
+        let items = members_json(
+            &lua,
+            "return setmetatable({}, { __index = { 'a', 'b', extra = 'c' }, __metatable = 'view' })",
+        );
+        assert_eq!(
+            items,
+            vec![
+                json!("a"),
+                json!("b"),
+                json!({"key": "extra", "value": "c"})
+            ]
+        );
+    }
+
+    #[test]
     fn collection_members_returns_an_empty_sequence_for_an_empty_table() {
         let lua = mlua::Lua::new();
         let items = members_json(&lua, "return {}");
@@ -376,6 +398,14 @@ mod tests {
         assert_eq!(
             render_item_value(&lua, text).expect("a string renders"),
             "alpha"
+        );
+        let view = eval(
+            &lua,
+            "return setmetatable({}, { __index = { key = 'alpha', value = 1 }, __metatable = 'view' })",
+        );
+        assert_eq!(
+            render_item_value(&lua, view).expect("a view renders as its data"),
+            "{\"key\":\"alpha\",\"value\":1}"
         );
     }
 }

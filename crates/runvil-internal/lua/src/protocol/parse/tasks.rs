@@ -13,6 +13,7 @@ use mlua::{Lua, LuaSerdeExt, MultiValue, Value};
 use runvil_types::ids::TaskId;
 
 use crate::protocol::{NonEmpty, Request};
+use crate::proxy::plain;
 use crate::section::scalar_return;
 
 use super::{
@@ -52,7 +53,8 @@ pub(super) fn parse_spawn(
                 value.type_name()
             )));
         }
-        Ok(value) => match lua.from_value(value) {
+        // A view inside the item is read as the table it stands for.
+        Ok(value) => match plain(lua, value).and_then(|value| lua.from_value(value)) {
             Ok(item) => Some(item),
             Err(error) => {
                 return Err(call_error(format!(

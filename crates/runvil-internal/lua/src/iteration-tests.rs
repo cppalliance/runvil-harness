@@ -110,6 +110,56 @@ fn pairs_honors_a_pairs_metamethod() {
 }
 
 #[test]
+fn pairs_and_next_walk_a_sealed_view_as_the_table_it_stands_for() {
+    let vm = TestVm::new().build();
+    let source = "local view = setmetatable({}, {__index = {10, 20, extra = 'x'}, __metatable = 'view'}) \
+                  local out = {} \
+                  for k, v in pairs(view) do out[#out+1] = k .. ':' .. v end \
+                  local first = next(view) \
+                  out[#out+1] = 'first ' .. first \
+                  out[#out+1] = 'last ' .. tostring(next(view, 'extra')) \
+                  return out";
+    assert_eq!(
+        sequence(&vm, source),
+        vec![
+            json!("1:10"),
+            json!("2:20"),
+            json!("extra:x"),
+            json!("first 1"),
+            json!("last nil"),
+        ]
+    );
+}
+
+#[test]
+fn pairs_walks_a_table_whose_index_is_not_sealed_as_itself() {
+    // Without `__metatable` the table is no view, and a view whose data
+    // only a function can read holds no table to walk.
+    let vm = TestVm::new().build();
+    let source = "local open = setmetatable({own = 1}, {__index = {other = 2}}) \
+                  local computed = setmetatable({}, {__index = function() return 1 end, __metatable = 'view'}) \
+                  local out = {} \
+                  for k in pairs(open) do out[#out+1] = k end \
+                  for k in pairs(computed) do out[#out+1] = k end \
+                  return out";
+    assert_eq!(sequence(&vm, source), vec![json!("own")]);
+}
+
+#[test]
+fn a_pairs_metamethod_on_a_sealed_view_still_wins() {
+    let vm = TestVm::new().build();
+    let source = "local view = setmetatable({}, {__index = {a = 1}, __metatable = 'view', \
+                    __pairs = function() \
+                      local done = false \
+                      return function() if not done then done = true; return 'own', 'walk' end end \
+                    end}) \
+                  local out = {} \
+                  for k, v in pairs(view) do out[#out+1] = k .. ':' .. v end \
+                  return out";
+    assert_eq!(sequence(&vm, source), vec![json!("own:walk")]);
+}
+
+#[test]
 fn pairs_honors_a_userdata_pairs_metamethod() {
     let vm = TestVm::new().build();
     let counted = vm

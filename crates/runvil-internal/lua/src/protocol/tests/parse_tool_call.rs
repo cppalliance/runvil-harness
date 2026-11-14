@@ -157,6 +157,27 @@ fn a_marked_empty_list_in_the_args_parses_to_an_empty_array() {
 }
 
 #[test]
+fn a_view_in_the_args_parses_as_the_table_it_stands_for() {
+    let data = json!({ "value": "hi", "tags": ["a", "b"], "none": [] });
+    let vm = crate::test_vm::TestVm::new().var(&data).build();
+    for (args, parsed) in [
+        ("var", data.clone()),
+        (
+            "{ tags = var.tags, n = 1 }",
+            json!({ "tags": ["a", "b"], "n": 1 }),
+        ),
+    ] {
+        let table: mlua::Table = vm.eval(&format!(
+            "return {{ op = 'tool_call', alias = 'tools/echo', args = {args} }}"
+        ));
+        match expect_request(Request::from_yield(vm.lua(), &Value::Table(table))) {
+            Request::ToolCall { args, .. } => assert_eq!(args, parsed),
+            other => panic!("expected a tool_call request, got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn a_tool_call_with_a_tool_object_decodes_to_its_id() {
     // The id-or-tool-object polymorphism at the protocol boundary: a tool
     // object stands for its canonical id, never its wire name.
