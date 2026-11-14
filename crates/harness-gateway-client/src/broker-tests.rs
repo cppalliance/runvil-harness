@@ -220,6 +220,30 @@ fn debug_never_leaks_the_bearer_key() {
     );
 }
 
+#[test]
+fn debug_redacts_a_plan_proof_the_same_way_it_redacts_the_key() {
+    let proof = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let broker = GatewayBroker::new(
+        GatewayEndpoint::new("http://127.0.0.1:8081/v1").expect("valid test endpoint"),
+        SecretString::new("super-secret-token").expect("non-empty test key"),
+    )
+    .with_plan_proof(SecretString::new(proof).expect("non-empty test proof"));
+    let rendered = format!("{broker:?}");
+    assert!(
+        !rendered.contains(proof),
+        "the plan proof leaked: {rendered}"
+    );
+    assert!(
+        !rendered.contains("super-secret-token"),
+        "the bearer key leaked: {rendered}"
+    );
+    assert!(rendered.contains("<redacted>"), "got: {rendered}");
+    assert!(
+        !rendered.contains("Some") && !rendered.contains("None"),
+        "presence of the proof must not leak, got: {rendered}"
+    );
+}
+
 #[tokio::test]
 async fn models_lists_the_catalog_the_gateway_serves_under_the_brokers_key() {
     use axum::Router;
@@ -256,4 +280,88 @@ async fn models_lists_the_catalog_the_gateway_serves_under_the_brokers_key() {
     assert_eq!(info.description(), "the mock model");
     assert_eq!(info.context().get(), 131_072);
     assert_eq!(info.thinking(), ThinkingMode::Switchable);
+}
+
+#[tokio::test]
+async fn models_sends_the_plan_proof_only_when_the_host_passed_one() {
+    use std::sync::{Arc, Mutex};
+
+    use axum::Router;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::routing::get;
+
+    use crate::{PLAN_PROOF_HEADER, fetch_model_catalog, fetch_model_catalog_with_plan_proof};
+
+    const PROOF: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    let seen: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let slot = Arc::clone(&seen);
+    let app = Router::new().route(
+        "/v1/models",
+        get(move |headers: HeaderMap| {
+            let slot = Arc::clone(&slot);
+            async move {
+                let proofs = headers
+                    .get_all(PLAN_PROOF_HEADER)
+                    .iter()
+                    .filter_map(|value| value.to_str().ok().map(str::to_owned))
+                    .collect();
+                slot.lock().expect("capture lock").push(proofs);
+                if headers
+                    .get(axum::http::header::AUTHORIZATION)
+                    .and_then(|value| value.to_str().ok())
+                    != Some("Bearer tok")
+                {
+                    return Err(StatusCode::UNAUTHORIZED);
+                }
+                Ok(axum::Json(serde_json::json!({
+                    "data": [{
+                        "id": "mock-model",
+                        "description": "the mock model",
+                        "context": 131_072,
+                        "thinking": "switchable",
+                    }]
+                })))
+            }
+        }),
+    );
+    let base = serve(app).await;
+    let endpoint = GatewayEndpoint::new(&base).expect("valid test endpoint");
+    let key = SecretString::new(KEY).expect("non-empty test key");
+    let without = GatewayBroker::new(endpoint.clone(), key.clone());
+    without
+        .models()
+        .await
+        .expect("the catalog loads without a plan proof");
+    let with = GatewayBroker::new(endpoint.clone(), key.clone())
+        .with_plan_proof(SecretString::new(PROOF).expect("non-empty test proof"));
+    let catalog = with
+        .models()
+        .await
+        .expect("the catalog loads with a plan proof");
+    assert!(
+        !format!("{catalog:?}").contains(PROOF),
+        "the catalog value must not carry the proof"
+    );
+    fetch_model_catalog(&base, key.expose())
+        .await
+        .expect("the free function loads the catalog");
+    fetch_model_catalog_with_plan_proof(
+        &base,
+        key.expose(),
+        &SecretString::new(PROOF).expect("non-empty"),
+    )
+    .await
+    .expect("the free function sends the proof");
+    let captured = seen.lock().expect("capture lock").clone();
+    assert_eq!(
+        captured,
+        [
+            Vec::<String>::new(),
+            vec![PROOF.to_owned()],
+            Vec::<String>::new(),
+            vec![PROOF.to_owned()],
+        ],
+        "absent stays absent, and a passed proof is exactly one header"
+    );
 }

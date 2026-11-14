@@ -19,7 +19,11 @@
 //! completion the round produced. [`fetch_model_catalog`] fetches the
 //! Gateway's model list as a typed `ModelCatalog`. The client holds no
 //! credential except the Gateway's shared key. The model vendor's
-//! credential stays in the Gateway.
+//! credential stays in the Gateway. A Host may pass a plan proof, which
+//! is not a bearer and which this crate never reads from a file or an
+//! environment variable. When one was passed it is sent as
+//! [`PLAN_PROOF_HEADER`] on a model round and on the model list, and
+//! nowhere else.
 //!
 //! [`GatewaySearch`] is the [`plugin_web::SearchProvider`] that a Host
 //! using the Gateway supplies for web search. It sends each search through
@@ -55,7 +59,7 @@
 //!   validating constructors, so the Engine's model-independent reply
 //!   checks run on every decoded turn.
 //! - A Gateway bearer key is never written to logs, `Debug`, `Display`, or
-//!   error text.
+//!   error text. A Host-supplied plan proof is redacted the same way.
 //! - A backend error body is bounded and control-escaped before it is
 //!   kept. A chat round keeps it only in the error's message, never in its
 //!   prose, and a search keeps it in its error's message and prose.
@@ -75,10 +79,12 @@ mod wire;
 
 pub use broker::GatewayBroker;
 pub use catalog::fetch_model_catalog;
+pub use catalog::fetch_model_catalog_with_plan_proof;
 pub use config::GatewayEndpoint;
 pub use config::SecretString;
 pub use search::GatewaySearch;
 pub use transport::GatewayChat;
+pub use transport::PLAN_PROOF_HEADER;
 pub use wire::classify::make_classify_http_failure_error;
 pub use wire::classify::make_classify_stream_error;
 pub use wire::delta::StreamDelta;

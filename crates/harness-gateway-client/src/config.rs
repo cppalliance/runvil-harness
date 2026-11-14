@@ -40,13 +40,14 @@ fn make_setup_error(reason: &'static str, message: String) -> Error {
     error
 }
 
-/// A bearer credential whose contents never appear in `Debug` or `Display`
-/// output or in logs.
+/// A secret whose contents never appear in `Debug` or `Display` output or
+/// in logs.
 ///
-/// Wrap a secret, such as the gateway bearer key, in a `SecretString` as soon
-/// as you read it, so an accidental `{:?}` or log line cannot leak it. The
-/// client reads the value only to set the `Authorization` header of its
-/// requests.
+/// Wrap a secret, such as the gateway bearer key or a Host-supplied plan
+/// proof, in a `SecretString` as soon as you read it, so an accidental
+/// `{:?}` or log line cannot leak it. The client reads a bearer only to set
+/// the `Authorization` header, and a plan proof only to set
+/// `X-Runvil-Plan-Proof`. A plan proof is not a bearer.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct SecretString(String);
@@ -57,7 +58,7 @@ impl SecretString {
     /// # Errors
     /// Returns an [`InvalidValue`](ErrorCode::InvalidValue) error with the
     /// reason `empty_secret` when `secret` is empty, so a client can never be
-    /// built to authenticate with a blank bearer credential.
+    /// built with a blank secret.
     pub fn new(secret: impl Into<String>) -> std::result::Result<SecretString, Error> {
         let secret = secret.into();
         if secret.is_empty() {

@@ -6,7 +6,9 @@ use runvil::Error;
 use runvil::model::{ModelCatalog, ModelId, ModelInfo, ThinkingMode};
 use serde::Deserialize;
 
+use crate::config::SecretString;
 use crate::failure::{make_malformed_error, make_transport_failure_error, with_detail};
+use crate::transport::PLAN_PROOF_HEADER;
 use crate::wire::classify::make_classify_http_failure_error;
 use crate::wire::stream::escape_controls;
 
@@ -138,13 +140,16 @@ fn catalog_client() -> reqwest::Client {
 /// `Transport` (or `Timeout`) when that error body cannot be read, appending
 /// the [`reqwest::Error`] to the message under the same timeout marking as a
 /// send failure.
-async fn get_authed(url: String, token: &str) -> std::result::Result<reqwest::Response, Error> {
-    let response = catalog_client()
-        .get(url)
-        .bearer_auth(token)
-        .send()
-        .await
-        .map_err(make_transport_failure_error)?;
+async fn get_authed(
+    url: String,
+    token: &str,
+    plan_proof: Option<&str>,
+) -> std::result::Result<reqwest::Response, Error> {
+    let mut request = catalog_client().get(url).bearer_auth(token);
+    if let Some(proof) = plan_proof {
+        request = request.header(PLAN_PROOF_HEADER, proof);
+    }
+    let response = request.send().await.map_err(make_transport_failure_error)?;
     let status = response.status();
     if status.is_success() {
         return Ok(response);
@@ -160,7 +165,7 @@ async fn get_authed(url: String, token: &str) -> std::result::Result<reqwest::Re
 ///
 /// `base_url` is the root of the Gateway's OpenAI-compatible API, for
 /// example `http://127.0.0.1:8081/v1`. The request sends `token` as a
-/// bearer token.
+/// bearer token and sends no plan-proof header.
 ///
 /// # Errors
 /// Returns an [`Error`]. Its [`code`](Error::code) is:
@@ -173,8 +178,35 @@ pub async fn fetch_model_catalog(
     base_url: &str,
     token: &str,
 ) -> std::result::Result<ModelCatalog, Error> {
+    fetch_catalog(base_url, token, None).await
+}
+
+/// Fetches a [`ModelCatalog`] the way [`fetch_model_catalog`] does, and
+/// sends `plan_proof` as [`PLAN_PROOF_HEADER`] on that one request.
+///
+/// The proof is not a bearer. The request still sends `token` as its
+/// bearer token. This client does not read the proof from a file or an
+/// environment variable.
+///
+/// # Errors
+/// Returns the same [`Error`]s [`fetch_model_catalog`] returns.
+pub async fn fetch_model_catalog_with_plan_proof(
+    base_url: &str,
+    token: &str,
+    plan_proof: &SecretString,
+) -> std::result::Result<ModelCatalog, Error> {
+    fetch_catalog(base_url, token, Some(plan_proof.expose())).await
+}
+
+/// The shared body of the two catalog fetches. `plan_proof` of `None`
+/// leaves the request without a plan-proof header.
+async fn fetch_catalog(
+    base_url: &str,
+    token: &str,
+    plan_proof: Option<&str>,
+) -> std::result::Result<ModelCatalog, Error> {
     let base = base_url.trim_end_matches('/');
-    let response = get_authed(format!("{base}/models"), token).await?;
+    let response = get_authed(format!("{base}/models"), token, plan_proof).await?;
     // Bound the success body BEFORE decoding so an oversized (or unbounded)
     // model list cannot exhaust memory, matching the bound the error path applies.
     let body = read_catalog_body_capped(response, MAX_CATALOG_BODY).await?;
