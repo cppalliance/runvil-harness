@@ -212,15 +212,10 @@ fn an_ended_scope_refuses_every_store_operation_and_every_new_view() -> Result<(
     refused(view.rename("notes.md", "moved.md"), "notes.md");
     refused(view.copy("notes.md", "copy.md"), "notes.md");
     // The store gives no view of an access whose scope has ended, and
-    // the view it gave forks no identity.
-    assert!(matches!(
-        store.view(&access),
-        Err(VfsError::ScopeEnded { .. })
-    ));
-    assert!(matches!(
-        scope.spawn(&view, test_origin()),
-        Err(VfsError::ScopeEnded { .. })
-    ));
+    // the view it gave forks no identity. Neither names a path, so each
+    // refusal names `/`.
+    refused(store.view(&access), "/");
+    refused(scope.spawn(&view, test_origin()), "/");
     // No refused operation reached the store.
     let other = fresh_view(&store)?;
     assert_eq!(other.glob("**")?, ["notes.md"]);
@@ -259,14 +254,8 @@ fn a_view_of_an_identity_whose_tool_call_ended_is_refused() -> Result<(), VfsErr
     // spawn, and the store gives no new view of the ended identity.
     refused(view.read("a.md"), "a.md");
     refused(view.write("b.md", b"late"), "b.md");
-    assert!(matches!(
-        scope.spawn(&view, test_origin()),
-        Err(VfsError::ScopeEnded { .. })
-    ));
-    assert!(matches!(
-        store.view(&call),
-        Err(VfsError::ScopeEnded { .. })
-    ));
+    refused(scope.spawn(&view, test_origin()), "/");
+    refused(store.view(&call), "/");
     // The scope stays open: the end joined the call's store write into
     // the owner, whose own view reads it.
     let owner_view = store.view(&owner)?;

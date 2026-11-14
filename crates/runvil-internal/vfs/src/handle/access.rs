@@ -34,17 +34,14 @@ impl Access {
     ///
     /// Crate-internal: backs [`ScopeHandle::spawn`].
     pub(crate) fn spawn(&self, origin: Origin) -> Result<Access, VfsError> {
-        // A spawn names no path, so its refusal names `/`.
+        // A spawn names no path, so its refusal names `/`, on a store
+        // view too, as the refusal of a new view does.
         let root = VfsPath::root();
-        self.scope
-            .refuse_if_closed(&root)
-            .map_err(|err| self.relativize(err))?;
+        self.scope.refuse_if_closed(&root)?;
         let id = ExecId::vend();
         // The fork comes first so a wrapped handle acquiring the child
         // finds it already registered in the scope.
-        self.scope
-            .fork(self.id, id, &root)
-            .map_err(|err| self.relativize(err))?;
+        self.scope.fork(self.id, id, &root)?;
         let inner = match self
             .backend()
             .acquire(&AcquireContext::new(id, Arc::clone(&self.scope)))
