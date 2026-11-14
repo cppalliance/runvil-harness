@@ -298,3 +298,32 @@ fn the_timeout_option_is_validated_at_the_call_site() {
     // A rejected option starts no timer: the child is the run's only task.
     assert_eq!(rig.task_state_for_test(&task("0.1")), None);
 }
+
+#[test]
+fn a_wait_with_an_option_it_does_not_take_is_refused_and_starts_no_timer() {
+    let md = tasks_prompt(
+        "local t = tasks.spawn('../Child')\n\
+         local ok1, e1 = pcall(tasks.join_any, { t }, { timout = 5 })\n\
+         assert(not ok1 and e1.kind == 'lua', tostring(e1))\n\
+         local ok2, e2 = pcall(tasks.join, { t }, { timeout = 5, mode = 'all' })\n\
+         assert(not ok2 and e2.kind == 'lua', tostring(e2))\n\
+         local _, ok, result = tasks.join_any({ t })\n\
+         assert(ok and result == 'quick', tostring(result))\n\
+         return tostring(e1) .. '|' .. tostring(e2)",
+        &[("Child", "return 'quick'")],
+    );
+    let mut rig = Rig::run(scheduler_scenario(md));
+    let out = rig.trace().text();
+    let parts: Vec<&str> = out.split('|').collect();
+    assert_eq!(parts.len(), 2, "{out}");
+    assert!(
+        parts[0].contains("tasks.join_any: unknown key \"timout\"; the accepted key is timeout"),
+        "{out}"
+    );
+    assert!(
+        parts[1].contains("tasks.join: unknown key \"mode\"; the accepted key is timeout"),
+        "{out}"
+    );
+    // A refused option starts no timer: the child is the run's only task.
+    assert_eq!(rig.task_state_for_test(&task("0.1")), None);
+}

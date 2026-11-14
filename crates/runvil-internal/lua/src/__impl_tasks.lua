@@ -21,12 +21,29 @@
 local yield, var_snapshot, helpers = ...
 
 local raise, fail, engine_type = helpers.raise, helpers.fail, helpers.engine_type
+local pairs, format = pairs, string.format
+
+-- Refuses a key of `opts` that `call` does not take, so a misspelled
+-- option fails where it is written. `accepted` holds the keys the call
+-- takes, and `listed` names them for the message.
+local function check_keys(opts, call, accepted, listed)
+  for key in pairs(opts) do
+    if not accepted[key] then
+      local shown = type(key) == "string" and format("%q", key) or tostring(key)
+      raise("lua", { message = call .. ": unknown key " .. shown .. "; " .. listed })
+    end
+  end
+end
+
+local SPAWN_KEYS = { args = true, item = true, index = true }
+local WAIT_KEYS = { timeout = true }
 
 -- tasks.spawn(target, opts?): start a chain over `target` and return at
 -- once with a Task handle. `opts.args` is the chain's arguments, a table
 -- of named fields or a string, and with none the chain reads the caller's
 -- `args`; `opts.item` becomes its `item` global, `opts.index` its
--- `sys.index`; the caller's `var` seeds the chain.
+-- `sys.index`; the caller's `var` seeds the chain. Any other key of
+-- `opts` is refused.
 --
 -- `spawn_from(from)` makes the function for the code it is installed for:
 -- `from` is nil for a section's own code and a library's identity for that
@@ -37,6 +54,8 @@ local function spawn_from(from)
       opts = {}
     elseif type(opts) ~= "table" then
       raise("lua", { message = "tasks.spawn opts must be a table, got " .. engine_type(opts) })
+    else
+      check_keys(opts, "tasks.spawn", SPAWN_KEYS, "accepted keys are args, item, index")
     end
     local ok, result = yield({
       op = "spawn",
@@ -83,12 +102,13 @@ end
 -- Resolves a wait's opts argument to its timeout in seconds, or nil when
 -- no timeout was given. The domain check (non-negative, finite) is the
 -- Engine's at the timer yield; the shape check is here so the message names
--- the call.
+-- the call. `timeout` is the one key a wait takes.
 local function wait_timeout(opts, call)
   if opts == nil then return nil end
   if type(opts) ~= "table" then
     raise("lua", { message = call .. " opts must be a table, got " .. engine_type(opts) })
   end
+  check_keys(opts, call, WAIT_KEYS, "the accepted key is timeout")
   local timeout = opts.timeout
   if timeout ~= nil and type(timeout) ~= "number" then
     raise("lua", { message = call .. " timeout must be a number, got " .. engine_type(timeout) })

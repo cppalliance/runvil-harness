@@ -322,17 +322,109 @@ fn a_var_list_takes_its_next_item_and_a_new_value_for_an_item_it_holds() {
 }
 
 #[test]
-fn a_var_write_of_a_table_with_a_key_that_is_not_a_string_reads_as_the_guards_refusal() {
-    let (raised, kind, line, var) = var_write("var.t = { [true] = 1 }");
-    assert!(raised, "the write must raise");
+fn a_var_write_that_would_mix_list_items_and_named_fields_is_refused() {
+    // A table of JSON data is a list or an object. A write that would
+    // make one both is refused, where the read-back would drop a part.
+    for (write, refusal, held) in [
+        (
+            "var.list.name = 'x'",
+            "var.list.name is a named field, and var.list is a list",
+            r#"{"list":["a"],"t":{}}"#,
+        ),
+        (
+            "var.t.a = 1 var.t[1] = 'x'",
+            "var.t[1] is a list item, and var.t holds named fields",
+            r#"{"list":["a"],"t":{"a":1}}"#,
+        ),
+        (
+            "var.empty = json.array() var.empty.name = 'x'",
+            "var.empty.name is a named field, and var.empty is a list",
+            r#"{"empty":[],"list":["a"],"t":{}}"#,
+        ),
+    ] {
+        let (raised, kind, line, var) = var_write(write);
+        assert!(raised, "{write} must raise");
+        assert_eq!(kind, "lua", "{write}");
+        assert_eq!(line, refusal, "{write}");
+        assert_eq!(var, held, "{write}");
+    }
+}
+
+#[test]
+fn a_var_list_gives_up_its_last_item_alone() {
+    // Removing an item that is not the last would leave a gap.
+    let (raised, kind, line, var) = var_write("var.list[2] = 'b' var.list[1] = nil");
+    assert!(raised, "the removal must raise");
     assert_eq!(kind, "lua");
     assert_eq!(
         line,
-        "var.t must be JSON data: invalid type: boolean `true`, expected a string key"
+        "var.list[1] is not the last item of the list, whose length is 2; remove it with \
+         table.remove"
     );
-    assert_eq!(var, r#"{"list":["a"],"t":{}}"#, "the write stores nothing");
+    assert_eq!(var, r#"{"list":["a","b"],"t":{}}"#);
+    for (write, held) in [
+        ("var.list[1] = nil", r#"{"list":[],"t":{}}"#),
+        (
+            "var.list[2] = 'b' var.list[2] = nil",
+            r#"{"list":["a"],"t":{}}"#,
+        ),
+        (
+            "var.list[2] = 'b' table.remove(var.list, 1)",
+            r#"{"list":["b"],"t":{}}"#,
+        ),
+        // An index the list does not hold has nothing to remove.
+        ("var.list[7] = nil", r#"{"list":["a"],"t":{}}"#),
+    ] {
+        let (raised, _kind, line, var) = var_write(write);
+        assert!(!raised, "{write} must pass, got {line}");
+        assert_eq!(var, held, "{write}");
+    }
 }
 
+#[test]
+fn a_var_write_of_a_value_with_no_json_form_names_the_failing_part() {
+    for (write, refusal) in [
+        (
+            "var.t = { [true] = 1 }",
+            "var.t has a boolean key; object keys must be strings",
+        ),
+        (
+            "var.t = { 'a', name = 'x' }",
+            "var.t mixes list items and named keys",
+        ),
+        (
+            "var.t = { [1] = 'a', [3] = 'c' }",
+            "var.t is missing list item [2]",
+        ),
+        (
+            "var.t = { inner = { f = function() end } }",
+            "var.t.inner.f must be JSON data, got function",
+        ),
+        (
+            "var.list[2] = { 'b', k = 1 }",
+            "var.list[2] mixes list items and named keys",
+        ),
+        ("var.n = 0/0", "var.n is not a finite number"),
+    ] {
+        let (raised, kind, line, var) = var_write(write);
+        assert!(raised, "{write} must raise");
+        assert_eq!(kind, "lua", "{write}");
+        assert_eq!(line, refusal, "{write}");
+        assert_eq!(var, r#"{"list":["a"],"t":{}}"#, "{write} stores nothing");
+    }
+}
+
+#[test]
+fn a_float_with_no_fraction_stays_a_float_in_var() {
+    let vm = TestVm::new().shims().build();
+    let kinds: String = vm.eval(
+        "var.whole = 2.0\n\
+         var.count = 2\n\
+         var.t = { ratio = 1.0 }\n\
+         return math.type(var.whole) .. ' ' .. math.type(var.count) .. ' ' .. math.type(var.t.ratio)",
+    );
+    assert_eq!(kinds, "float integer float");
+}
 /// A VM whose Lua heap is 4 MiB, so a write may read at most 524,288 values
 /// and 4 MiB of text.
 fn small_heap_vm() -> BuiltVm {
@@ -398,21 +490,17 @@ fn a_var_write_of_a_repeated_string_key_past_the_byte_budget_is_refused() {
 }
 
 #[test]
-fn a_var_write_of_a_table_that_contains_itself_keeps_the_recursion_error() {
+fn a_var_write_of_a_table_that_contains_itself_is_refused_as_a_cycle() {
     // `t` holds itself twice, so a walk that followed the cycle would branch
-    // two ways at each of 200 levels and run out of budget, reporting the
-    // write as too large. The walk stops at the table already on its path
-    // and leaves the cycle to the conversion, whose recursion error stays.
+    // two ways at each level and run out of budget, reporting the write as
+    // too large. The walk stops at the table already on its path.
     let vm = small_heap_vm();
     vm.eval::<()>("t = {} t.a = t t.b = t");
     let (raised, _kind, message) = var_write_of_t(&vm);
     assert!(raised, "a cyclic write must raise, not store");
-    assert!(
-        message.contains("recursive table"),
-        "the conversion's own error must stay, got {message}"
-    );
-    assert!(
-        !message.contains("too large to store"),
-        "a cycle is not oversized, got {message}"
+    assert_eq!(
+        refusal_line(&message),
+        Some("var.x.a contains itself"),
+        "a cycle is not oversized"
     );
 }

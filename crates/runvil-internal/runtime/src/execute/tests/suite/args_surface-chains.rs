@@ -280,6 +280,71 @@ fn a_spawn_with_a_list_or_another_type_as_its_args_is_refused_and_starts_no_task
 }
 
 #[test]
+fn a_spawn_with_an_option_it_does_not_take_is_refused_and_starts_no_task() {
+    // The keys are checked in sorted order, so the first one that the
+    // spawn does not take is the one the refusal names. A table read
+    // from `var` is checked as the table it stands for.
+    let source = prompt(
+        SEARCH,
+        &[
+            (
+                "Main",
+                "local function refused(opts)
+                   local ok, err = pcall(tasks.spawn, '../Child', opts)
+                   assert(not ok, 'the spawn is refused')
+                   return err.kind .. ':' .. tostring(err)
+                 end
+                 var.opts = { args = { n = 1 }, name = 'x' }
+                 return refused({ itme = 'a' }) .. '|' .. refused({ zeta = 1, alpha = 2, index = 3 })
+                   .. '|' .. refused({ 'first' }) .. '|' .. refused(var.opts)",
+            ),
+            ("Child", ECHO),
+        ],
+    );
+    let trace = papers(source).run();
+    // The shim raises the refusal itself, so its text is the message alone.
+    let lua = |key: &str| {
+        format!("lua:tasks.spawn: unknown key {key}; accepted keys are args, item, index")
+    };
+    assert_eq!(
+        trace.text(),
+        [
+            lua(r#""itme""#),
+            lua(r#""alpha""#),
+            lua("1"),
+            lua(r#""name""#)
+        ]
+        .join("|")
+    );
+    assert!(
+        started_args(&trace).is_empty(),
+        "a refused spawn starts no task: {:?}",
+        trace.events()
+    );
+}
+
+#[test]
+fn a_spawn_takes_args_item_and_index_together() {
+    let source = prompt(
+        SEARCH,
+        &[
+            (
+                "Main",
+                "local task = tasks.spawn('../Child', { args = { n = 1 }, item = 'it', index = 4 })
+                 local _, ok, result = tasks.join_any({ task })
+                 assert(ok, tostring(result))
+                 return result",
+            ),
+            (
+                "Child",
+                "return json.encode(args) .. ' ' .. item .. ' ' .. sys.index",
+            ),
+        ],
+    );
+    assert_eq!(papers(source).run().text(), r#"{"n":1} it 4"#);
+}
+
+#[test]
 fn a_fanout_arm_reads_its_callers_args_and_task_started_reports_none_for_it() {
     let source = prompt(
         SEARCH,

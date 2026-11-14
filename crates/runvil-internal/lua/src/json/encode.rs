@@ -49,6 +49,21 @@ pub(crate) fn to_json(
     Encoder::new(lua, prefix, debug).value(value, 1)
 }
 
+/// The JSON value that a write of `value` to `target` stores: `value`
+/// under the `json.encode` rules, except that a float with no fractional
+/// part stays a float, so a stored number reads back as the kind it was
+/// written as. Every refusal names the failing path from `target` and
+/// then the reason, and a value too large to walk is too large to store.
+pub(crate) fn to_stored_json(lua: &Lua, target: &str, value: &Value) -> mlua::Result<Json> {
+    let mut encoder = Encoder {
+        root: target.to_owned(),
+        too_large: format!("{target} is too large to store"),
+        keeps_floats: true,
+        ..Encoder::new(lua, "", false)
+    };
+    encoder.value(value, 1)
+}
+
 /// `json.encode_lines(list [, options])`: each item of `list` encoded by
 /// the `json.encode` rules and followed by a newline.
 pub(super) fn encode_lines(lua: &Lua, (list, options): (Value, Value)) -> mlua::Result<LuaString> {
@@ -150,6 +165,12 @@ fn too_deep() -> String {
 /// on the path hold as Lua references.
 struct Encoder {
     prefix: &'static str,
+    /// What a refusal calls the walked value, before the path inside it.
+    root: String,
+    /// The refusal of a value too large to walk.
+    too_large: String,
+    /// Whether a float with no fractional part stays a float.
+    keeps_floats: bool,
     debug: bool,
     marker: Table,
     path: Vec<Value>,
@@ -162,6 +183,9 @@ impl Encoder {
     fn new(lua: &Lua, prefix: &'static str, debug: bool) -> Self {
         Self {
             prefix,
+            root: format!("{prefix}: value"),
+            too_large: format!("{prefix}: value is too large to encode"),
+            keeps_floats: false,
             debug,
             marker: lua.array_metatable(),
             path: Vec::new(),
@@ -175,7 +199,7 @@ impl Encoder {
     /// no path, and it never becomes a placeholder: one placeholder per
     /// remaining value would not bound the work.
     fn too_large(&self) -> mlua::Error {
-        too_large(self.prefix)
+        author_refusal(self.too_large.clone())
     }
 
     /// Spends one value of the budget.
@@ -198,8 +222,8 @@ impl Encoder {
         let shown = self
             .path
             .iter()
-            .fold("value".to_owned(), |shown, key| key_path(&shown, key));
-        author_refusal(format!("{}: {shown} {failure}", self.prefix))
+            .fold(self.root.clone(), |shown, key| key_path(&shown, key));
+        author_refusal(format!("{shown} {failure}"))
     }
 
     /// `placeholder` in debug mode, or the error for `failure`.
@@ -219,7 +243,7 @@ impl Encoder {
             Value::LightUserData(pointer) if pointer.0.is_null() => Ok(Json::Null),
             Value::Boolean(flag) => Ok(Json::Bool(*flag)),
             Value::Integer(integer) => Ok(Json::from(*integer)),
-            Value::Number(number) => match finite(*number) {
+            Value::Number(number) => match self.number(*number) {
                 Some(json) => Ok(json),
                 None if self.debug => Ok(Json::String(non_finite_text(*number))),
                 None => Err(self.error(NOT_FINITE)),
@@ -241,6 +265,15 @@ impl Encoder {
                 };
                 self.fail(&not_data(kind), placeholder)
             }
+        }
+    }
+
+    /// The JSON number `number` is, or `None` for NaN and the infinities.
+    fn number(&self, number: f64) -> Option<Json> {
+        if self.keeps_floats {
+            Number::from_f64(number).map(Json::Number)
+        } else {
+            finite(number)
         }
     }
 

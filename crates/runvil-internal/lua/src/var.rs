@@ -3,9 +3,9 @@
 use mlua::{Lua, LuaSerdeExt, Value};
 use serde_json::Value as Json;
 
-use crate::error::{self, Result, make_lua_runtime_error};
-use crate::proxy::{key_path, plain, view_len};
-use crate::walk_budget::WalkBudget;
+use crate::error::{self, Result, author_refusal, make_lua_runtime_error};
+use crate::json::to_stored_json;
+use crate::proxy::{key_path, view_len};
 
 /// The registry key holding the `var` proxy's hidden data table.
 ///
@@ -48,44 +48,75 @@ fn whole_key(key: &Value) -> Option<i64> {
     }
 }
 
-/// Why the table at `path`, whose data is `data`, cannot hold a value
-/// under `key`, or `None` when it can.
+/// Why the table at `path`, whose data is `data`, cannot take a write
+/// under `key`, or `None` when it can. `removes` says that the write
+/// assigns nil.
 ///
-/// A key is a string, or in a table under the root a list index: the
-/// index of an item the list holds, or of the next one. Any other key
-/// has no place in JSON data, so the read-back of `var` would fail on it
-/// long after the write.
-fn key_refusal(path: &str, key: &Value, data: &mlua::Table) -> mlua::Result<Option<String>> {
-    if let Value::String(_) = key {
-        return Ok(None);
-    }
-    if path == ROOT_PATH {
-        return Ok(Some(format!(
-            "a key of {path} must be a string, got {}",
-            key.type_name()
-        )));
-    }
-    let Some(index) = whole_key(key) else {
-        return Ok(Some(format!(
-            "a key of {path} must be a string or a list index, got {}",
-            key.type_name()
-        )));
-    };
-    if index < 1 {
-        return Ok(Some(format!(
-            "a list index of {path} must be 1 or more, got {index}"
-        )));
-    }
+/// A table of JSON data is an object, whose keys are strings, or a list,
+/// whose keys are the indexes 1 to its length. The root is an object. A
+/// write that would leave a table as neither is refused where it is
+/// written, because the read-back of `var` would fail on the table, or
+/// lose a part of it, long after the write:
+///
+/// - a key that is neither a string nor an integer
+/// - a named field in a list, and a list item in a table that holds named
+///   fields
+/// - an index below 1, or past the next item of the list
+/// - the removal of an item that is not the last of its list
+///
+/// A nil under any other key removes what the key holds, or nothing.
+fn write_refusal(
+    lua: &Lua,
+    path: &str,
+    key: &Value,
+    removes: bool,
+    data: &mlua::Table,
+) -> Option<String> {
     let len = data.raw_len();
-    let next = i64::try_from(len).map_or(i64::MAX, |len| len.saturating_add(1));
-    if index > next && data.raw_get::<Value>(index)?.is_nil() {
-        return Ok(Some(format!(
-            "{path}[{index}] is past the end of the list, whose length is {len}"
-        )));
+    let marked = data
+        .metatable()
+        .is_some_and(|metatable| metatable == lua.array_metatable());
+    if let Value::String(_) = key {
+        let is_list = marked || len > 0;
+        return (is_list && !removes).then(|| {
+            format!(
+                "{} is a named field, and {path} is a list",
+                key_path(path, key)
+            )
+        });
     }
-    Ok(None)
+    let index = whole_key(key).filter(|_| path != ROOT_PATH);
+    let Some(index) = index else {
+        let allowed = if path == ROOT_PATH {
+            "a string"
+        } else {
+            "a string or a list index"
+        };
+        return (!removes)
+            .then(|| format!("a key of {path} must be {allowed}, got {}", key.type_name()));
+    };
+    let len = i64::try_from(len).unwrap_or(i64::MAX);
+    if removes {
+        return (1..len).contains(&index).then(|| {
+            format!(
+                "{path}[{index}] is not the last item of the list, whose length is {len}; \
+                 remove it with table.remove"
+            )
+        });
+    }
+    if index < 1 {
+        return Some(format!(
+            "a list index of {path} must be 1 or more, got {index}"
+        ));
+    }
+    if !marked && len == 0 && !data.is_empty() {
+        return Some(format!(
+            "{path}[{index}] is a list item, and {path} holds named fields"
+        ));
+    }
+    (index > len.saturating_add(1))
+        .then(|| format!("{path}[{index}] is past the end of the list, whose length is {len}"))
 }
-
 fn guarded_json_value(
     lua: &Lua,
     value: &Json,
@@ -140,44 +171,23 @@ fn guarded_table(
     let table_path = path.to_owned();
     let newindex = lua.create_function(
         move |lua, (_proxy, key, value): (Value, Value, Value)| -> mlua::Result<()> {
-            // The serde bridge turns nil into mlua's null sentinel, which
-            // would keep the key instead of removing it.
-            if value.is_nil() {
-                return write_data.raw_set(key, value);
-            }
             // A whole float names the item its integer names.
             let key = whole_key(&key).map_or(key, Value::Integer);
-            if let Some(refusal) = key_refusal(&table_path, &key, &write_data)? {
-                return Err(mlua::Error::runtime(refusal));
+            let removes = value.is_nil();
+            if let Some(refusal) = write_refusal(lua, &table_path, &key, removes, &write_data) {
+                return Err(author_refusal(refusal));
+            }
+            // A nil removes the key, where the conversion would store a
+            // null under it.
+            if removes {
+                return write_data.raw_set(key, value);
             }
             let target = key_path(&table_path, &key);
-            if let Value::Function(_) | Value::UserData(_) | Value::Thread(_) = value {
-                return Err(mlua::Error::runtime(format!(
-                    "{target} must be JSON data, got {}",
-                    value.type_name()
-                )));
-            }
-            let too_large = || mlua::Error::runtime(format!("{target} is too large to store"));
-            // `from_value` reads a view as the empty table it is, so the
-            // value is first read through every view inside it.
-            let value = plain(lua, value).map_err(|error| match error {
-                mlua::Error::DeserializeError(_) => too_large(),
-                other => other,
-            })?;
-            // `from_value` reads a shared table once per reference and builds
-            // the result on the Rust heap before any Lua allocation, so a
-            // value that outgrows the heap is refused before it converts.
-            if WalkBudget::for_vm(lua).check_value(&value).is_err() {
-                return Err(too_large());
-            }
-            // The bridge's refusal of a value, such as a key inside it that
-            // is not a string, reads as the guard's own.
-            let json = lua.from_value::<Json>(value).map_err(|error| match error {
-                mlua::Error::DeserializeError(why) => {
-                    mlua::Error::runtime(format!("{target} must be JSON data: {why}"))
-                }
-                other => other,
-            })?;
+            // The conversion reads through each view inside the value,
+            // refuses what JSON data cannot hold with the path of the
+            // failing part, and spends the budget of the VM, so a value
+            // that would outgrow the heap is refused before it converts.
+            let json = to_stored_json(lua, &target, &value)?;
             let rebuilt = guarded_json_value(lua, &json, &target, &nested_data)?;
             write_data.raw_set(key, rebuilt)
         },
@@ -227,15 +237,15 @@ fn materialize_guarded_value(
 /// present values surface directly and absent keys read as Lua nil. `__len`
 /// is the data table's length, and `pairs` and `next` walk the data table,
 /// so a `var` table measures and iterates as the table it stands for.
-/// `__newindex` validates the assigned value for JSON-representability
-/// through the serde bridge - a function, userdata, or thread is rejected at
-/// the assigning line, nested tables are deep-checked by the bridge, and a
-/// view inside the value is stored as the data it stands for -
-/// then rebuilds it as fresh guarded data before writing through. It refuses
-/// a key that JSON data has no place for, at the assigning line: the root
-/// takes string keys alone, and a table under it takes a string or the
-/// index of an item it holds or of the next one. Assigning nil removes the
-/// key. Every nested table is itself an empty proxy over hidden
+/// `__newindex` converts the assigned value under the `json.encode` rules -
+/// a function, userdata, or thread is rejected at the assigning line, as
+/// is a table at any depth that mixes list items and named keys or has a
+/// key that is not a string, and a view inside the value is stored as the
+/// data it stands for - then rebuilds it as fresh guarded data before
+/// writing through. It refuses, at the assigning line, a write that would
+/// leave its table neither a list nor an object ([`write_refusal`]).
+/// Assigning nil removes the key. Every nested table is itself an empty
+/// proxy over hidden
 /// data, so later incremental writes cross the same validation boundary instead
 /// of mutating a stored table directly. `__metatable` is set so author code
 /// cannot replace the guard. The root data table and the proxy live under

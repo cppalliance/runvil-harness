@@ -15,11 +15,10 @@ use super::load::Loaded;
 const STD_CRATES: [&str; 3] = ["std", "core", "alloc"];
 
 /// Third-party crates the surface may mention: serde's traits are how
-/// dependents serialize the surface's types, and `serde_json` and
-/// `serde_yaml_ng` supply the values some of those types carry. `serde`
-/// defines its traits in `serde_core` and re-exports them, and rustdoc
-/// names the defining crate.
-const ALLOWLIST: [&str; 4] = ["serde", "serde_core", "serde_json", "serde_yaml_ng"];
+/// dependents serialize the surface's types, and `serde_json` supplies
+/// the values some of those types carry. `serde` defines its traits in
+/// `serde_core` and re-exports them, and rustdoc names the defining crate.
+const ALLOWLIST: [&str; 3] = ["serde", "serde_core", "serde_json"];
 
 /// What a closure mention must be, naming every crate it may come from:
 /// the shared ones, then the crates in `allowed`, which one facade may

@@ -9,7 +9,7 @@ use super::*;
 #[test]
 fn every_approved_crate_passes_closure_and_any_other_is_refused() {
     let surface = Surface::default();
-    for krate in ["serde", "serde_core", "serde_json", "serde_yaml_ng"] {
+    for krate in ["serde", "serde_core", "serde_json"] {
         let path = [krate.to_owned(), "Value".to_owned()];
         assert_eq!(surface.refusal(krate, &path), None, "{krate}");
     }
@@ -29,7 +29,7 @@ fn a_facade_s_own_allowed_crate_passes_closure_and_its_requirement_names_the_cra
     let path = ["extra_sys".to_owned(), "Entry".to_owned()];
     assert_eq!(surface.refusal("extra_sys", &path), None);
     assert!(
-        surface.required().ends_with("serde_yaml_ng, extra_sys)"),
+        surface.required().ends_with("serde_json, extra_sys)"),
         "{}",
         surface.required()
     );
