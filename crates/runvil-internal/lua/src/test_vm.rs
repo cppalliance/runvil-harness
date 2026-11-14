@@ -171,7 +171,7 @@ pub(crate) struct LuaOutcome {
 ///
 /// # Errors
 /// Returns the failure if the sandbox cannot be built, `args`, `sys`, or
-/// `var` cannot be bridged, the block fails (a `store` failure it did not
+/// `var` cannot be bridged, `source` does not compile, the block fails (a `store` failure it did not
 /// catch is that store failure), or it returns a value that cannot be
 /// rendered as a result string.
 pub(crate) fn run_chunk(
@@ -196,7 +196,8 @@ pub(crate) fn run_chunk(
         )))
     })?;
     vm.install_coro_shims(1)?;
-    let returned = returned_text(drive_block(&vm, &block(source), access)?)?;
+    let program = LuaProgram::compile(source, UNNAMED_FILE, "test program", NonZeroU32::MIN)?;
+    let returned = returned_text(drive_block(&vm, &program, access)?)?;
     let var = vm.var()?;
     Ok(LuaOutcome { returned, var })
 }

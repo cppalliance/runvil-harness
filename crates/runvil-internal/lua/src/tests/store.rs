@@ -6,6 +6,11 @@
 use super::*;
 
 #[test]
+fn a_chunk_that_does_not_compile_is_an_error_not_a_panic() {
+    run("local =", &json!({})).expect_err("malformed Lua must come back as a failure");
+}
+
+#[test]
 fn store_exists_returns_boolean() {
     let access = fresh_access();
     let store = store_view(&access);
