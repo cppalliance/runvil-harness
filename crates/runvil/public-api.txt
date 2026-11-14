@@ -119,7 +119,6 @@ auto runvil::plugin::RenderContext: Freeze, RefUnwindSafe, Send, Sync, Unpin, Un
 auto runvil::plugin::ServiceId: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::ToolContext: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::prompt::ArgsSchema: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil::prompt::FileDecl: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::prompt::Frontmatter: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::prompt::RoleRequirements: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::vfs::Access: !Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
@@ -217,7 +216,6 @@ derives runvil::plugin::RenderContext: Debug
 derives runvil::plugin::ServiceId: Clone, Copy, Debug, Eq, Hash, PartialEq
 derives runvil::plugin::ToolContext: Debug
 derives runvil::prompt::ArgsSchema: Clone, Debug, Default, Deserialize, Eq, PartialEq
-derives runvil::prompt::FileDecl: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil::prompt::Frontmatter: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil::prompt::RoleRequirements: Clone, Copy, Debug, Deserialize, Eq, PartialEq
 derives runvil::vfs::Access: Debug
@@ -525,13 +523,10 @@ pub fn runvil::plugin::ToolContext::new(tool: &'a runvil::ToolId, access: &'a ru
 pub fn runvil::plugin::ToolContext::origin(&self) -> &'a runvil::effect::ToolCallOrigin
 pub fn runvil::plugin::ToolContext::tool(&self) -> &'a runvil::ToolId
 pub fn runvil::prompt::ArgsSchema::as_json(&self) -> &serde_json::value::Value
-pub fn runvil::prompt::FileDecl::description(&self) -> &str
-pub fn runvil::prompt::FileDecl::path(&self) -> &str
 pub fn runvil::prompt::Frontmatter::args(&self) -> &runvil::prompt::ArgsSchema
 pub fn runvil::prompt::Frontmatter::description(&self) -> &str
 pub fn runvil::prompt::Frontmatter::max_tool_iterations(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
 pub fn runvil::prompt::Frontmatter::name(&self) -> &str
-pub fn runvil::prompt::Frontmatter::output(&self) -> core::option::Option<&runvil::prompt::FileDecl>
 pub fn runvil::prompt::Frontmatter::role_requirements(&self, role: runvil::model::ModelRole) -> core::option::Option<&runvil::prompt::RoleRequirements>
 pub fn runvil::prompt::Frontmatter::runvil(&self) -> core::option::Option<u32>
 pub fn runvil::prompt::Frontmatter::uses(&self) -> &[runvil::packs::PackRef]
@@ -659,7 +654,6 @@ pub runvil::ErrorCode::LuaRuntime = 201
 pub runvil::ErrorCode::MalformedResponse = 410
 pub runvil::ErrorCode::ModelOnlyTool = 507
 pub runvil::ErrorCode::ModelRequired = 415
-pub runvil::ErrorCode::NoOutput = 803
 pub runvil::ErrorCode::NoStore = 616
 pub runvil::ErrorCode::NotADirectory = 603
 pub runvil::ErrorCode::NotFound = 601
@@ -724,7 +718,6 @@ pub runvil::RunLimits::max_concurrency: core::num::nonzero::NonZeroUsize
 pub runvil::RunLimits::max_idle_tasks: core::num::nonzero::NonZeroUsize
 pub runvil::RunLimits::max_tool_iterations: core::num::nonzero::NonZeroU32
 pub runvil::RunLimits::tool_iterations_ceiling: core::num::nonzero::NonZeroU32
-pub runvil::RunReport::output: core::result::Result<alloc::string::String, runvil::Error>
 pub runvil::RunReport::result: core::result::Result<alloc::string::String, runvil::Error>
 pub runvil::RunReport::run_id: runvil::harness::RunId
 pub runvil::RunReport::unread: alloc::vec::Vec<alloc::string::String>
@@ -1178,7 +1171,6 @@ pub struct runvil::plugin::ServiceId { /* private fields */ }
 pub struct runvil::plugin::ServiceKey<T: ?core::marker::Sized + core::marker::Send + core::marker::Sync + 'static> { /* private fields */ }
 pub struct runvil::plugin::ToolContext<'a> { /* private fields */ }
 pub struct runvil::prompt::ArgsSchema { /* private fields */ }
-pub struct runvil::prompt::FileDecl { /* private fields */ }
 pub struct runvil::prompt::Frontmatter { /* private fields */ }
 pub struct runvil::prompt::RoleRequirements { /* private fields */ }
 pub struct runvil::vfs::Access { /* private fields */ }

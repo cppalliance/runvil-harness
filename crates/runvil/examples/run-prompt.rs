@@ -2,8 +2,7 @@
 //! fresh Pack registry, which holds only the built-ins, a finder that
 //! serves its one prompt, and a tokio timer, parses the prompt by its
 //! name, hands the run a recorder, an offline inference broker, and the
-//! operator's name, and prints the greeting the run leaves at its output
-//! file.
+//! operator's name, and prints the greeting the prompt returns.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,13 +19,11 @@ use runvil::{BoxFuture, Error, ErrorCode, Harness, Host, RunSetup};
 /// The name the Host finds the greeting prompt by.
 const GREET_NAME: &str = "greet.md";
 
-/// Greets the name its `text` argument holds and writes the greeting to
-/// `reply.txt`.
+/// Returns a greeting for the name its `text` argument holds.
 const GREET: &str = concat!(
     "---\nname: greet\ndescription: Greets the operator by name\nrunvil: 0\n",
-    "output: { path: reply.txt, description: The greeting }\n",
     "---\n\n## Answer\n\n```lua\n",
-    "store.write('reply.txt', 'Hello, ' .. args.text .. '.')\n",
+    "return 'Hello, ' .. args.text .. '.'\n",
     "```\n",
 );
 
@@ -97,11 +94,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Run it to its end; the Harness is spent.
     let report = Harness::new(host, prompt, setup).run().await?;
 
-    // 5. The report says how the run ended and what it left at its output
-    //    file, and the recorder holds the run's result.
-    assert!(report.result.is_ok());
-    assert_eq!(recorder.result(report.run_id), Some(report.result));
-    let greeting = report.output?;
+    // 5. The report says how the run ended: its result is the greeting
+    //    the prompt returned, and the recorder holds the same result.
+    assert_eq!(recorder.result(report.run_id), Some(report.result.clone()));
+    let greeting = report.result?;
     assert_eq!(greeting, "Hello, desk.");
     println!("{greeting}");
     Ok(())

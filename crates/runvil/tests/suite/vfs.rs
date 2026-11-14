@@ -11,16 +11,16 @@ use runvil::vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsError, VfsPath,
 
 use crate::support::{Offline, launch, no_packs};
 
-/// Reads the notes, waits for the operator's message, and writes the
-/// approved notes.
+/// Reads the notes, waits for the operator's message, writes the approved
+/// notes, and returns them.
 const REVIEW: &str = concat!(
     "---\nname: review\ndescription: Reads the notes, then waits for the operator\nrunvil: 0\n",
     "uses:\n  - user\n",
-    "output: { path: summary.md, description: The approved notes }\n",
     "---\n\n## Approve\n\n```lua\n",
     "local notes = store.read('notes.md')\n",
     "local answer = tasks.receive()\n",
     "store.write('summary.md', notes .. ' ' .. answer)\n",
+    "return store.read('summary.md')\n",
     "```\n",
 );
 
@@ -153,7 +153,7 @@ async fn a_hosts_edit_of_a_file_the_run_read_conflicts_while_the_run_waits_on_it
         "the run's own file operations name the prompt by its frontmatter `name`"
     );
     assert_eq!(
-        report.output.expect("the run completed"),
+        report.result.expect("the run completed"),
         "Ship on Friday. Approved."
     );
 }

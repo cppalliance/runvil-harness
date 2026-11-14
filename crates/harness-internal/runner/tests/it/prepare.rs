@@ -10,7 +10,7 @@
 //! `ToolCall` effect to the Pack its id names. The setup's arguments
 //! reaching the prepared run sit in the `args` child module, a Pack's
 //! prelude reaching the prepared run sits in the `prelude` child module,
-//! the prompt's declared output file sits in the `files` child module, the
+//! the files a Host seeds in the store sit in the `files` child module, the
 //! wait for each Pack to be ready sits in the `ready` child module, and
 //! the built-in `runvil/user`, which only a run with a user holds, sits
 //! in the `user` child module.

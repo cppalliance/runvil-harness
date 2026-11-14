@@ -10,33 +10,6 @@ use runvil_types::packs::PackRef;
 use crate::contract::RoleMap;
 use crate::{ArgsSchema, Result, RoleRequirements, error};
 
-/// The file a prompt's frontmatter declares under `output:`.
-///
-/// The `path` is the file's name in the store, which the prompt writes.
-/// The `description` documents the file's purpose for the caller.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FileDecl {
-    /// The store-internal path (e.g. `"paper.md"`).
-    path: String,
-    /// Human-readable purpose of this file.
-    description: String,
-}
-
-impl FileDecl {
-    /// Returns the file's path in the store, such as `paper.md`.
-    #[must_use]
-    pub fn path(&self) -> &str {
-        &self.path
-    }
-
-    /// Returns the human-readable description.
-    #[must_use]
-    pub fn description(&self) -> &str {
-        &self.description
-    }
-}
-
 /// The parsed frontmatter of a prompt file.
 ///
 /// Parsing accepts only the keys this schema defines. Any other key, such as
@@ -62,9 +35,6 @@ pub struct Frontmatter {
     /// cap can reach execution.
     #[serde(default, deserialize_with = "max_tool_iterations")]
     max_tool_iterations: Option<NonZeroU32>,
-    /// A file the prompt will leave in the store when it finishes.
-    #[serde(default)]
-    output: Option<FileDecl>,
     /// Packs the prompt declares, each a bare Pack id or vendor/name, in
     /// declaration order: each is required, and its prelude runs in every
     /// section.
@@ -140,14 +110,6 @@ impl Frontmatter {
     #[must_use]
     pub fn max_tool_iterations(&self) -> Option<NonZeroU32> {
         self.max_tool_iterations
-    }
-
-    /// Returns the declared output file, when present.
-    ///
-    /// The prompt leaves this file in the store when it finishes.
-    #[must_use]
-    pub fn output(&self) -> Option<&FileDecl> {
-        self.output.as_ref()
     }
 
     /// Returns the `uses:` entries, in declaration order.

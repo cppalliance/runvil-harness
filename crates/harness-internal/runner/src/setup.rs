@@ -23,8 +23,7 @@ pub struct RunSetup {
     pub recorder: Arc<dyn RunRecorder>,
     /// Lists the models and performs model rounds.
     pub broker: Arc<dyn InferenceBroker>,
-    /// The run's whole filesystem: the run works in it, and the declared
-    /// output is read from it.
+    /// The run's whole filesystem, which the run works in.
     pub vfs: VfsRef,
     /// The model id the user selected, if any.
     pub selected_model: Option<String>,

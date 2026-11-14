@@ -5,7 +5,6 @@
 //! recorded failed run, never an error of `Harness::run`.
 
 use super::*;
-use crate::support::assert_not_completed;
 
 /// A prompt with no `args:` key that returns the type of its `args`
 /// beside the one field such a prompt declares, `text`.
@@ -77,5 +76,4 @@ async fn args_the_prompt_refuses_end_the_run_as_a_recorded_failed_run_not_an_err
         "the recorder holds the refusal as the run's failure"
     );
     assert_no_records(&recorder, report.run_id);
-    assert_not_completed(&report.output);
 }

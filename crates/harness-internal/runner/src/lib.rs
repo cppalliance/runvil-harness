@@ -12,9 +12,9 @@
 //! through its performer and answers each Vfs effect inline, feeds the
 //! answers back, delivers each message the launcher sends through the
 //! run's [`RunControl`] to the main chain, hands every event, effect, and
-//! answer to the run's recorder, ends the run there with its result, the
-//! final text or the error that ended it, and reads the declared output
-//! file, all inside the one future [`Harness::run`] returns. A cancel is
+//! answer to the run's recorder, and ends the run there with its result,
+//! the final text or the error that ended it, all inside the one future
+//! [`Harness::run`] returns. A cancel is
 //! the error whose code is `canceled`. A recorder
 //! that refuses a write is the only way a run ends without a recorded
 //! result, and that refusal, a `RecorderFailed` error, is the only error
@@ -31,8 +31,7 @@
 //!   and `tokio` and `tokio-util` appear only under `[dev-dependencies]`
 //!   (enforced by the Harness tokio ban in `cargo test -p build-xtask`).
 //! - The Harness reads each [`RunSetup`] field once per run: the run works
-//!   in, and the declared output is read from, the one filesystem the
-//!   setup holds.
+//!   in the one filesystem the setup holds.
 //! - The recorder is written in loop order: a step's events before the
 //!   step's effects are issued, each effect before its performer starts,
 //!   each answer before the run resumes with it, and each sent message's
@@ -63,7 +62,6 @@
 mod display_chain;
 pub mod effect_loop;
 mod environment;
-pub mod files;
 mod harness;
 mod host;
 mod packs;

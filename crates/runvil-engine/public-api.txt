@@ -111,7 +111,6 @@ auto runvil_engine::packs::PackRef: Freeze, RefUnwindSafe, Send, Sync, Unpin, Un
 auto runvil_engine::packs::Prelude: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::packs::RosterEntry: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::prompt::ArgsSchema: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil_engine::prompt::FileDecl: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::prompt::Frontmatter: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::prompt::RoleRequirements: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::vfs::Access: !Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
@@ -202,7 +201,6 @@ derives runvil_engine::packs::PackRef: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil_engine::packs::Prelude: Clone, Debug, Eq, PartialEq
 derives runvil_engine::packs::RosterEntry: Clone, Debug, Eq, PartialEq
 derives runvil_engine::prompt::ArgsSchema: Clone, Debug, Default, Deserialize, Eq, PartialEq
-derives runvil_engine::prompt::FileDecl: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil_engine::prompt::Frontmatter: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil_engine::prompt::RoleRequirements: Clone, Copy, Debug, Deserialize, Eq, PartialEq
 derives runvil_engine::vfs::Access: Debug
@@ -486,13 +484,10 @@ pub fn runvil_engine::packs::Prelude::new(pack: runvil_engine::packs::PackId, so
 pub fn runvil_engine::packs::Prelude::pack(&self) -> &runvil_engine::packs::PackId
 pub fn runvil_engine::packs::Prelude::source(&self) -> &str
 pub fn runvil_engine::prompt::ArgsSchema::as_json(&self) -> &serde_json::value::Value
-pub fn runvil_engine::prompt::FileDecl::description(&self) -> &str
-pub fn runvil_engine::prompt::FileDecl::path(&self) -> &str
 pub fn runvil_engine::prompt::Frontmatter::args(&self) -> &runvil_engine::prompt::ArgsSchema
 pub fn runvil_engine::prompt::Frontmatter::description(&self) -> &str
 pub fn runvil_engine::prompt::Frontmatter::max_tool_iterations(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
 pub fn runvil_engine::prompt::Frontmatter::name(&self) -> &str
-pub fn runvil_engine::prompt::Frontmatter::output(&self) -> core::option::Option<&runvil_engine::prompt::FileDecl>
 pub fn runvil_engine::prompt::Frontmatter::role_requirements(&self, role: runvil_engine::model::ModelRole) -> core::option::Option<&runvil_engine::prompt::RoleRequirements>
 pub fn runvil_engine::prompt::Frontmatter::runvil(&self) -> core::option::Option<u32>
 pub fn runvil_engine::prompt::Frontmatter::uses(&self) -> &[runvil_engine::packs::PackRef]
@@ -621,7 +616,6 @@ pub runvil_engine::ErrorCode::LuaRuntime = 201
 pub runvil_engine::ErrorCode::MalformedResponse = 410
 pub runvil_engine::ErrorCode::ModelOnlyTool = 507
 pub runvil_engine::ErrorCode::ModelRequired = 415
-pub runvil_engine::ErrorCode::NoOutput = 803
 pub runvil_engine::ErrorCode::NoStore = 616
 pub runvil_engine::ErrorCode::NotADirectory = 603
 pub runvil_engine::ErrorCode::NotFound = 601
@@ -1174,7 +1168,6 @@ pub struct runvil_engine::packs::GlobalName { /* private fields */ }
 pub struct runvil_engine::packs::PackRef { /* private fields */ }
 pub struct runvil_engine::packs::Prelude { /* private fields */ }
 pub struct runvil_engine::prompt::ArgsSchema { /* private fields */ }
-pub struct runvil_engine::prompt::FileDecl { /* private fields */ }
 pub struct runvil_engine::prompt::Frontmatter { /* private fields */ }
 pub struct runvil_engine::prompt::RoleRequirements { /* private fields */ }
 pub struct runvil_engine::vfs::Access { /* private fields */ }

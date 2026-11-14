@@ -323,7 +323,6 @@ async fn a_cancel_while_a_declared_pack_is_still_starting_ends_the_run_canceled_
 
     let report = report.expect("a canceled run is reported");
     crate::support::assert_canceled(&report.result);
-    crate::support::assert_not_completed(&report.output);
     assert_eq!(
         recorder.result(report.run_id),
         Some(report.result),

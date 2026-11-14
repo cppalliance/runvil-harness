@@ -88,7 +88,7 @@ fn an_error_is_a_cancel_exactly_when_its_code_is_canceled() {
 }
 
 /// Every code, in declaration order.
-const ALL: [ErrorCode; 69] = [
+const ALL: [ErrorCode; 68] = [
     ErrorCode::FrontmatterInvalid,
     ErrorCode::StructureInvalid,
     ErrorCode::FenceInvalid,
@@ -157,7 +157,6 @@ const ALL: [ErrorCode; 69] = [
     ErrorCode::ArgsInvalid,
     ErrorCode::RecorderFailed,
     ErrorCode::PluginLoadFailed,
-    ErrorCode::NoOutput,
 ];
 
 /// The family hundred of each code. The match is exhaustive, so a new code
@@ -230,7 +229,7 @@ fn family(code: ErrorCode) -> u16 {
         | ErrorCode::Internal
         | ErrorCode::Stalled
         | ErrorCode::ArgsInvalid => 7,
-        ErrorCode::RecorderFailed | ErrorCode::PluginLoadFailed | ErrorCode::NoOutput => 8,
+        ErrorCode::RecorderFailed | ErrorCode::PluginLoadFailed => 8,
     }
 }
 

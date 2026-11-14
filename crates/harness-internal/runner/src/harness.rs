@@ -6,10 +6,10 @@
 //! [`RunSetup`], takes the run's [`RunControl`], and awaits
 //! [`Harness::run`] on whatever executor it likes. The run begins its
 //! record, resolves the run's model through the setup's broker, prepares
-//! the prompt, drives the run through the effect loop, and reads the
-//! declared output file of a completed run. Every performer future is
-//! polled inside that one future, and every VFS operation runs inline in
-//! it, so the Harness starts no task and names no runtime. The stop and
+//! the prompt, and drives the run through the effect loop. Every performer
+//! future is polled inside that one future, and every VFS operation runs
+//! inline in it, so the Harness starts no task and names no runtime. The
+//! stop and
 //! the cancel a [`RunControl`] raises are plain flags any thread can set,
 //! the messages it sends wait in a queue any thread can fill, and the
 //! run's effect loop is their one waiter.
@@ -28,7 +28,6 @@ use runvil_engine::{Error, ErrorCode, ErrorFact, Prompt};
 
 use crate::effect_loop::drive;
 use crate::environment::current_model;
-use crate::files::{make_not_completed_error, report_output};
 use crate::host::Host;
 use crate::performers::InferenceBroker;
 use crate::prepare::{begin, prepare};
@@ -63,22 +62,17 @@ impl fmt::Debug for Harness {
     }
 }
 
-/// How one run ended, and what it left at its declared output file.
+/// How one run ended.
 ///
 /// The recorder holds the same result under the same run id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunReport {
     /// The id the recorder issued for the run.
     pub run_id: RunId,
-    /// How the run ended: its final text, or the error that ended it. A
-    /// cancel is the error whose code is `canceled`.
+    /// How the run ended: its final text, which is the value the prompt
+    /// returned, or the error that ended it. A cancel is the error whose
+    /// code is `canceled`.
     pub result: Result<String, Error>,
-    /// The text a completed run left at its declared `output:` file, or
-    /// the reason the report omits that text: `NoOutput` with the `Reason`
-    /// fact `not_completed` or `undeclared`, `NotFound` for a completed
-    /// run that left no file, or the store's failure, each with the
-    /// declared path as the `Path` fact when there is one.
-    pub output: Result<String, runvil_engine::Error>,
     /// Messages sent to the main chain that the run
     /// never read, oldest first.
     pub unread: Vec<String>,
@@ -143,8 +137,8 @@ impl Harness {
     ///
     /// It begins the run's record, resolves the run's model through the
     /// setup's broker, makes the run's Packs and waits for them to be
-    /// ready, drives the run, and reads the declared output file if the
-    /// run completed. The run's Pack instances drop before it returns.
+    /// ready, and drives the run. The run's Pack instances drop before it
+    /// returns.
     /// The returned future is `Send`. Its only runtime needs are those of
     /// the Host's performers and Packs.
     ///
@@ -210,16 +204,11 @@ impl Harness {
                 return Ok(RunReport {
                     run_id,
                     result: Err(error),
-                    output: Err(make_not_completed_error()),
                     unread: control.send_queue().end(),
                 });
             }
         };
 
-        let output_path = prompt
-            .frontmatter()
-            .output()
-            .map(|decl| decl.path().to_owned());
         let (run, packs) = prepare(&host, prompt, &setup, params, model, cancel).await;
 
         let (result, unread) = drive(
@@ -235,11 +224,9 @@ impl Harness {
             Err(refusal) if is_refusal(&refusal) => return Err(recorded(refusal)),
             result => result,
         };
-        let output = report_output(&setup.vfs, output_path.as_deref(), &result);
         Ok(RunReport {
             run_id,
             result,
-            output,
             unread,
         })
     }

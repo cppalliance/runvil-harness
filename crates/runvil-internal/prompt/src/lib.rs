@@ -51,7 +51,7 @@ pub use body_text::BodyText;
 pub use contract::{ArgsSchema, RoleRequirements};
 use error::Result;
 pub use finder::PromptFinder;
-pub use frontmatter::{FileDecl, Frontmatter, MAX_TOOL_ITERATIONS};
+pub use frontmatter::{Frontmatter, MAX_TOOL_ITERATIONS};
 pub use prompt::{Block, Prompt, Section};
 
 #[cfg(test)]

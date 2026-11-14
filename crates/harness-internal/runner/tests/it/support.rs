@@ -22,7 +22,7 @@ use runvil_engine::vfs::{
     Access, AcquireContext, Entry, ExecId, MemoryBackend, Stat, Vfs, VfsAccess, VfsError, VfsPath,
     VfsRef,
 };
-use runvil_engine::{BoxFuture, Error, ErrorCode, ErrorFact};
+use runvil_engine::{BoxFuture, Error, ErrorCode};
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Timestamp};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
 use runvil_plugin::{Pack, PackId, PackInfo, PackRegistry};
@@ -30,19 +30,6 @@ use serde_json::{Value, json};
 
 /// The fixed seed every fixture run and recorded meta takes.
 pub(crate) const TEST_SEED: RunSeed = RunSeed::from_bytes([7; 32]);
-
-/// Asserts a report's `output` is the failure of a run that did not
-/// complete.
-pub(crate) fn assert_not_completed(output: &Result<String, Error>) {
-    let Err(error) = output else {
-        panic!("a run that did not complete reports no output: {output:?}");
-    };
-    assert_eq!(error.code, ErrorCode::NoOutput);
-    assert_eq!(
-        error.facts.get(&ErrorFact::Reason),
-        Some(&json!("not_completed"))
-    );
-}
 
 /// Asserts a run's `result` is a cancel: the error whose code is
 /// `canceled`.

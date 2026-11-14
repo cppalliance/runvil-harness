@@ -18,7 +18,7 @@ use runvil_engine::{Error, ErrorCode, ErrorFact};
 
 use super::{PendingTimer, answers_to, launch, no_packs, plain_harness, run_beside, setup, until};
 use crate::scripted::{Listing, ScriptedBroker};
-use crate::support::{FailingRecorder, assert_not_completed};
+use crate::support::FailingRecorder;
 
 /// A Pack-free prompt whose one section returns a constant.
 const PLAIN: &str = "---\nname: plain\ndescription: d\nrunvil: 0\n---\n\n\
@@ -57,7 +57,7 @@ fn harness_over(recorder: &Arc<FailingRecorder>, broker: ScriptedBroker, source:
 
 /// Asserts that `report` is of a run that ended before it started: the
 /// recorder began it, ended it with the reported result, and holds no
-/// record between, and the report has no output.
+/// record between.
 #[track_caller]
 fn assert_ended_before_it_started(recorder: &FailingRecorder, report: &RunReport) {
     assert_eq!(recorder.begun(), [report.run_id], "the run began");
@@ -71,7 +71,6 @@ fn assert_ended_before_it_started(recorder: &FailingRecorder, report: &RunReport
         "the run ended before it started"
     );
     assert_eq!(recorder.calls(), 2, "the run's begin and its end");
-    assert_not_completed(&report.output);
 }
 
 #[tokio::test]

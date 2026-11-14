@@ -439,9 +439,6 @@ pub enum ErrorCode {
     RecorderFailed = 801,
     /// A Plugin entry point did not open or load.
     PluginLoadFailed = 802,
-    /// The run report has no output text: the run did not complete, or the
-    /// prompt declares no `output:` file.
-    NoOutput = 803,
 }
 
 impl ErrorCode {
@@ -525,7 +522,6 @@ impl ErrorCode {
             ErrorCode::ArgsInvalid => "args_invalid",
             ErrorCode::RecorderFailed => "recorder_failed",
             ErrorCode::PluginLoadFailed => "plugin_load_failed",
-            ErrorCode::NoOutput => "no_output",
         }
     }
 
@@ -602,7 +598,6 @@ impl ErrorCode {
             "args_invalid" => ErrorCode::ArgsInvalid,
             "recorder_failed" => ErrorCode::RecorderFailed,
             "plugin_load_failed" => ErrorCode::PluginLoadFailed,
-            "no_output" => ErrorCode::NoOutput,
             _ => return None,
         })
     }
@@ -820,7 +815,6 @@ impl ErrorCode {
             ErrorCode::PluginLoadFailed => {
                 "A plugin could not be loaded, so its tools are not available."
             }
-            ErrorCode::NoOutput => "The run produced no output text.",
         }
     }
 }

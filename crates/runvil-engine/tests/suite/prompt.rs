@@ -9,7 +9,6 @@ use super::prepare::refusal;
 use super::support::{Built, Scenario, TestResult, model, prompt};
 
 const CONTRACT: &str = "
-    output: { path: note.md, description: The note the greeter leaves }
     uses: [text]
     args: { type: object, properties: { times: { type: integer, default: 1 }, name: { type: string } }, required: [name] }
     models: { fast: {} }
@@ -26,10 +25,6 @@ fn the_frontmatter_lists_every_declaration_and_gives_its_arguments_as_json_schem
         "A prompt the facade suite builds."
     );
 
-    let output = frontmatter
-        .output()
-        .map(|file| (file.path(), file.description()));
-    assert_eq!(output, Some(("note.md", "The note the greeter leaves")));
     let packs: Vec<_> = frontmatter
         .uses()
         .iter()

@@ -1,6 +1,6 @@
 //! The per-run Harness: `run` begins the run's record, resolves the run's
-//! model through the setup's broker, prepares the parsed prompt, drives
-//! the run as one future, and reads the declared output; the record opens
+//! model through the setup's broker, prepares the parsed prompt, and
+//! drives the run as one future; the record opens
 //! with the run's own start, numbered from zero; the `ui()` snapshot serves the
 //! setup's selection and first workspace root; a run that fails after it
 //! starts is a recorded failed run, never an error of `run`; a Vfs effect
@@ -32,7 +32,7 @@ use runvil_plugin::PackRegistry;
 use serde_json::{Value, json};
 
 use crate::scripted::{Kept, MODEL, ScriptedBroker};
-use crate::support::{HookedBackend, PendingTimer, assert_not_completed, host_over, parsed};
+use crate::support::{HookedBackend, PendingTimer, host_over, parsed};
 
 #[path = "harness-errors.rs"]
 mod errors;
@@ -174,12 +174,12 @@ fn main_waits(records: &[Record]) -> usize {
     inbox_waits(records, "0")
 }
 
-/// A prompt declaring `report.md` as its output, whose one section writes
-/// it from the `paper.md` it finds in the store.
-const FILES: &str = "---\nname: files\ndescription: d\nrunvil: 0\n\
-    output:\n  path: report.md\n  description: The report\n---\n\n\
+/// A prompt whose one section writes `report.md` from the `paper.md` it
+/// finds in the store, and returns the report.
+const FILES: &str = "---\nname: files\ndescription: d\nrunvil: 0\n---\n\n\
     ## Only\n\n```lua\n\
-    store.write('report.md', 'seen: ' .. store.read('paper.md'))\nreturn 'done'\n```\n";
+    store.write('report.md', 'seen: ' .. store.read('paper.md'))\n\
+    return store.read('report.md')\n```\n";
 
 /// A prompt whose one section writes a store file and then raises.
 const RAISES: &str = "---\nname: raises\ndescription: d\nrunvil: 0\n---\n\n\
@@ -205,7 +205,7 @@ const READS_UI: &str = "---\nname: reads-ui\ndescription: d\nrunvil: 0\n---\n\n\
     return tostring(ui().selected_model) .. '|' .. tostring(ui().workspace_root)\n```\n";
 
 #[tokio::test]
-async fn a_seeded_file_and_a_declared_output_round_trip_beside_the_recorded_result() {
+async fn a_seeded_file_round_trips_into_the_recorded_result() {
     let recorder = Arc::new(MemoryRecorder::new());
     let vfs = VfsRef::default();
     vfs.acquire_store(Origin::new("harness test"))
@@ -223,8 +223,7 @@ async fn a_seeded_file_and_a_declared_output_round_trip_beside_the_recorded_resu
     );
     let report = harness.run().await.expect("the run is reported");
 
-    assert_eq!(report.result, Ok("done".to_owned()));
-    assert_eq!(report.output, Ok("seen: # Paper".to_owned()));
+    assert_eq!(report.result, Ok("seen: # Paper".to_owned()));
     let run_id = report.run_id;
     assert_eq!(
         recorder.result(run_id),
@@ -245,7 +244,7 @@ async fn a_seeded_file_and_a_declared_output_round_trip_beside_the_recorded_resu
         .filter(|(_, kind)| **kind == RecordKind::Effect)
         .map(|(position, _)| position)
         .collect();
-    assert_eq!(effects.len(), 2, "the read and the write");
+    assert_eq!(effects.len(), 3, "the read, the write, and the read back");
     for position in effects {
         assert_eq!(
             kinds[position + 1],
@@ -332,7 +331,6 @@ async fn a_run_that_fails_after_it_starts_is_a_recorded_failed_run_not_an_error(
     );
     let run_id = report.run_id;
     assert_eq!(recorder.result(run_id), Some(report.result.clone()));
-    assert_not_completed(&report.output);
     assert_eq!(
         answers_to(&recorder.records(run_id), "Vfs"),
         [json!({ "Vfs": { "Ok": "Unit" } })],

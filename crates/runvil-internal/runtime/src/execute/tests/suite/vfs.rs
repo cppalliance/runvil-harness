@@ -1,8 +1,7 @@
 //! The executor's `VfsRef` contract with its caller: an end-to-end run
 //! over the caller's handle, and the seed-run-extract round trip a caller
 //! drives with no real files - seed a file through the run's handle, run,
-//! extract the declared output, and charge a missing output to the
-//! prompt's promise as an explicit contract error.
+//! and read what the run wrote back through the handle.
 //! Then the run-bounded scope: a run's `Done`, or its drop before `Done`,
 //! ends its scope however long the caller holds the store views it was
 //! handed.
@@ -12,11 +11,10 @@ use std::sync::Arc;
 use crate::Error;
 use crate::execute::run::{Effect, IssuedEffect, Run, Step};
 use crate::execute::tests::context::{parse, test_params};
-use crate::prompt::Prompt;
 use crate::test_support::perform_locally;
 use crate::test_support::scenario::Scenario;
 use crate::test_support::temp_root::TempRoot;
-use runvil_prompt::test_support::{parse_ok, prompt};
+use runvil_prompt::test_support::prompt;
 use runvil_vfs::{Access, Origin, RealBackend, VfsError, VfsRef};
 
 const ROUND_TRIP_PROMPT: &str = concat!(
@@ -24,31 +22,12 @@ const ROUND_TRIP_PROMPT: &str = concat!(
     "name: round-trip\n",
     "description: Seed, run, extract\n",
     "runvil: 0\n",
-    "output:\n",
-    "  path: report.md\n",
-    "  description: The output report\n",
     "---\n\n",
     "## Summarize\n\n",
     "```lua\n",
     "local paper = store.read('paper.md')\n",
     "store.write('report.md', 'report on: ' .. paper)\n",
     "return 'done'\n",
-    "```\n",
-);
-
-const MISSING_OUTPUT: &str = concat!(
-    "---\n",
-    "name: missing-output\n",
-    "description: Never writes its promised report\n",
-    "runvil: 0\n",
-    "output:\n",
-    "  path: report.md\n",
-    "  description: The output report\n",
-    "---\n\n",
-    "## Summarize\n\n",
-    "```lua\n",
-    "local paper = store.read('paper.md')\n",
-    "return 'read: ' .. paper\n",
     "```\n",
 );
 
@@ -59,27 +38,7 @@ fn fresh_store_view(vfs: &VfsRef, origin: &str) -> Access {
         .expect("the handle declares a store")
 }
 
-/// The test's extraction rule: a declared output the run did not leave
-/// behind is an explicit contract error naming the prompt's promise, never
-/// a bare not-found.
-fn extract_declared_output(store: &Access, prompt: &Prompt) -> Result<String, String> {
-    let output = prompt
-        .frontmatter()
-        .output()
-        .expect("the fixture declares an output");
-    store
-        .read_string(output.path())
-        .map_err(|error| match error {
-            VfsError::NotFound { .. } => format!(
-                "the prompt promised output '{}' ({}) but the run left no such file",
-                output.path(),
-                output.description()
-            ),
-            other => format!("extracting the declared output failed: {other}"),
-        })
-}
-
-/// Seeds `paper.md`, the file both fixtures read, through the handle the
+/// Seeds `paper.md`, the file the fixture reads, through the handle the
 /// run will take. The seeding access drops here - its scope ends - so the
 /// run's own scope never meets the caller's.
 fn seed_paper(vfs: &VfsRef, contents: &str) {
@@ -128,29 +87,10 @@ fn an_end_to_end_run_threads_one_vfs_ref_through_every_section() {
 fn a_caller_seeds_and_extracts_through_the_runs_handle_with_no_real_files() {
     let (text, vfs) = seeded_run(ROUND_TRIP_PROMPT, "the paper body");
     assert_eq!(text, "done");
-    let store = fresh_store_view(&vfs, "round-trip extraction");
-    let report = extract_declared_output(&store, &parse_ok(ROUND_TRIP_PROMPT))
-        .expect("the run left its promised output");
+    let report = fresh_store_view(&vfs, "round-trip extraction")
+        .read_string("report.md")
+        .expect("the run left its report");
     assert_eq!(report, "report on: the paper body");
-}
-
-#[test]
-fn a_missing_declared_output_is_a_contract_error_naming_the_prompts_promise() {
-    // The executor does not enforce the declaration; the run succeeds and
-    // the caller's extraction is where the broken promise surfaces.
-    let (text, vfs) = seeded_run(MISSING_OUTPUT, "the paper body");
-    assert_eq!(text, "read: the paper body");
-    let store = fresh_store_view(&vfs, "missing-output extraction");
-    let error = extract_declared_output(&store, &parse_ok(MISSING_OUTPUT))
-        .expect_err("the missing output is a contract error");
-    assert!(
-        error.contains("report.md"),
-        "the error names the promised path: {error}"
-    );
-    assert!(
-        error.contains("The output report"),
-        "the error names the promise's description: {error}"
-    );
 }
 
 #[test]
