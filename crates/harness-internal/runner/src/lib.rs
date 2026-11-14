@@ -2,7 +2,11 @@
 //! Host builds one [`Host`] at startup, holding its installed [`Packs`],
 //! how it finds prompts, and its timer, and [`Host::parse`] finds a prompt
 //! by its name, parses it, and checks its `uses:` list against those
-//! Packs. A launcher hands each run a [`RunSetup`] with everything that
+//! Packs. Three stock finders serve a Host that writes none of
+//! its own: [`FindTextPrompt`] one prompt from text,
+//! [`FindFilePrompt`] one from a file, and [`PromptSet`] the prompts
+//! a Host inserts as text, as files, and as directories.
+//! A launcher hands each run a [`RunSetup`] with everything that
 //! run gets on top of the Host. A [`Harness`] over the Host, the parsed
 //! prompt, and the setup begins the run at the setup's recorder with the
 //! inputs the Engine refuses to draw itself, resolves the run's model
@@ -49,19 +53,26 @@
 //! - A Host's [`Packs`] keeps the factory of every Pack its
 //!   `PackRegistry` holds, and only those. The registry holds the
 //!   built-ins `runvil/subagents` and `runvil/user` from the start and
-//!   refuses a duplicate FQN and a built-in's Pack id to every other
-//!   Pack, so no other Pack can take `subagents` or `user`. A run whose
-//!   [`RunSetup`] has no user holds `runvil/user` unavailable, with the
-//!   reason "this run has no user", and never makes it.
-//! - A run holds only the Packs its prompt declares and every `runvil`
-//!   Pack whose Pack id no declaration takes. It makes its own instance of
-//!   each of them and of no other Pack, waits on no other Pack's `ready`,
-//!   and drops its instances when its future ends.
+//!   refuses a duplicate FQN and a Pack id it holds already, so it holds
+//!   one Pack per Pack id and no other Pack can take `subagents` or
+//!   `user`. A run whose [`RunSetup`] has no user holds `runvil/user`
+//!   unavailable, with the reason "this run has no user", and never makes
+//!   it.
+//! - A run holds every Pack the Host installed, whatever its prompt
+//!   declares: a `uses:` entry only marks a Pack as required. The one
+//!   Pack a run leaves out is a Pack whose Pack id a `uses:` entry names
+//!   under a vendor the Host did not install it from, and that run is
+//!   refused. A run makes its own instance of each of its Packs, waits on
+//!   the `ready` of each instance, and drops its instances when its future
+//!   ends.
 //! - Host services reach only a Plugin's `install`, and a tool call gets
 //!   only facts about that call.
 //! - A factory that refuses or panics leaves its Pack unavailable to that
 //!   run alone: a refusal is logged at debug and a panic at error, and the
 //!   next run calls the factory again.
+//! - A stock finder reads a file only inside a find, and the Harness calls
+//!   a finder only from [`Host::parse`], before the run exists. So no file
+//!   read happens inside a run's future.
 
 mod display_chain;
 pub mod effect_loop;
@@ -71,6 +82,7 @@ mod host;
 mod packs;
 pub mod performers;
 mod prepare;
+mod prompt_finders;
 pub mod recorder;
 mod recorder_memory;
 mod setup;
@@ -79,6 +91,7 @@ pub use display_chain::display_chain;
 pub use harness::{Harness, RunControl, RunReport};
 pub use host::Host;
 pub use packs::Packs;
+pub use prompt_finders::{FindFilePrompt, FindTextPrompt, PromptSet};
 pub use recorder::{
     MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder, make_recorder_error,
 };

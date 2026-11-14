@@ -276,8 +276,8 @@ pub(crate) fn keeping_hold_host(held: &Arc<Held>, kept: &Arc<Held>) -> Packs {
     Packs::new(packs)
 }
 
-/// A Host that installed the hold Pack over `held`, which reaches only a
-/// run that declares it.
+/// A Host that installed the hold Pack over `held`, its tool surviving a
+/// stop when `survives_stop` is set.
 fn host_holding(held: &Arc<Held>, survives_stop: bool) -> Packs {
     let mut packs = registry(&[]);
     packs.insert(HOLD, holding(held, survives_stop)).unwrap();

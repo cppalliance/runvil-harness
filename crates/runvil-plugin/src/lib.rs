@@ -33,6 +33,8 @@
 //! makes unavailable to a run with no user.
 //!
 //! The Host owns the [`PackRegistry`]; a Plugin only inserts its Packs into it.
+//! The registry holds one Pack per Pack id, so it refuses a Pack whose
+//! Pack id another Pack holds, whatever the vendor of either.
 //!
 //! Each Pack is a [`PackInfo`], built with [`PackInfo::new`]: its FQN, an
 //! optional Lua prelude, and a one-line description. Its [`PackFactory`]

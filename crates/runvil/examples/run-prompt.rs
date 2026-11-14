@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use runvil::effect::Round;
-use runvil::harness::{InferenceBroker, MemoryRecorder, Packs, Timer};
+use runvil::harness::{FindTextPrompt, InferenceBroker, MemoryRecorder, Packs, Timer};
 use runvil::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
     make_completion_error, phrase,
@@ -26,19 +26,6 @@ const GREET: &str = concat!(
     "return 'Hello, ' .. args.text .. '.'\n",
     "```\n",
 );
-
-/// Serves [`GREET`] under [`GREET_NAME`] and finds no other prompt.
-fn find(name: &str) -> Result<String, Error> {
-    if name == GREET_NAME {
-        return Ok(GREET.to_owned());
-    }
-    let code = ErrorCode::NotFound;
-    Err(Error::new(
-        code,
-        format!("no prompt named {name}"),
-        code.prose(),
-    ))
-}
 
 /// Lists no model and refuses every round, since the prompt asks no model.
 struct Offline;
@@ -73,10 +60,11 @@ impl Timer for Clock {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Build the Host once: its installed Packs, how it finds prompts,
-    //    and its timer.
+    //    and its timer. A stock finder serves the one prompt under its
+    //    name and finds no other.
     let host = Arc::new(Host {
         packs: Packs::new(PackRegistry::new()),
-        prompts: Arc::new(find),
+        prompts: Arc::new(FindTextPrompt::new(GREET_NAME, GREET)),
         timer: Arc::new(Clock),
     });
 

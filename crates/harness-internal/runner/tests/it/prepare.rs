@@ -591,15 +591,18 @@ async fn a_script_reaches_an_undeclared_runvil_packs_tool_by_full_id_without_its
 }
 
 #[tokio::test]
-async fn an_undeclared_third_party_pack_is_not_in_the_run() {
+async fn a_script_reaches_an_undeclared_pack_of_another_vendor_by_full_id_without_its_prelude() {
     let undeclared = "---\nname: undeclared\ndescription: d\nrunvil: 0\n---\n\n\
         ## Only\n\n```lua\n\
-        local ok = pcall(tools.call, 'tools/echo', { value = 'hi' })\n\
-        return tostring(ok) .. '|' .. tostring(tools.packs.get('tools'))\n```\n";
+        local pack = tools.packs.get('kit')\n\
+        return tools.call('kit/echo', { value = 'hi' }) .. '|' .. \
+          tostring(pack.required) .. '|' .. type(kit)\n```\n";
+    let kit = echo_pack("tests/kit", Some("kit = {}\n"));
     assert_eq!(
-        completed(drive_over(undeclared, building(TOOLS)).await),
-        "false|nil",
-        "tests/tools reaches only a run that declares it"
+        completed(drive_over(undeclared, building(kit)).await),
+        "hi|false|nil",
+        "tests/kit is in a run that does not declare it: its tool is in the catalog, it is \
+         not required, and its prelude is not installed"
     );
 }
 
@@ -625,12 +628,12 @@ async fn the_packs_split_by_declaration_and_a_script_calls_an_extras_tool_object
         local extra = extras[1].tools[1]\n\
         return tostring(declared.required) .. ':' .. declared.tools[1].id .. '|' .. \
           extras[1].name .. ':' .. extra.id .. '|' .. tools.call(extra, { value = 'hi' })\n```\n";
-    let extra = echo_pack("runvil/extra", None);
+    let extra = echo_pack("acme/extra", None);
     let host = Packs::new(registry(&[TOOLS, extra]));
     assert_eq!(
         completed(drive_over(offering, host).await),
         "true:tools/echo|extra:extra/echo|hi",
-        "the declared Pack is required, the undeclared one an extra, and its tool's \
-         object reaches its Pack"
+        "the declared Pack is required, the undeclared one an extra whatever its vendor, \
+         and its tool's object reaches its Pack"
     );
 }

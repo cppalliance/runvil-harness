@@ -1,63 +1,136 @@
-//! The pick of each run's Packs: a bare entry means the runvil Pack of
-//! its id, a declared third-party Pack stands in for the runvil Pack of
-//! its id, an undeclared third-party Pack is in no run, what the pick
-//! cannot resolve is on the roster with its reason or, with none, left
-//! off it, the Host refuses at parse only a declared Pack not installed or
-//! inserted unavailable, and the ready wait covers only the run's Packs,
-//! keying each failure by FQN.
+//! The pick of each run's Packs: every installed Pack is in every run,
+//! whatever its vendor and whatever the prompt declares, the declared
+//! ones first; a bare entry means the runvil Pack of its id; an entry the
+//! pick cannot resolve is on the roster with its reason or, with none,
+//! left off it, and keeps the Pack another vendor installed under its
+//! Pack id out of the run; the Host refuses at parse only a declared Pack
+//! not installed or inserted unavailable; and the ready wait covers every
+//! Pack the run holds, keying each failure by FQN.
 
 use super::*;
 use crate::packs::wait_ready;
 
-/// A Host holding `runvil/web`, `acme/web`, and `acme/poop`, each
-/// offering one tool named after its vendor: `web/runvil`, `web/acme`,
-/// and `poop/acme`. `acme/web`'s `ready` answers as `acme_ready` says.
-fn vendors(acme_ready: &str) -> Packs {
+/// A Host holding `runvil/web` and `acme/poop`, each offering one tool:
+/// `web/fetch` and `poop/scoop`. `acme/poop`'s `ready` answers as
+/// `poop_ready` says.
+fn vendors(poop_ready: &str) -> Packs {
     host(&[
-        (info("runvil/web"), offering(&["web/runvil"])),
+        (info("runvil/web"), offering(&["web/fetch"])),
         (
-            info("acme/web"),
-            json!({ "tools": [tool("web/acme")], "ready": acme_ready }),
+            info("acme/poop"),
+            json!({ "tools": [tool("poop/scoop")], "ready": poop_ready }),
         ),
-        (info("acme/poop"), offering(&["poop/acme"])),
     ])
+}
+
+#[test]
+fn a_run_that_declares_nothing_holds_every_installed_pack_whatever_its_vendor() {
+    let host = vendors("ready");
+    assert_eq!(
+        catalog_ids(&host, &prompt("")),
+        ["poop/scoop", "web/fetch"],
+        "the catalog holds the tools of acme/poop, which no entry names"
+    );
+    assert_eq!(usable(&host, &prompt("")), ["poop", "subagents", "web"]);
 }
 
 #[test]
 fn a_bare_entry_runs_with_the_runvil_pack_of_that_id() {
     let host = vendors("ready");
     let declares = prompt("uses:\n  - web\n");
-    assert_eq!(catalog_ids(&host, &declares), ["web/runvil"]);
+    assert_eq!(catalog_ids(&host, &declares), ["poop/scoop", "web/fetch"]);
     let run = begin(&host, BTreeMap::new(), &declares);
     assert_eq!(run.roster().get(&name("web")), Some(&usable_from("runvil")));
 }
 
 #[test]
-fn a_declared_third_party_pack_replaces_the_runvil_pack_of_its_id() {
+fn the_pick_is_every_installed_pack_with_the_declared_ones_first() {
     let host = vendors("ready");
+    for (uses, fqns) in [
+        (
+            "",
+            ["acme/poop", "runvil/subagents", "runvil/user", "runvil/web"],
+        ),
+        (
+            "uses:\n  - acme/poop\n",
+            ["acme/poop", "runvil/subagents", "runvil/user", "runvil/web"],
+        ),
+        (
+            "uses:\n  - web\n",
+            ["runvil/web", "acme/poop", "runvil/subagents", "runvil/user"],
+        ),
+        (
+            "uses:\n  - user\n  - web\n  - acme/poop\n",
+            ["runvil/user", "runvil/web", "acme/poop", "runvil/subagents"],
+        ),
+    ] {
+        let picked = host.pick(&prompt(uses));
+        assert_eq!(
+            picked.fqns, fqns,
+            "the declared Packs in declaration order, then every other installed Pack once: \
+             {uses:?}"
+        );
+        assert!(picked.unresolved.is_empty(), "{:?}", picked.unresolved);
+    }
+}
+
+#[test]
+fn a_runs_roster_and_catalog_are_the_same_whatever_its_prompt_declares() {
+    let host = vendors("ready");
+    let plain = begin(&host, BTreeMap::new(), &prompt(""));
+    for uses in [
+        "uses:\n  - web\n",
+        "uses:\n  - acme/poop\n",
+        "uses:\n  - acme/poop\n  - web\n  - subagents\n",
+    ] {
+        let run = begin(&host, BTreeMap::new(), &prompt(uses));
+        assert_eq!(run.roster(), plain.roster(), "{uses:?}");
+        assert_eq!(snapshot_ids(&run), snapshot_ids(&plain), "{uses:?}");
+    }
     assert_eq!(
-        catalog_ids(&host, &prompt("uses:\n  - acme/web\n")),
-        ["web/acme"]
-    );
-    assert_eq!(
-        catalog_ids(&host, &prompt("uses:\n  - acme/poop\n")),
-        ["poop/acme", "web/runvil"],
-        "a third-party Pack of a new id joins the runvil Packs"
+        plain.roster(),
+        BTreeMap::from([
+            (name("poop"), usable_from("acme")),
+            (name("subagents"), usable_from("runvil")),
+            (name("user"), unavailable_for("this run has no user")),
+            (name("web"), usable_from("runvil")),
+        ])
     );
 }
 
 #[test]
-fn a_run_that_declares_nothing_holds_every_runvil_pack_and_no_third_party_one() {
+fn a_vendor_name_entry_the_host_holds_under_another_vendor_is_unavailable_and_keeps_that_pack_out()
+{
     let host = vendors("ready");
-    assert_eq!(catalog_ids(&host, &prompt("")), ["web/runvil"]);
-    assert_eq!(usable(&host, &prompt("")), ["subagents", "web"]);
+    let declares = prompt("uses:\n  - acme/web\n");
+    let picked = host.pick(&declares);
+    assert_eq!(
+        picked.fqns,
+        ["acme/poop", "runvil/subagents", "runvil/user"],
+        "runvil/web holds the Pack id the unresolved entry names, so it stays out"
+    );
+    let run = begin(&host, BTreeMap::new(), &declares);
+    assert_eq!(
+        run.roster().get(&name("web")),
+        Some(&unavailable_for("acme/web is not installed"))
+    );
+    assert_eq!(
+        snapshot_ids(&run),
+        ["poop/scoop"],
+        "the catalog holds no tool of a Pack id the roster calls unavailable"
+    );
+    assert_eq!(
+        refusal(&run, &declares),
+        "the environment cannot satisfy this prompt:\n\
+         - web is unavailable: acme/web is not installed (at prompt:5)"
+    );
 }
 
 #[test]
-fn a_bare_entry_that_only_another_vendor_has_is_unavailable_naming_each_fqn() {
-    let one = vendors("ready");
+fn a_bare_entry_that_only_another_vendor_has_is_unavailable_naming_its_fqn() {
+    let host = vendors("ready");
     let declares = prompt("uses:\n  - poop\n");
-    let run = begin(&one, BTreeMap::new(), &declares);
+    let run = begin(&host, BTreeMap::new(), &declares);
     assert_eq!(
         run.roster().get(&name("poop")),
         Some(&unavailable_for(
@@ -65,24 +138,16 @@ fn a_bare_entry_that_only_another_vendor_has_is_unavailable_naming_each_fqn() {
         ))
     );
     assert_eq!(
+        snapshot_ids(&run),
+        ["web/fetch"],
+        "acme/poop holds the Pack id the unresolved entry names, so it stays out"
+    );
+    assert_eq!(
         refusal(&run, &declares),
         "the environment cannot satisfy this prompt:\n\
          - poop is unavailable: poop means runvil/poop, which is not installed; \
          write acme/poop to use that Pack (at prompt:5)",
         "the run names the reason and does not call the Pack missing"
-    );
-
-    let both = host(&[
-        (info("zed/poop"), Value::Null),
-        (info("acme/poop"), Value::Null),
-    ]);
-    let run = begin(&both, BTreeMap::new(), &declares);
-    assert_eq!(
-        run.roster().get(&name("poop")),
-        Some(&unavailable_for(
-            "poop means runvil/poop, which is not installed; \
-             write acme/poop or zed/poop to use that Pack"
-        ))
     );
 }
 
@@ -100,6 +165,11 @@ fn an_entry_no_vendor_has_is_missing_and_an_absent_vendor_name_is_unavailable() 
     assert_eq!(
         roster.get(&name("gone")),
         Some(&unavailable_for("acme/gone is not installed"))
+    );
+    assert_eq!(
+        snapshot_ids(&run),
+        ["poop/scoop", "web/fetch"],
+        "an entry that names no installed Pack's id keeps no Pack out"
     );
     assert_eq!(
         refusal(&run, &declares),
@@ -201,20 +271,23 @@ fn waits(host: &Packs, prompt: &Prompt) -> Option<BTreeMap<&'static str, String>
 }
 
 #[test]
-fn the_ready_wait_covers_only_the_runs_packs() {
+fn the_ready_wait_covers_every_pack_the_run_holds() {
     let host = vendors("pends");
+    for uses in ["", "uses:\n  - web\n", "uses:\n  - acme/poop\n"] {
+        assert!(
+            waits(&host, &prompt(uses)).is_none(),
+            "a run waits on acme/poop whether or not its prompt declares it: {uses:?}"
+        );
+    }
     assert_eq!(
-        waits(&host, &prompt("uses:\n  - web\n")),
+        waits(&host, &prompt("uses:\n  - poop\n")),
         Some(BTreeMap::new()),
-        "a run that does not declare acme/web never waits on it"
+        "a run never waits on the Pack an unresolved entry keeps out of it"
     );
-    assert!(
-        waits(&host, &prompt("")).is_some(),
-        "an undeclared third-party Pack is no run's to wait on"
-    );
-    assert!(
-        waits(&host, &prompt("uses:\n  - acme/web\n")).is_none(),
-        "a run that declares acme/web waits on it"
+    assert_eq!(
+        waits(&vendors("ready"), &prompt("")),
+        Some(BTreeMap::new()),
+        "a run whose Packs are all ready waits on none"
     );
 }
 
@@ -231,27 +304,29 @@ fn waited(host: &Packs, prompt: &Prompt) -> (BTreeMap<&'static str, String>, Run
 }
 
 #[test]
-fn a_ready_failure_is_keyed_by_fqn_and_never_reaches_another_vendors_pack() {
+fn a_ready_failure_is_keyed_by_fqn_and_leaves_every_other_pack_serving() {
     let host = vendors("fails");
-
-    let (failures, run) = waited(&host, &prompt("uses:\n  - acme/web\n"));
-    assert_eq!(
-        failures,
-        BTreeMap::from([("acme/web", "web will not be ready".to_owned())])
-    );
-    assert_eq!(
-        run.roster().get(&name("web")),
-        Some(&unavailable_for("web will not be ready"))
-    );
-
-    let (failures, run) = waited(&host, &prompt("uses:\n  - web\n"));
-    assert!(failures.is_empty(), "{failures:?}");
-    assert_eq!(run.roster().get(&name("web")), Some(&usable_from("runvil")));
-    let ids: Vec<String> = run
-        .catalog()
-        .tools()
-        .iter()
-        .map(|tool| tool.id.to_string())
-        .collect();
-    assert_eq!(ids, ["web/runvil"], "runvil/web still serves the run");
+    for uses in ["", "uses:\n  - web\n", "uses:\n  - acme/poop\n"] {
+        let (failures, run) = waited(&host, &prompt(uses));
+        assert_eq!(
+            failures,
+            BTreeMap::from([("acme/poop", "poop will not be ready".to_owned())]),
+            "{uses:?}"
+        );
+        assert_eq!(
+            run.roster().get(&name("poop")),
+            Some(&unavailable_for("poop will not be ready")),
+            "{uses:?}"
+        );
+        assert_eq!(
+            run.roster().get(&name("web")),
+            Some(&usable_from("runvil")),
+            "{uses:?}"
+        );
+        assert_eq!(
+            snapshot_ids(&run),
+            ["web/fetch"],
+            "runvil/web still serves the run: {uses:?}"
+        );
+    }
 }

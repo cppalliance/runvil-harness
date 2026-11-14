@@ -2,10 +2,10 @@
 //! `runvil/subagents` and `runvil/user` and lists every Pack in FQN order,
 //! `insert` refuses an FQN that is not a vendor/name pair, an FQN the
 //! registry holds already, a reserved Pack id from any vendor, and a
-//! third-party Pack taking a built-in's Pack id, and accepts a Pack id
-//! another vendor has;
-//! `insert_unavailable` refuses what `insert` refuses and keeps its
-//! reason; the registry hands each Pack's factory on with the Pack id, its
+//! Pack id the registry holds under another FQN, a built-in's included;
+//! `insert_unavailable` refuses what `insert` refuses, keeps its reason,
+//! and holds its Pack id; the registry hands each Pack's factory on with
+//! the Pack id, its
 //! Debug output shows each FQN, origin, and Pack id, and each built-in
 //! takes no reserved Pack id and makes a Pack that offers no tools and
 //! carries no prelude.
@@ -124,10 +124,10 @@ fn add_refuses_an_fqn_the_registry_holds_already_the_builtins_included() {
 }
 
 #[test]
-fn add_refuses_a_third_party_pack_taking_a_builtins_pack_id() {
+fn add_refuses_a_pack_taking_a_builtins_pack_id() {
     let mut packs = PackRegistry::new();
     for fqn in ["acme/subagents", "acme/user"] {
-        refused(packs.insert(fixture(fqn), builtin), "reserved_name", fqn);
+        refused(packs.insert(fixture(fqn), builtin), "pack_id_taken", fqn);
         assert!(
             !packs.list().any(|(info, _)| info.fqn == fqn),
             "the refused {fqn} is not in the registry"
@@ -157,23 +157,53 @@ fn add_refuses_a_pack_taking_a_reserved_pack_id_from_any_vendor() {
 }
 
 #[test]
-fn add_accepts_a_pack_whose_id_another_vendor_has() {
+fn add_refuses_a_pack_whose_id_another_vendor_holds_naming_the_holder() {
+    for (first, second) in [("runvil/web", "acme/web"), ("acme/web", "runvil/web")] {
+        let mut packs = PackRegistry::new();
+        packs.insert(fixture(first), builtin).unwrap();
+        let message = refused(
+            packs.insert(fixture(second), builtin),
+            "pack_id_taken",
+            second,
+        );
+        assert_eq!(
+            message,
+            format!("Pack `{second}` cannot take the Pack id web, which `{first}` holds")
+        );
+        let ids: Vec<(&'static str, String)> = packs
+            .into_entries()
+            .map(|(info, id, _factory)| (info.fqn, id.to_string()))
+            .filter(|(_, id)| id == "web")
+            .collect();
+        assert_eq!(
+            ids,
+            [(first, "web".to_owned())],
+            "the first Pack inserted keeps the Pack id, its FQN's second segment"
+        );
+    }
+}
+
+#[test]
+fn a_pack_inserted_unavailable_holds_its_pack_id() {
+    let reason = || make_tool_error(ErrorCode::ToolOther, "kit takes no configuration");
     let mut packs = PackRegistry::new();
-    packs.insert(fixture("runvil/web"), builtin).unwrap();
-    assert_eq!(packs.insert(fixture("acme/web"), builtin), Ok(()));
-    let ids: Vec<(&'static str, String)> = packs
-        .into_entries()
-        .map(|(info, id, _factory)| (info.fqn, id.to_string()))
-        .collect();
+    packs
+        .insert_unavailable(fixture("acme/kit"), reason())
+        .unwrap();
+    let message = refused(
+        packs.insert(fixture("tests/kit"), builtin),
+        "pack_id_taken",
+        "tests/kit",
+    );
     assert_eq!(
-        ids,
-        [
-            ("acme/web", "web".to_owned()),
-            (SUBAGENTS, "subagents".to_owned()),
-            (USER, "user".to_owned()),
-            ("runvil/web", "web".to_owned()),
-        ],
-        "each Pack id is its FQN's second segment, so two vendors share one"
+        message,
+        "Pack `tests/kit` cannot take the Pack id kit, which `acme/kit` holds"
+    );
+    packs.insert(fixture("tests/web"), builtin).unwrap();
+    refused(
+        packs.insert_unavailable(fixture("acme/web"), reason()),
+        "pack_id_taken",
+        "acme/web",
     );
 }
 
@@ -236,8 +266,9 @@ fn the_registry_refusals_name_the_pack() {
     let messages = [
         refused(insert("web"), "invalid_fqn", "web"),
         refused(insert("acme/web"), "duplicate_pack", "acme/web"),
-        refused(insert("acme/subagents"), "reserved_name", "acme/subagents"),
-        refused(insert("acme/user"), "reserved_name", "acme/user"),
+        refused(insert("acme/subagents"), "pack_id_taken", "acme/subagents"),
+        refused(insert("acme/user"), "pack_id_taken", "acme/user"),
+        refused(insert("tests/web"), "pack_id_taken", "tests/web"),
         refused(insert("acme/adhoc"), "reserved_pack_id", "acme/adhoc"),
         refused(insert("acme/dynamic"), "reserved_pack_id", "acme/dynamic"),
     ];
@@ -247,9 +278,9 @@ fn the_registry_refusals_name_the_pack() {
             "Pack fully qualified name `web` is not a vendor/name pair",
             "Pack `acme/web` is already in the registry",
             "Pack `acme/subagents` cannot take the Pack id subagents, \
-             which the built-in runvil/subagents reserves",
-            "Pack `acme/user` cannot take the Pack id user, \
-             which the built-in runvil/user reserves",
+             which `runvil/subagents` holds",
+            "Pack `acme/user` cannot take the Pack id user, which `runvil/user` holds",
+            "Pack `tests/web` cannot take the Pack id web, which `acme/web` holds",
             "Pack `acme/adhoc` cannot take the Pack id adhoc, which the Engine reserves",
             "Pack `acme/dynamic` cannot take the Pack id dynamic, which the Engine reserves",
         ]
