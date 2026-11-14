@@ -32,15 +32,16 @@ use super::tasks::TaskArena;
 use super::{ChainIndex, Scheduler};
 
 /// A queued task chain's spawn record, held from spawn until its
-/// admission: the input override and the spawning section the start event
-/// reports. The `var` snapshot is not in the record: it moves out of the
+/// admission: the chain's own arguments and the spawning section the start
+/// event reports. The `var` snapshot is not in the record: it moves out of the
 /// yield into the chain's `var` slot at spawn, the start event reports a
 /// copy of it at admission, and the chain's first section entry seeds from
 /// the slot.
 #[derive(Debug)]
 pub(super) struct SpawnRecord {
-    /// The `opts.input` override, reported in the start event.
-    pub(super) input: Option<String>,
+    /// The chain's own `args`, when `opts.args` gave them, reported in
+    /// the start event.
+    pub(super) args: Option<serde_json::Value>,
     /// The spawner's section at spawn, reported as the start event's
     /// section: a task admitted after its spawner moved on still reports
     /// where it was spawned, not where the spawner is now.
@@ -385,7 +386,7 @@ impl Scheduler {
             provenance,
             task,
             target,
-            input: record.input,
+            args: record.args,
             item,
             index,
             var,

@@ -10,7 +10,7 @@ fn a_long_running_loop_completes_with_no_instruction_ceiling() {
     // the cancel flag.
     let out = run(
         "local n = 0\nfor i = 1, 8000000 do n = n + 1 end\nreturn n",
-        "",
+        &json!({}),
     )
     .expect("a loop of 8000000 steps must complete");
     assert_eq!(out.returned.as_deref(), Some("8000000"));

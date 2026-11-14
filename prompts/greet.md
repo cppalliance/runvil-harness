@@ -1,16 +1,20 @@
 ---
 name: greet
-description: Greet the named input using a Lua-computed value
+description: Greet a name using a Lua-computed value
 runvil: 0
+args:
+  type: object
+  properties:
+    name: { type: string, description: The name to greet }
+  required: [name]
 ---
 
-Computes a greeting from the input in Lua, substitutes it into the prose, and
-has the model echo it.
+Computes a greeting for its `name` argument in Lua, substitutes it into the prose, and has the model echo it.
 
 ## Main
 
 ```lua
-var.greeting = "Hello, " .. args .. "!"
+var.greeting = "Hello, " .. args.name .. "!"
 ```
 
 Repeat exactly, with no extra words: {{ var.greeting }}

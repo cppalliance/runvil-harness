@@ -121,15 +121,16 @@ fn prompt(sections: &[(&str, &str)]) -> Arc<Prompt> {
     Arc::new(prompt.expect("the fixture prompt parses"))
 }
 
-/// A Pack-free run over `prompt` with a fixed seed and start,
-/// prepared against the fixture [`catalog`], over the run's filesystem
-/// `vfs`, under the cancel flag `cancel`.
+/// A Pack-free run over `prompt` with a fixed seed and start and the
+/// empty object `{}` as its arguments, prepared against the fixture
+/// [`catalog`], over the run's filesystem `vfs`, under the cancel flag
+/// `cancel`.
 fn prepared(prompt: Arc<Prompt>, vfs: VfsRef, cancel: &CancelHandle) -> Run {
     let ctx = RunParams::new(TEST_SEED, Timestamp::UNIX_EPOCH)
         .with_vfs(vfs)
         .with_tools(catalog())
         .with_cancel(cancel.clone());
-    Run::new(prompt, "", ctx)
+    Run::new(prompt, "{}", ctx)
 }
 
 /// A Pack-free run over `lua` with a fixed seed and start, over a

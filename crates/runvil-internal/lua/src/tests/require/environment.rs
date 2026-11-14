@@ -2,7 +2,7 @@
 //!
 //! Two things hold. A library's code sees the VM's globals exactly as a
 //! section's own block does, through the `_G` guard: plain globals both
-//! ways, `argv`, `messages`, `prose`, and a metatable the author set on
+//! ways, `args`, `messages`, `prose`, and a metatable the author set on
 //! `_G`. And the suspending calls and the prompt reads that a library's
 //! code makes say which library made them, while the library loads and
 //! from a function called after the load, a tail call included.
@@ -131,13 +131,13 @@ fn library_code_reaches_every_engine_global_it_does_not_bind() {
 }
 
 #[test]
-fn library_code_reads_argv_and_cannot_assign_it() {
-    let argv = json!({ "topic": "x" });
+fn library_code_reads_args_and_cannot_assign_it() {
+    let args = json!({ "topic": "x" });
     let vm = env_vm(
-        TestVm::new().argv(Some(&argv)),
+        TestVm::new().args(&args),
         kit(&[
-            "topic_at_load = argv.topic\nfunction assign() argv = { topic = 'y' } end\n\
-             function topic() return argv.topic end",
+            "topic_at_load = args.topic\nfunction assign() args = { topic = 'y' } end\n\
+             function topic() return args.topic end",
         ]),
     );
     let value = returned(
@@ -151,7 +151,7 @@ fn library_code_reads_argv_and_cannot_assign_it() {
         "the read serves the installed value and the write is refused, got {value}"
     );
     assert!(
-        value.contains(crate::argv::ASSIGNMENT_REFUSAL),
+        value.contains(crate::args::ASSIGNMENT_REFUSAL),
         "the refusal is the guard's own, got {value}"
     );
 }
@@ -462,7 +462,7 @@ fn a_library_call_still_suspends_and_resumes_the_callers_block() {
     };
     assert!(matches!(
         vm.request_from_yield(&values),
-        YieldParse::Request(Request::Call { ref input, .. }) if input.as_deref() == Some("job")
+        YieldParse::Request(Request::Call { ref args, .. }) if *args == Some(json!("job"))
     ));
     let step = vm
         .resume_block_coro(&block, &thread, (true, "hi"))

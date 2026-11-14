@@ -164,13 +164,16 @@ impl Scheduler {
         }
     }
 
-    /// Checks that the run can start: the version gate, then the declared
-    /// store, then what the prompt requires of the params.
+    /// Checks that the run can start: the version gate, then the caller's
+    /// arguments, then the declared store, then what the prompt requires
+    /// of the params.
     ///
     /// # Errors
     /// Returns an `UnsupportedVersion` failure on the `runvil:` line, or a
     /// structural parse failure for a prompt with no `runvil:` key, either
-    /// naming the prompt; a store failure when the handle declares no store
+    /// naming the prompt; an `ArgsInvalid` failure with no location when
+    /// the arguments are not a JSON object or do not match the prompt's
+    /// `args` declaration; a store failure when the handle declares no store
     /// or the store's backend fails the probe; or `RequirementsUnmet` with
     /// the refusal notice when the params lack a declared Pack or a model
     /// the prompt's roles require, or names a Pack id the Engine reserves,
@@ -196,6 +199,11 @@ impl Scheduler {
                 frontmatter.name(),
                 prompt.file(),
             ));
+        }
+        // The arguments are the caller's to fix, so their refusal points
+        // at no line of the prompt.
+        if let Some(refusal) = self.ctx.args_refusal() {
+            return Err(refusal.clone());
         }
         // Every run and every store call needs a declared store: the probe
         // stats the store root through a throwaway capability, so a handle

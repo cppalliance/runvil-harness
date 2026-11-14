@@ -147,7 +147,7 @@ fn a_caught_store_error_raised_again_after_a_suspending_call_keeps_store() {
                 "
                 local ok, err = pcall(function() return store.read('missing.txt') end)
                 assert(ok == false, 'the missing read fails')
-                call('Sibling', '')
+                call('Sibling')
                 error(err)",
             ),
             ("### Sibling", "return 'sibling'"),

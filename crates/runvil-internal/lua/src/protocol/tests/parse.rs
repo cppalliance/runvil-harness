@@ -1,8 +1,9 @@
 //! Yield-to-request parsing for the leaf and structural requests (`infer`,
 //! `call`, `tool_calls`, `adhoc_tool_done`), and the malformed-yield
 //! rejections shared by every op. The `tool_call` request is in
-//! `parse_tool_call` and the task-operation requests (`spawn`, `timer`,
-//! `concurrency`) are in `parse_tasks`.
+//! `parse_tool_call`, the task-operation requests (`spawn`, `timer`,
+//! `concurrency`) are in `parse_tasks`, and the `args` a `call` or a
+//! spawn hands its chain are in `parse_args`.
 
 use super::*;
 
@@ -42,22 +43,23 @@ fn infer_with_a_handle_clones_its_frozen_binding() {
 }
 
 #[test]
-fn call_parses_target_input_and_var_snapshot() {
+fn call_parses_target_args_and_var_snapshot() {
     let lua = Lua::new();
     let table = lua_table(
         &lua,
-        "{ op = 'call', target = '../Child', input = 'override', var = { k = 1 } }",
+        "{ op = 'call', target = '../Child', args = { query = 'papers', limit = 3 }, \
+           var = { k = 1 } }",
     );
     let request = expect_request(Request::from_yield(&lua, &Value::Table(table)));
     match request {
         Request::Call {
             target,
-            input,
+            args,
             var,
             from,
         } => {
             assert_eq!(target, "../Child");
-            assert_eq!(input.as_deref(), Some("override"));
+            assert_eq!(args, Some(json!({ "query": "papers", "limit": 3 })));
             assert_eq!(var, json!({ "k": 1 }));
             assert_eq!(from, None, "a request with no `from` names no library");
         }
@@ -66,7 +68,7 @@ fn call_parses_target_input_and_var_snapshot() {
 }
 
 #[test]
-fn call_without_input_yields_none() {
+fn call_without_args_yields_none() {
     let lua = Lua::new();
     let table = lua_table(
         &lua,
@@ -74,7 +76,7 @@ fn call_without_input_yields_none() {
     );
     let request = expect_request(Request::from_yield(&lua, &Value::Table(table)));
     match request {
-        Request::Call { input, .. } => assert_eq!(input, None),
+        Request::Call { args, .. } => assert_eq!(args, None),
         other => panic!("expected a call request, got {other:?}"),
     }
 }

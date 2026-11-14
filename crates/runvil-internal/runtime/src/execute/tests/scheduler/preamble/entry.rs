@@ -2,7 +2,7 @@
 //! default-model selection, its entry id and empty section name, the
 //! section boundaries it reports and the run boundaries around them, the
 //! `var`, concurrency limit, and task that last into the next section,
-//! read-only `argv`, a Lua error that ends the run as `LuaRuntime` on its
+//! read-only `args`, a Lua error that ends the run as `LuaRuntime` on its
 //! line, `var` read back at a return and at the fall-through, a failed
 //! substitution that keeps its own code, and a failing library.
 
@@ -225,18 +225,18 @@ fn a_task_spawned_in_the_preamble_is_joined_in_the_next_section() {
 }
 
 #[test]
-fn argv_refuses_a_write_in_the_preamble_and_in_a_later_section() {
-    // `argv` is read-only in every section, the preamble included: an
+fn args_refuses_a_write_in_the_preamble_and_in_a_later_section() {
+    // `args` is read-only in every section, the preamble included: an
     // assignment raises the refusal, which `pcall` catches.
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
         ```lua\n\
-        local ok, err = pcall(function() argv = 'rewritten' end)\n\
+        local ok, err = pcall(function() args = 'rewritten' end)\n\
         assert(not ok, 'the preamble write is refused')\n\
         var.refusal = tostring(err)\n\
         ```\n\n\
         ## Result\n\n\
         ```lua\n\
-        local ok, err = pcall(function() argv = 'rewritten' end)\n\
+        local ok, err = pcall(function() args = 'rewritten' end)\n\
         assert(not ok, 'the section write is refused')\n\
         return var.refusal .. '|' .. tostring(err)\n\
         ```\n";
@@ -244,7 +244,7 @@ fn argv_refuses_a_write_in_the_preamble_and_in_a_later_section() {
 
     let out = trace.text();
     assert_eq!(
-        out.matches("argv is read-only: assign to `var` or a section global instead")
+        out.matches("args is read-only: assign to `var` or a section global instead")
             .count(),
         2,
         "both writes are refused with the rule: {out}"

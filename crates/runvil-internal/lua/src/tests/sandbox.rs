@@ -32,17 +32,20 @@ fn direct_output_is_absent_in_every_executable_lua_vm() {
     vm.teardown();
 
     assert_eq!(
-        run("return tostring(print) .. ':' .. tostring(warn)", "")
-            .expect("compatibility VM must run")
-            .returned
-            .as_deref(),
+        run(
+            "return tostring(print) .. ':' .. tostring(warn)",
+            &json!({})
+        )
+        .expect("compatibility VM must run")
+        .returned
+        .as_deref(),
         Some("nil:nil")
     );
 }
 
 #[test]
 fn safe_stdlib_present() {
-    let out = run("return string.upper(args)", "hi").unwrap();
+    let out = run("return string.upper(args.text)", &json!({ "text": "hi" })).unwrap();
     assert_eq!(out.returned.as_deref(), Some("HI"));
 }
 
@@ -51,7 +54,7 @@ fn the_utf8_library_counts_cuts_and_encodes_code_points() {
     let out = run(
         "return utf8.len('café') .. '|' .. ('café'):sub(1, utf8.offset('café', 0, 5) - 1) \
          .. '|' .. utf8.char(233)",
-        "",
+        &json!({}),
     )
     .unwrap();
     assert_eq!(out.returned.as_deref(), Some("4|caf|é"));
@@ -61,7 +64,7 @@ fn the_utf8_library_counts_cuts_and_encodes_code_points() {
 fn dangerous_globals_absent() {
     let out = run(
             "return tostring(io) .. ',' .. tostring(os) .. ',' .. tostring(require) .. ',' .. tostring(load) .. ',' .. tostring(package)",
-            "",
+            &json!({}),
         )
         .unwrap();
     assert_eq!(out.returned.as_deref(), Some("nil,nil,nil,nil,nil"));
@@ -132,7 +135,7 @@ fn setmetatable_refuses_finalizers_and_weak_globals_but_keeps_g_handlers() {
 
 #[test]
 fn untrusted_global_escapes_and_envelopes_any_string() {
-    let outcome = run("return untrusted('a < b')", "").expect("untrusted must run");
+    let outcome = run("return untrusted('a < b')", &json!({})).expect("untrusted must run");
     let wrapped = outcome.returned.expect("untrusted returns a string");
     assert!(
         wrapped.starts_with("The text inside the untrusted_input_"),
@@ -160,7 +163,7 @@ fn untrusted_global_wraps_every_call_under_the_run_nonce() {
     // nonce, so identical content produces a byte-identical envelope.
     let outcome = run(
         "return untrusted('same') .. '\\n@@SPLIT@@\\n' .. untrusted('same')",
-        "",
+        &json!({}),
     )
     .expect("untrusted must run");
     let wrapped = outcome.returned.expect("the chunk returns both envelopes");
@@ -172,7 +175,7 @@ fn untrusted_global_wraps_every_call_under_the_run_nonce() {
 
 #[test]
 fn untrusted_global_rejects_a_non_string_argument() {
-    let error = run("return untrusted({})", "").expect_err("a table is not a string");
+    let error = run("return untrusted({})", &json!({})).expect_err("a table is not a string");
     assert!(
         error.code == ErrorCode::LuaRuntime,
         "a non-string argument must surface as a Lua error, got {error:?}"

@@ -21,6 +21,11 @@
 //! a loaded [`Prompt`] is ready to run: a syntax error surfaces here, never
 //! partway through a run.
 //!
+//! The frontmatter's `args` key declares the one JSON object a caller
+//! passes the prompt, as a subset of JSON Schema ([`ArgsSchema`]), and
+//! [`detail::accept_args`] checks a caller's arguments against it for the
+//! executor.
+//!
 //! ## Invariants
 //!
 //! - May depend on: `runvil-types` and `runvil-lua`.
@@ -43,7 +48,7 @@ mod sections;
 pub mod test_support;
 
 pub use body_text::BodyText;
-pub use contract::{ArgDecl, ArgType, ArgsDecl, ArgsDeclIter, RoleRequirements};
+pub use contract::{ArgsSchema, RoleRequirements};
 use error::Result;
 pub use finder::PromptFinder;
 pub use frontmatter::{FileDecl, Frontmatter, MAX_TOOL_ITERATIONS};

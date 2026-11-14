@@ -50,7 +50,7 @@ fn infers_then_chats() -> Run {
     );
     let ctx = RunParams::new(TEST_SEED, Timestamp::UNIX_EPOCH)
         .with_models(BTreeMap::from([(ModelRole::Default, model)]));
-    Run::new(prompt, "", ctx)
+    Run::new(prompt, "{}", ctx)
 }
 
 /// One round as the broker saw it: the last message's text and the round.

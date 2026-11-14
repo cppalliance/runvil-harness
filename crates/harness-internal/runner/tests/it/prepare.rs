@@ -7,9 +7,10 @@
 //! the prepared run; each run makes its own instance of each of its Packs
 //! and drops it by the time `Harness::run` returns, handing its factory
 //! nothing but the Pack id; and the run's tool performer sends a
-//! `ToolCall` effect to the Pack its id names. A Pack's prelude reaching
-//! the prepared run sits in the `prelude` child module, the prompt's
-//! declared output file sits in the `files` child module, the
+//! `ToolCall` effect to the Pack its id names. The setup's arguments
+//! reaching the prepared run sit in the `args` child module, a Pack's
+//! prelude reaching the prepared run sits in the `prelude` child module,
+//! the prompt's declared output file sits in the `files` child module, the
 //! wait for each Pack to be ready sits in the `ready` child module, and
 //! the built-in `runvil/user`, which only a run with a user holds, sits
 //! in the `user` child module.
@@ -34,6 +35,8 @@ use crate::harness::launch;
 use crate::scripted::{MODEL, ScriptedBroker};
 use crate::support::{Make, Unused, host_over, parsed, registry};
 
+#[path = "prepare-args.rs"]
+mod args;
 #[path = "prepare-files.rs"]
 mod files;
 #[path = "prepare-prelude.rs"]

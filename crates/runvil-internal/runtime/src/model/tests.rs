@@ -79,7 +79,7 @@ fn section_vm_with_models(
         emitter,
         section,
     )?
-    .inject_test_values("", &json!({}), &fresh_access().0)
+    .inject_test_values(&json!({}), &json!({}), &fresh_access().0)
     .map_err(|failure| failure.teardown(emitter, section))
 }
 

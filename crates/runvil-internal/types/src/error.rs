@@ -431,6 +431,9 @@ pub enum ErrorCode {
     /// name `stalled`; names the tasks waiting on their
     /// inboxes. A run code, beside `Internal`.
     Stalled = 704,
+    /// The run's arguments are not a JSON object, or do not match the
+    /// prompt's `args:` declaration.
+    ArgsInvalid = 705,
 
     /// The run recorder failed to store a write.
     RecorderFailed = 801,
@@ -519,6 +522,7 @@ impl ErrorCode {
             ErrorCode::Canceled => "canceled",
             ErrorCode::Internal => "internal",
             ErrorCode::Stalled => "stalled",
+            ErrorCode::ArgsInvalid => "args_invalid",
             ErrorCode::RecorderFailed => "recorder_failed",
             ErrorCode::PluginLoadFailed => "plugin_load_failed",
             ErrorCode::NoOutput => "no_output",
@@ -595,6 +599,7 @@ impl ErrorCode {
             "canceled" => ErrorCode::Canceled,
             "internal" => ErrorCode::Internal,
             "stalled" => ErrorCode::Stalled,
+            "args_invalid" => ErrorCode::ArgsInvalid,
             "recorder_failed" => ErrorCode::RecorderFailed,
             "plugin_load_failed" => ErrorCode::PluginLoadFailed,
             "no_output" => ErrorCode::NoOutput,
@@ -806,6 +811,10 @@ impl ErrorCode {
             ErrorCode::Stalled => {
                 "No chain can move, so the run stopped. Send each task that waits on its inbox the \
                  message it waits for, or stop waiting on that task."
+            }
+            ErrorCode::ArgsInvalid => {
+                "The arguments do not match what the prompt declares. Send one JSON object that \
+                 matches its declared arguments."
             }
             ErrorCode::RecorderFailed => "The run could not be recorded, so it stopped.",
             ErrorCode::PluginLoadFailed => {

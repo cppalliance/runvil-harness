@@ -31,22 +31,43 @@ fn models_infer_yields_a_well_formed_request() {
 }
 
 #[test]
-fn call_yields_target_input_and_the_var_snapshot() {
+fn call_yields_target_args_and_the_var_snapshot() {
     let var = json!({ "k": 1 });
     let vm = scheduler_vm(&ModelSet::default(), Some(&var));
-    match yielded_request(&vm, r#"return call("../Child", "override")"#) {
+    match yielded_request(&vm, r#"return call("../Child", { query = "papers" })"#) {
         Request::Call {
             target,
-            input,
+            args,
             var,
             from,
         } => {
             assert_eq!(target, "../Child");
-            assert_eq!(input.as_deref(), Some("override"));
+            assert_eq!(args, Some(json!({ "query": "papers" })));
             assert_eq!(var, json!({ "k": 1 }));
             assert_eq!(from, None, "a section's own call names no library");
         }
         other => panic!("expected a call request, got {other:?}"),
+    }
+}
+
+#[test]
+fn call_yields_a_string_as_given_the_args_table_as_its_data_and_no_args_as_none() {
+    // The VM's `args` is the empty object, so `call(target, args)` yields
+    // that object, read through the read-only table.
+    let vm = scheduler_vm(&ModelSet::default(), None);
+    for (source, expected) in [
+        (
+            r#"return call("../Child", "plain text")"#,
+            Some(json!("plain text")),
+        ),
+        (r#"return call("../Child", args)"#, Some(json!({}))),
+        (r#"return call("../Child", {})"#, Some(json!({}))),
+        (r#"return call("../Child")"#, None),
+    ] {
+        match yielded_request(&vm, source) {
+            Request::Call { args, .. } => assert_eq!(args, expected, "{source}"),
+            other => panic!("expected a call request, got {other:?}"),
+        }
     }
 }
 
@@ -60,14 +81,14 @@ fn fanout_yields_a_spawn_per_member_starting_with_the_first() {
     match yielded_request(&vm, r#"return tasks.fanout("Worker", {"a", "b"})"#) {
         Request::Spawn {
             target,
-            input,
+            args,
             item,
             index,
             var,
             from,
         } => {
             assert_eq!(target, "Worker");
-            assert_eq!(input, None);
+            assert_eq!(args, None, "an arm reads its caller's args");
             assert_eq!(item, Some(json!("a")));
             assert_eq!(index, Some(1));
             assert_eq!(var, json!({}));
@@ -103,19 +124,18 @@ fn fanout_rejects_an_empty_collection_before_any_spawn() {
 fn tasks_spawn_yields_the_target_seeds_and_var() {
     let var = json!({ "k": 1 });
     let vm = scheduler_vm(&ModelSet::default(), Some(&var));
-    let source =
-        r#"return tasks.spawn("../Child", { input = "in", item = { name = "a" }, index = 2 })"#;
+    let source = r#"return tasks.spawn("../Child", { args = { query = "in" }, item = { name = "a" }, index = 2 })"#;
     match yielded_request(&vm, source) {
         Request::Spawn {
             target,
-            input,
+            args,
             item,
             index,
             var,
             from,
         } => {
             assert_eq!(target, "../Child");
-            assert_eq!(input.as_deref(), Some("in"));
+            assert_eq!(args, Some(json!({ "query": "in" })));
             assert_eq!(item, Some(json!({ "name": "a" })));
             assert_eq!(index, Some(2));
             assert_eq!(var, json!({ "k": 1 }));

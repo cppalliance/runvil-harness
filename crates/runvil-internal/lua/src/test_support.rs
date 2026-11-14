@@ -153,21 +153,23 @@ impl LuaProgram {
 
 impl SectionVm<Uninjected> {
     /// Installs the section's Engine values, ahead of the Pack preludes,
-    /// with an empty `var`, a nil `argv`, and a selection that starts
-    /// on the `default` binding, if the model set has one.
+    /// with `args` as the chain's arguments, an empty `var`, and a
+    /// selection that starts on the `default` binding, if the model set
+    /// has one.
     ///
     /// # Errors
     /// Returns the [`InjectFailure`] holding the bridging failure if Engine
-    /// values cannot be bridged.
+    /// values cannot be bridged, or holding an `Internal` failure if `args`
+    /// is not a JSON object.
     pub fn inject_test_values(
         self,
-        args: &str,
+        args: &serde_json::Value,
         sys: &serde_json::Value,
         access: &Arc<Access>,
     ) -> std::result::Result<SectionVm, InjectFailure> {
         let set = &self.bound_models;
         let selection = Arc::new(Mutex::new(set.binding("default").cloned()));
-        self.inject_values(args, sys, access, None, None, &selection)
+        self.inject_values(args, sys, access, None, &selection)
     }
 }
 

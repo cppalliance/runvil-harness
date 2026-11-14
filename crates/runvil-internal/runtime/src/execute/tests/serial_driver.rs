@@ -54,7 +54,7 @@ fn the_driver_runs_a_literal_prompt_with_no_effect() {
     // events open and close with the run's boundaries.
     let md =
         "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n## Only\n\n```lua\nreturn 'hello'\n```\n";
-    let run = Run::new(Arc::new(parse(md)), "", test_params());
+    let run = Run::new(Arc::new(parse(md)), "{}", test_params());
     let (result, events) = drive(run, |_, effect| panic!("no effect is issued: {effect:?}"));
     assert_eq!(text_of(result), "hello");
     assert!(

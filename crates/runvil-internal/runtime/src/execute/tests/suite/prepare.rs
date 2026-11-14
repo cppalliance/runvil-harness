@@ -96,7 +96,7 @@ fn declaring(front: &str, lua: &str) -> String {
 /// The state a run of `prompt` builds over `params`, as `Run::new` builds
 /// it.
 fn state_of(prompt: &Prompt, params: RunParams) -> ChainState {
-    ChainState::root(Arc::new(prompt.clone()), "", params)
+    ChainState::root(Arc::new(prompt.clone()), "{}", params)
 }
 
 /// The refusal notice of `scenario`'s run, after asserting that its first

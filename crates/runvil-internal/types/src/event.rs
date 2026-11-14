@@ -267,8 +267,10 @@ events! {
             task: TaskId,
             /// The name of the section the task's chain starts at.
             target: String,
-            /// The `opts.input` override of the chain's `args`, when given.
-            input: Option<String>,
+            /// The chain's own `args`, when `opts.args` gave them: the
+            /// object the chain reads, which for a string is that string
+            /// under `text`. A chain given none reads its spawner's.
+            args: Option<serde_json::Value>,
             /// The `opts.item` seed installed as the chain's `item` global,
             /// when given.
             item: Option<serde_json::Value>,

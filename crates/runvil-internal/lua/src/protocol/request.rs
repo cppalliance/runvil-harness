@@ -23,8 +23,9 @@ use crate::section::LibraryKey;
 
 /// A validated suspending Engine call, parsed from the yielded table.
 ///
-/// The parse happens at the resume boundary while the VM handle is live: a
-/// spawn's `item` seed converts through the serde bridge and the handle
+/// The parse happens at the resume boundary while the VM handle is live:
+/// the `args` table of a `call` or a spawn converts to JSON, a spawn's
+/// `item` seed converts through the serde bridge, and the handle
 /// userdata's [`ModelBinding`] is cloned out of its borrow, so nothing
 /// lifetime-bound enters the enum.
 #[derive(Debug)]
@@ -38,15 +39,16 @@ pub enum Request {
         /// The leading handle's frozen binding, else `None`.
         binding: Option<ModelBinding>,
     },
-    /// `call(target, input?)`: run a contained chain over the target's
+    /// `call(target, args?)`: run a contained chain over the target's
     /// slice. The call returns the chain's final text, or nil for a chain
     /// that ended with none.
     Call {
         /// The target's section path, as the author wrote it.
         target: String,
-        /// The optional input override; `None` runs under the caller's own
-        /// args.
-        input: Option<String>,
+        /// The chain's own arguments: a JSON object for a table of named
+        /// fields, or a JSON string for a string. `None` runs the chain
+        /// under the caller's own `args`.
+        args: Option<serde_json::Value>,
         /// The caller's `var` snapshot, seeded into the chain and discarded
         /// when it ends.
         var: serde_json::Value,
@@ -61,9 +63,10 @@ pub enum Request {
     Spawn {
         /// The target's section path, as the author wrote it.
         target: String,
-        /// `opts.input`: the chain's `args` override; `None` runs under the
-        /// caller's own args.
-        input: Option<String>,
+        /// `opts.args`: the chain's own arguments, a JSON object for a table
+        /// of named fields, or a JSON string for a string. `None` runs the
+        /// chain under the caller's own `args`.
+        args: Option<serde_json::Value>,
         /// `opts.item`: the chain's `item` global and `{{ item }}` seed;
         /// `None` installs no `item`.
         item: Option<serde_json::Value>,

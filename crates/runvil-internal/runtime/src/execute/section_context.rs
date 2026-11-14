@@ -395,7 +395,7 @@ fn limited_vm(ctx: &ChainState, name: &str) -> Result<SectionVm<Uninjected>> {
 
 /// The `{{ }}` renderer for one frame's prose templates, its own blocks'
 /// and the libraries `require` loads alike: each render substitutes from
-/// the run's `args` and `argv`, shared with the run rather than copied,
+/// the chain's `args`, shared with the chain rather than copied,
 /// the frame's `item`, and the section state the first read snapshots,
 /// and places a failure in the run's prompt file from the line the
 /// template starts on.
@@ -404,13 +404,11 @@ fn prose_renderer(
     item: Option<serde_json::Value>,
 ) -> impl Fn(&str, Option<NonZeroU32>, ProseState<'_>) -> mlua::Result<String> + Send + Sync + 'static
 {
-    let raw_args = Arc::clone(ctx.args());
-    let argv = ctx.argv().cloned();
+    let args = Arc::clone(ctx.args());
     let prompt = Arc::clone(ctx.prompt());
     move |template: &str, line: Option<NonZeroU32>, state: ProseState<'_>| -> mlua::Result<String> {
         let sources = subst::Sources {
-            args: &raw_args,
-            argv: argv.as_deref(),
+            args: &args,
             item: item.as_ref(),
             var: &state.var,
             sys: &state.sys,

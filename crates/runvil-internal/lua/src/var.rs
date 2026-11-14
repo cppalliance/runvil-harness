@@ -22,6 +22,70 @@ const VAR_PROXY_REGISTRY: &str = "runvil.var_proxy";
 /// Registry map from every guarded proxy table to its hidden data table.
 const VAR_GUARDED_DATA_REGISTRY: &str = "runvil.var_guarded_data";
 
+/// The path of the root `var` table, whose fields are all named.
+const ROOT_PATH: &str = "var";
+
+/// 2^63, one past the largest integer a Lua table key holds.
+const ABOVE_INTEGERS: f64 = 9_223_372_036_854_775_808.0;
+
+/// The integer `key` is as a table key: an integer as it is, and a float
+/// with no fractional part as the integer it equals, which is the key a
+/// Lua table stores for it. A metamethod receives such a float as written.
+fn whole_key(key: &Value) -> Option<i64> {
+    match key {
+        Value::Integer(index) => Some(*index),
+        Value::Number(float)
+            if float.fract() == 0.0 && (-ABOVE_INTEGERS..ABOVE_INTEGERS).contains(float) =>
+        {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "the float is a whole number inside i64's range"
+            )]
+            let index = *float as i64;
+            Some(index)
+        }
+        _ => None,
+    }
+}
+
+/// Why the table at `path`, whose data is `data`, cannot hold a value
+/// under `key`, or `None` when it can.
+///
+/// A key is a string, or in a table under the root a list index: the
+/// index of an item the list holds, or of the next one. Any other key
+/// has no place in JSON data, so the read-back of `var` would fail on it
+/// long after the write.
+fn key_refusal(path: &str, key: &Value, data: &mlua::Table) -> mlua::Result<Option<String>> {
+    if let Value::String(_) = key {
+        return Ok(None);
+    }
+    if path == ROOT_PATH {
+        return Ok(Some(format!(
+            "a key of {path} must be a string, got {}",
+            key.type_name()
+        )));
+    }
+    let Some(index) = whole_key(key) else {
+        return Ok(Some(format!(
+            "a key of {path} must be a string or a list index, got {}",
+            key.type_name()
+        )));
+    };
+    if index < 1 {
+        return Ok(Some(format!(
+            "a list index of {path} must be 1 or more, got {index}"
+        )));
+    }
+    let len = data.raw_len();
+    let next = i64::try_from(len).map_or(i64::MAX, |len| len.saturating_add(1));
+    if index > next && data.raw_get::<Value>(index)?.is_nil() {
+        return Ok(Some(format!(
+            "{path}[{index}] is past the end of the list, whose length is {len}"
+        )));
+    }
+    Ok(None)
+}
+
 fn guarded_json_value(
     lua: &Lua,
     value: &Json,
@@ -81,6 +145,11 @@ fn guarded_table(
             if value.is_nil() {
                 return write_data.raw_set(key, value);
             }
+            // A whole float names the item its integer names.
+            let key = whole_key(&key).map_or(key, Value::Integer);
+            if let Some(refusal) = key_refusal(&table_path, &key, &write_data)? {
+                return Err(mlua::Error::runtime(refusal));
+            }
             let target = key_path(&table_path, &key);
             if let Value::Function(_) | Value::UserData(_) | Value::Thread(_) = value {
                 return Err(mlua::Error::runtime(format!(
@@ -101,7 +170,14 @@ fn guarded_table(
             if WalkBudget::for_vm(lua).check_value(&value).is_err() {
                 return Err(too_large());
             }
-            let json = lua.from_value::<Json>(value)?;
+            // The bridge's refusal of a value, such as a key inside it that
+            // is not a string, reads as the guard's own.
+            let json = lua.from_value::<Json>(value).map_err(|error| match error {
+                mlua::Error::DeserializeError(why) => {
+                    mlua::Error::runtime(format!("{target} must be JSON data: {why}"))
+                }
+                other => other,
+            })?;
             let rebuilt = guarded_json_value(lua, &json, &target, &nested_data)?;
             write_data.raw_set(key, rebuilt)
         },
@@ -155,8 +231,11 @@ fn materialize_guarded_value(
 /// through the serde bridge - a function, userdata, or thread is rejected at
 /// the assigning line, nested tables are deep-checked by the bridge, and a
 /// view inside the value is stored as the data it stands for -
-/// then rebuilds it as fresh guarded data before writing through. Assigning nil
-/// removes the key. Every nested table is itself an empty proxy over hidden
+/// then rebuilds it as fresh guarded data before writing through. It refuses
+/// a key that JSON data has no place for, at the assigning line: the root
+/// takes string keys alone, and a table under it takes a string or the
+/// index of an item it holds or of the next one. Assigning nil removes the
+/// key. Every nested table is itself an empty proxy over hidden
 /// data, so later incremental writes cross the same validation boundary instead
 /// of mutating a stored table directly. `__metatable` is set so author code
 /// cannot replace the guard. The root data table and the proxy live under

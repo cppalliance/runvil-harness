@@ -21,7 +21,7 @@ fn finite_pipeline_runs_the_unified_surface_end_to_end() {
         .prose(
             "Draft",
             "
-            Summarize in one word: {{ args }}
+            Summarize in one word: {{ args.text }}
 
             ```lua
             var.draft = models.infer(prose)
@@ -37,9 +37,9 @@ fn finite_pipeline_runs_the_unified_surface_end_to_end() {
             assert(messages[#messages].role == 'assistant', 'the terminal record is the assistant reply')
             return call('../Deliver', messages[#messages].content)",
         )
-        .section("Deliver", "return 'delivered: ' .. args");
+        .section("Deliver", "return 'delivered: ' .. args.text");
     let trace = Scenario::new(source.build())
-        .args("quantum")
+        .args(r#"{"text":"quantum"}"#)
         .bound()
         .tool(echo_tool())
         .chat(&gateway)

@@ -1,5 +1,6 @@
 //! The facade's integration suite, written against `runvil_engine` paths only.
 
+mod args;
 mod cancel;
 mod effect;
 mod event;

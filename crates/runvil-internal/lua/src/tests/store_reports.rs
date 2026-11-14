@@ -73,7 +73,7 @@ fn store_reports_are_ordered_exact_and_payload_free_on_failure() {
                       store.str_replace('secret/path.txt', 'missing secret', 'replacement')";
     let error = run_chunk(
         source,
-        "private input",
+        &json!({ "text": "private input" }),
         &json!({ "id": 1, "when": "t" }),
         &access,
         &observer,
@@ -185,8 +185,15 @@ fn every_store_operation_reports_its_exact_success_and_failure() {
         (case.prepare)(&access);
         let recorder = Recorder::default();
         let observer = recorder.emitter().clone();
-        run_chunk(case.source, "", &json!({}), &access, &observer, "Store")
-            .expect("the memory store operation succeeds");
+        run_chunk(
+            case.source,
+            &json!({}),
+            &json!({}),
+            &access,
+            &observer,
+            "Store",
+        )
+        .expect("the memory store operation succeeds");
         assert_eq!(
             recorder.observations(),
             vec![("Store".to_owned(), case.success.clone())],
@@ -197,8 +204,15 @@ fn every_store_operation_reports_its_exact_success_and_failure() {
         let access = failing_access();
         let recorder = Recorder::default();
         let observer = recorder.emitter().clone();
-        let error = run_chunk(case.source, "", &json!({}), &access, &observer, "Store")
-            .expect_err("the failing backend rejects every operation");
+        let error = run_chunk(
+            case.source,
+            &json!({}),
+            &json!({}),
+            &access,
+            &observer,
+            "Store",
+        )
+        .expect_err("the failing backend rejects every operation");
         assert!(
             error.code == ErrorCode::LuaRuntime,
             "a store failure surfaces through the Lua boundary, got {error:?}"
@@ -224,7 +238,7 @@ fn store_observations_happen_before_later_lua_side_effects() {
 
     run_chunk(
         "store.write('first.txt', '')\nlog('mark')\nstore.write('second.txt', '')",
-        "",
+        &json!({}),
         &json!({}),
         &access,
         &observer,

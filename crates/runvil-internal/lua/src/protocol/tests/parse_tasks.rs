@@ -12,21 +12,21 @@ fn spawn_parses_target_seeds_and_var() {
     let lua = Lua::new();
     let table = lua_table(
         &lua,
-        "{ op = 'spawn', target = '../Child', input = 'override', item = { name = 'alpha' }, \
-           index = 3, var = { k = 1 } }",
+        "{ op = 'spawn', target = '../Child', args = { query = 'papers' }, \
+           item = { name = 'alpha' }, index = 3, var = { k = 1 } }",
     );
     let request = expect_request(Request::from_yield(&lua, &Value::Table(table)));
     match request {
         Request::Spawn {
             target,
-            input,
+            args,
             item,
             index,
             var,
             from,
         } => {
             assert_eq!(target, "../Child");
-            assert_eq!(input.as_deref(), Some("override"));
+            assert_eq!(args, Some(json!({ "query": "papers" })));
             assert_eq!(item, Some(json!({ "name": "alpha" })));
             assert_eq!(index, Some(3));
             assert_eq!(var, json!({ "k": 1 }));
@@ -65,9 +65,9 @@ fn spawn_without_options_parses_every_seed_as_absent() {
     );
     match expect_request(Request::from_yield(&lua, &Value::Table(table))) {
         Request::Spawn {
-            input, item, index, ..
+            args, item, index, ..
         } => {
-            assert_eq!(input, None);
+            assert_eq!(args, None);
             assert_eq!(item, None);
             assert_eq!(index, None);
         }

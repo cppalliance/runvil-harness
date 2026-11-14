@@ -75,7 +75,7 @@ impl Tree {
 fn spawn(admission: &mut Admission, tree: &mut Tree, owner: ChainIndex) -> ChainIndex {
     let id = tree.task(owner, 1);
     let record = SpawnRecord {
-        input: None,
+        args: None,
         section: format!("spawned {}", id.index()),
     };
     admission.enqueue_spawn(id, record);
@@ -272,7 +272,7 @@ fn a_pass_that_fails_on_an_internal_error_leaves_admission_as_it_found_it() {
     admission.enqueue_spawn(
         call,
         SpawnRecord {
-            input: None,
+            args: None,
             section: "not a task".to_owned(),
         },
     );
@@ -298,7 +298,7 @@ fn a_pass_that_fails_after_admitting_a_resumption_leaves_its_slots_given_back() 
     admission.enqueue_spawn(
         stray,
         SpawnRecord {
-            input: None,
+            args: None,
             section: "not a task".to_owned(),
         },
     );

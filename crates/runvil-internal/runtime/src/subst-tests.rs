@@ -1,8 +1,9 @@
 //! Regression coverage for `{{ }}` prose substitution: the resolution
-//! of the `args`, `argv`, `item`, `var`, `sys`, and bare-global sources, the
+//! of the `args`, `item`, `var`, `sys`, and bare-global sources, the
 //! escape grammar, path segment validation, and the failure reasons.
 
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
 use runvil_types::error::SourceLoc;
 
@@ -22,13 +23,24 @@ fn no_globals(_: &str) -> Result<Option<Value>> {
 /// The prompt line the stock sources' prose starts on.
 const PROSE_LINE: NonZeroU32 = NonZeroU32::new(7).expect("7 is non-zero");
 
-/// Sources with the stock args string and no argv/item, over the given
+/// The stock args object: a string, an integer, a nested object, a list,
+/// and a null.
+static STOCK_ARGS: LazyLock<Value> = LazyLock::new(|| {
+    json!({
+        "name": "Acme Corp",
+        "limit": 3,
+        "row": { "a": 1 },
+        "tags": ["x", "y"],
+        "none": null,
+    })
+});
+
+/// Sources with the stock args object and no item, over the given
 /// `var`/`sys`, for prose that starts on [`PROSE_LINE`] of `prompt`; tests
 /// override fields with struct-update syntax.
 fn test_sources<'a>(var: &'a Value, sys: &'a Value) -> Sources<'a> {
     Sources {
-        args: "Acme Corp",
-        argv: None,
+        args: &STOCK_ARGS,
         item: None,
         var,
         sys,
@@ -79,78 +91,52 @@ fn substitution_diagnostics_escape_and_bound_the_placeholder() {
 }
 
 #[test]
-fn resolves_args() {
-    assert_eq!(run("hi {{ args }}!").unwrap(), "hi Acme Corp!");
+fn resolves_an_args_field() {
+    assert_eq!(run("hi {{ args.name }}!").unwrap(), "hi Acme Corp!");
+    assert_eq!(run("at most {{ args.limit }}").unwrap(), "at most 3");
 }
 
-// --- argv: the parsed-args namespace ------------------------------------
+#[test]
+fn resolves_an_args_dotted_path() {
+    assert_eq!(
+        run("cell={{ args.row.a }} row={{ args.row }} tags={{ args.tags }}").unwrap(),
+        "cell=1 row={\"a\":1} tags=[\"x\",\"y\"]"
+    );
+}
 
 #[test]
-fn resolves_argv_whole_value() {
+fn bare_args_renders_the_whole_object_as_compact_json() {
+    assert_eq!(
+        run("got {{ args }}").unwrap(),
+        "got {\"limit\":3,\"name\":\"Acme Corp\",\"none\":null,\
+         \"row\":{\"a\":1},\"tags\":[\"x\",\"y\"]}"
+    );
     let var = json!({});
     let sys = json!({});
-    let argv = json!({ "query": "papers", "n": 2 });
+    let empty = json!({});
     let sources = Sources {
-        argv: Some(&argv),
+        args: &empty,
         ..test_sources(&var, &sys)
     };
-    let out = substitute("got {{ argv }}", &sources).unwrap();
-    assert_eq!(out, "got {\"n\":2,\"query\":\"papers\"}");
+    assert_eq!(substitute("got {{ args }}", &sources).unwrap(), "got {}");
 }
 
 #[test]
-fn resolves_argv_dotted_path() {
-    let var = json!({});
-    let sys = json!({});
-    let argv = json!({ "query": "papers", "row": { "a": 1 } });
-    let sources = Sources {
-        argv: Some(&argv),
-        ..test_sources(&var, &sys)
-    };
-    let out = substitute("q={{ argv.query }} cell={{ argv.row.a }}", &sources).unwrap();
-    assert_eq!(out, "q=papers cell=1");
-}
-
-#[test]
-fn scalar_argv_renders_whole() {
-    let var = json!({});
-    let sys = json!({});
-    let argv = json!(42);
-    let sources = Sources {
-        argv: Some(&argv),
-        ..test_sources(&var, &sys)
-    };
-    let out = substitute("{{ argv }}", &sources).unwrap();
-    assert_eq!(out, "42");
-}
-
-#[test]
-fn nil_argv_is_an_error() {
-    let var = json!({});
-    let sys = json!({});
-    for prose in ["{{ argv }}", "{{ argv.x }}"] {
-        let e = substitute(prose, &test_sources(&var, &sys)).unwrap_err();
-        assert_eq!(reason(&e), Some("nil_argv"), "path {prose:?}");
-        assert!(e.to_string().contains("argv"), "names argv: {e}");
-        assert!(
-            e.to_string().contains("is nil (argv holds no value)"),
-            "names the nil cause: {e}"
-        );
+fn an_args_field_the_object_lacks_is_a_missing_key() {
+    for prose in ["{{ args.query }}", "{{ args.row.b }}", "{{ args.name.x }}"] {
+        let e = err_of(prose);
+        assert_eq!(reason(&e), Some("missing_key"), "path {prose:?}");
+        assert_eq!(e.message, format!("missing {prose} [MissingKey at byte 0]"));
     }
 }
 
 #[test]
-fn dotted_index_into_a_scalar_argv_is_an_error() {
-    // Never a silent empty string: the existing missing-key failure.
+fn a_null_args_field_is_a_null_value() {
     let var = json!({});
     let sys = json!({});
-    let argv = json!("scalar");
-    let sources = Sources {
-        argv: Some(&argv),
-        ..test_sources(&var, &sys)
-    };
-    let e = substitute("{{ argv.x }}", &sources).unwrap_err();
-    assert_eq!(reason(&e), Some("missing_key"));
+    let e = substitute("{{ args.none }}", &test_sources(&var, &sys)).unwrap_err();
+    assert_eq!(reason(&e), Some("null_value"));
+    assert_eq!(e.message, "missing {{ args.none }} [NullValue at byte 0]");
 }
 
 #[test]
@@ -206,7 +192,7 @@ fn escaped_delimiters_are_literal() {
 #[test]
 fn escape_then_real_placeholder_adjacent() {
     // First delimiter escaped, second one live and resolved.
-    assert_eq!(run(r"\{{x}}{{ args }}").unwrap(), "{{x}}Acme Corp");
+    assert_eq!(run(r"\{{x}}{{ args.name }}").unwrap(), "{{x}}Acme Corp");
 }
 
 #[test]
@@ -217,16 +203,17 @@ fn lone_backslash_is_literal() {
 
 #[test]
 fn replacement_produced_delimiters_are_not_resubstituted() {
-    let var = json!({ "payload": "{{ args }}" });
+    let var = json!({ "payload": "{{ args.name }}" });
     let sys = json!({});
     // `var.payload` renders text that looks like a placeholder; it must be
     // emitted verbatim, never resolved against args.
+    let args = json!({ "name": "SECRET" });
     let sources = Sources {
-        args: "SECRET",
+        args: &args,
         ..test_sources(&var, &sys)
     };
     let out = substitute("value: {{ var.payload }}", &sources).unwrap();
-    assert_eq!(out, "value: {{ args }}");
+    assert_eq!(out, "value: {{ args.name }}");
 }
 
 // --- Path segment grammar ------------------------------------------------
@@ -398,8 +385,8 @@ fn non_json_bare_global_is_an_error() {
 
 #[test]
 fn bare_namespaces_still_require_a_key() {
-    // `{{ var }}` and `{{ sys }}` stay `bad_path`; only bare globals render
-    // whole values.
+    // `{{ var }}` and `{{ sys }}` are `bad_path`; only `args` and a bare
+    // global render whole values.
     for prose in ["{{ var }}", "{{ sys }}"] {
         let e = err_of(prose);
         assert_eq!(reason(&e), Some("bad_path"), "path {prose:?}");
@@ -427,9 +414,12 @@ fn null_value_and_nil_item_reasons() {
 
 #[test]
 fn not_a_table_reason() {
-    let e = err_of("{{ args.x }}");
+    let e = err_of("{{ item.x }}");
     assert_eq!(reason(&e), Some("not_a_table"));
-    assert!(e.to_string().contains("not a table"));
+    assert_eq!(
+        e.message,
+        "item takes no key path; {{ item }} renders the whole item [NotATable at byte 0]"
+    );
 }
 
 // --- Null, arrays, trust-neutral passthrough -----------------------------

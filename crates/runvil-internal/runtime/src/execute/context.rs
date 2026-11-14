@@ -84,6 +84,10 @@ struct SharedState {
     /// The refusal the run's first step fails with: what the prompt
     /// requires that the params lack, or `None` when they lack nothing.
     refusal: Option<Error>,
+    /// The failure the run's first step fails with when the caller's
+    /// arguments are not a JSON object or do not match the prompt's
+    /// `args` declaration, or `None` when they match.
+    args_refusal: Option<Error>,
     /// The run's `started_at` rendered as RFC 3339, stamped into every
     /// section's `sys.when`.
     when: Arc<str>,
@@ -107,8 +111,8 @@ struct SharedState {
 /// reporting handles, so it advances the same turn counter.
 /// The two sanctioned forks: [`with_task`](Self::with_task) giving a
 /// spawned chain its own task emitter and turn counter, and
-/// [`with_args`](Self::with_args) passing a `call` or task-spawning arm's
-/// input override into its contained chain.
+/// [`with_args`](Self::with_args) giving the chain of a `call` or a
+/// `tasks.spawn` the arguments it was passed.
 #[derive(Clone)]
 pub(crate) struct ChainState {
     /// The run-wide state every chain of the run shares.
@@ -119,11 +123,10 @@ pub(crate) struct ChainState {
     /// shared tool-dispatch body) take the emitter too, so their reports
     /// land in the buffer in order with the scheduler's own.
     reporting: ReportingHandles,
-    /// The run's argument string for `{{ args }}` substitution.
-    args: Arc<str>,
-    /// The chain's `argv`, as `derive_argv` derives it from `args`: every
-    /// section the chain enters reads it, and nothing writes it.
-    argv: Option<Arc<serde_json::Value>>,
+    /// The chain's arguments, a JSON object: the `args` global of every
+    /// section the chain enters and the `{{ args }}` substitution source.
+    /// Nothing writes it.
+    args: Arc<serde_json::Value>,
 }
 
 impl ChainState {
@@ -136,6 +139,11 @@ impl ChainState {
     /// `params` lacks; the nonce derives from `params`'s seed and `when`
     /// renders `params`'s `started_at`, so two states over the same inputs
     /// agree on both.
+    ///
+    /// `args` is the caller's argument text. The state holds the object
+    /// the prompt's `args` declaration accepts it as, or, when the
+    /// declaration refuses it, the refusal the run's first step fails
+    /// with beside an empty object that no section reads.
     #[must_use]
     pub(super) fn root(prompt: Arc<Prompt>, args: &str, params: RunParams) -> Self {
         let RunParams {
@@ -163,7 +171,13 @@ impl ChainState {
             TaskId::from(ChainId::root()),
             report_debug,
         ));
-        let derived_argv = derive_argv(&prompt, args).map(Arc::from);
+        let (args, args_refusal) = match crate::prompt::detail::accept_args(&prompt, args) {
+            Ok(args) => (args, None),
+            Err(refusal) => (
+                serde_json::Value::Object(serde_json::Map::new()),
+                Some(refusal),
+            ),
+        };
         Self {
             shared: Arc::new(SharedState {
                 prompt,
@@ -175,6 +189,7 @@ impl ChainState {
                 tool_set,
                 model_set,
                 refusal,
+                args_refusal,
                 when: Arc::from(started_at.to_rfc3339()),
                 ui: ui.map(Arc::new),
                 preludes: preludes.into(),
@@ -185,8 +200,7 @@ impl ChainState {
                 emitter,
                 turns: Arc::new(AtomicU32::new(0)),
             },
-            args: Arc::from(args),
-            argv: derived_argv,
+            args: Arc::new(args),
         }
     }
 
@@ -240,14 +254,9 @@ impl ChainState {
         &self.shared.vfs
     }
 
-    /// The run's argument string.
-    pub(super) fn args(&self) -> &Arc<str> {
+    /// The chain's arguments, a JSON object.
+    pub(super) fn args(&self) -> &Arc<serde_json::Value> {
         &self.args
-    }
-
-    /// The chain's `argv`, as `derive_argv` derives it.
-    pub(super) fn argv(&self) -> Option<&Arc<serde_json::Value>> {
-        self.argv.as_ref()
     }
 
     /// The run's resource limits.
@@ -307,6 +316,12 @@ impl ChainState {
         self.shared.refusal.as_ref()
     }
 
+    /// The failure the run's first step fails with, or `None` when the
+    /// prompt's `args` declaration accepts the caller's arguments.
+    pub(super) fn args_refusal(&self) -> Option<&Error> {
+        self.shared.args_refusal.as_ref()
+    }
+
     /// The resolved tool-loop cap per `models.loop` call: the frontmatter's
     /// `max_tool_iterations` over the limits default, held to the limits
     /// ceiling.
@@ -327,16 +342,22 @@ impl ChainState {
         crate::prompt::detail::sections(&self.shared.prompt).len()
     }
 
-    /// The context a contained chain runs under: `args` in place of the
-    /// run's own, because a `call`, a `tasks.spawn`, or a `tasks.fanout`
-    /// arm that was given an input overrides the run's args for the chain -
-    /// and `argv` re-derives from the chain's args, so the chain sees the
-    /// `argv` of what it was passed.
+    /// The context a contained chain runs under when a `call` or a
+    /// `tasks.spawn` passed it arguments: `args` in place of the caller's.
+    /// An object is the chain's arguments as given, and a string is the
+    /// one field `text` of them. The prompt's `args` declaration describes
+    /// what a caller passes the run, so nothing checks a chain's own
+    /// arguments against it.
     #[must_use]
-    pub(super) fn with_args(&self, args: &str) -> Self {
+    pub(super) fn with_args(&self, args: serde_json::Value) -> Self {
+        let args = match args {
+            serde_json::Value::String(text) => {
+                serde_json::json!({ crate::prompt::detail::TEXT_FIELD: text })
+            }
+            object => object,
+        };
         let mut ctx = self.clone();
-        ctx.argv = derive_argv(&self.shared.prompt, args).map(Arc::from);
-        ctx.args = Arc::from(args);
+        ctx.args = Arc::new(args);
         ctx
     }
 
@@ -371,7 +392,6 @@ impl ChainState {
     ) -> SectionVmSetup<'a> {
         SectionVmSetup {
             args: &self.args,
-            argv: self.argv.as_deref(),
             sys,
             access,
             scope,
@@ -412,7 +432,6 @@ impl fmt::Debug for ChainState {
             .field("shared", &self.shared)
             .field("reporting", &self.reporting)
             .field("args", &self.args)
-            .field("argv", &self.argv)
             .finish()
     }
 }
@@ -432,6 +451,7 @@ impl fmt::Debug for SharedState {
             .field("tool_set", &self.tool_set)
             .field("model_set", &self.model_set)
             .field("refusal", &self.refusal)
+            .field("args_refusal", &self.args_refusal)
             .field("when", &self.when)
             .field("ui", &self.ui)
             .field(
@@ -461,22 +481,6 @@ fn run_tool_set(
         packs,
         tools,
     )
-}
-
-/// Derives a section's `argv` from the args string under the prompt's
-/// declaration: a default-declared prompt wraps the interface prose into
-/// the default shape (`argv.prose`, with the empty string present, not
-/// absent); a structured declaration parses the string as JSON, and a parse
-/// failure or a JSON `null` reads as nil (`if argv then` is the malformed
-/// check). The executor never hard-errors on shape.
-fn derive_argv(prompt: &Prompt, args: &str) -> Option<serde_json::Value> {
-    if prompt.frontmatter().args().is_default() {
-        return Some(serde_json::json!({ "prose": args }));
-    }
-    match serde_json::from_str(args) {
-        Ok(serde_json::Value::Null) | Err(_) => None,
-        Ok(value) => Some(value),
-    }
 }
 
 #[cfg(test)]
@@ -514,7 +518,7 @@ mod tests {
     /// The state a run of `prompt` assembles from `params`, as `Run::new`
     /// assembles it.
     fn state_over(prompt: &Prompt, params: RunParams) -> ChainState {
-        ChainState::root(Arc::new(prompt.clone()), "", params)
+        ChainState::root(Arc::new(prompt.clone()), "{}", params)
     }
 
     #[test]
@@ -565,27 +569,53 @@ mod tests {
     }
 
     #[test]
-    fn vm_setup_hands_the_vm_the_chains_argv() {
+    fn root_holds_the_object_the_declaration_accepts() {
         let prompt = test_prompt();
-        let ctx = test_state(&prompt).with_args("{\"query\":\"papers\"}");
+        let params = RunParams::new(TEST_SEED, runvil_types::timestamp::Timestamp::UNIX_EPOCH);
+        let ctx = ChainState::root(Arc::new(prompt), r#"{"text":"papers"}"#, params);
+        assert_eq!(**ctx.args(), json!({ "text": "papers" }));
+        assert_eq!(ctx.args_refusal(), None, "the declaration accepts them");
+    }
+
+    #[test]
+    fn root_keeps_the_refusal_of_arguments_the_declaration_refuses() {
+        let prompt = test_prompt();
+        let params = RunParams::new(TEST_SEED, runvil_types::timestamp::Timestamp::UNIX_EPOCH);
+        let ctx = ChainState::root(Arc::new(prompt), r#"{"query":"papers"}"#, params);
+        let refusal = ctx.args_refusal().expect("the declaration refuses them");
+        assert_eq!(refusal.code, runvil_types::error::ErrorCode::ArgsInvalid);
+        assert_eq!(refusal.at, None, "the caller's gap points at no line");
+        assert_eq!(**ctx.args(), json!({}), "the state holds an empty object");
+    }
+
+    #[test]
+    fn vm_setup_hands_the_vm_the_chains_args() {
+        let prompt = test_prompt();
+        let ctx = test_state(&prompt).with_args(json!({ "query": "papers" }));
         let sys = json!({});
         let (access, scope) = fresh_access();
         let selection = Arc::new(Mutex::new(None));
         let setup = ctx.vm_setup(&sys, VmSeed::default(), &access, &scope, &selection, "Only");
         assert_eq!(
-            setup.argv,
-            Some(&json!({ "prose": "{\"query\":\"papers\"}" })),
-            "the setup holds the argv the chain's args derive"
+            setup.args,
+            &json!({ "query": "papers" }),
+            "the setup holds the args the chain was passed"
         );
+    }
+
+    #[test]
+    fn a_string_passed_as_a_chains_args_is_their_one_text_field() {
+        let ctx = test_state(&test_prompt()).with_args(json!("chain text"));
+        assert_eq!(**ctx.args(), json!({ "text": "chain text" }));
     }
 
     #[test]
     fn forks_swap_only_their_own_fields() {
         let ctx = test_state(&test_prompt());
-        let chain = ctx.with_args("chain-args");
-        assert_eq!(&**chain.args(), "chain-args");
+        let chain = ctx.with_args(json!({ "n": 1 }));
+        assert_eq!(**chain.args(), json!({ "n": 1 }));
         assert!(Arc::ptr_eq(&ctx.shared, &chain.shared));
-        assert_eq!(&**ctx.args(), "");
+        assert_eq!(**ctx.args(), json!({}));
 
         let turns = Arc::new(AtomicU32::new(7));
         let task: TaskId = "0.4".parse().expect("a task id parses");

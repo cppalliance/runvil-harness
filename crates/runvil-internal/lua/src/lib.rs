@@ -2,11 +2,12 @@
 //!
 //! A section's Lua chunk runs in a fresh, restricted `mlua` VM: only the
 //! `string`, `table`, `math`, and `utf8` standard libraries plus the safe base
-//! functions are available; the raw input `args` string and the runtime `sys`
-//! table are exposed; a writable `var` table is provided for the block to
-//! populate; an always-on `store` table gives the block the run's virtual
-//! files; and an every-Nth-instruction hook polls the run's cancel flag, so
-//! even an unbounded loop aborts promptly once the run is canceled.
+//! functions are available; `args`, the read-only table of the chain's
+//! arguments, and the runtime `sys` table are exposed; a writable `var`
+//! table is provided for the block to populate; an always-on `store` table
+//! gives the block the run's virtual files; and an every-Nth-instruction
+//! hook polls the run's cancel flag, so even an unbounded loop aborts
+//! promptly once the run is canceled.
 //! Direct `print` and `warn` are unavailable. A persistent `log(message)`
 //! callback accepts one bounded, single-line UTF-8 string and reports it
 //! through the run's emitter as an `Event::Lua` checkpoint. A persistent
@@ -84,7 +85,7 @@
 //!   into the prose.
 
 mod adhoc;
-mod argv;
+mod args;
 mod bindings;
 mod chunk_line;
 mod collection;

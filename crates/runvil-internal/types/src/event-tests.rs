@@ -135,7 +135,7 @@ fn task_samples() -> Vec<Event> {
             provenance: provenance("0", 2),
             task: task("0.0"),
             target: "Worker".to_owned(),
-            input: Some("arg text".to_owned()),
+            args: Some(json!({ "text": "arg text" })),
             item: Some(json!({ "key": "value" })),
             index: Some(3),
             var: json!({ "topic": "leap days" }),

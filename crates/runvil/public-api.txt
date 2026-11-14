@@ -9,7 +9,6 @@
 #[non_exhaustive] pub enum runvil::model::Role
 #[non_exhaustive] pub enum runvil::model::ThinkingMode
 #[non_exhaustive] pub enum runvil::plugin::PackOrigin
-#[non_exhaustive] pub enum runvil::prompt::ArgType
 #[non_exhaustive] pub enum runvil::vfs::FileType
 #[non_exhaustive] pub enum runvil::vfs::Mode
 #[non_exhaustive] pub enum runvil::vfs::Op
@@ -119,10 +118,7 @@ auto runvil::plugin::PackRegistry: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !U
 auto runvil::plugin::RenderContext: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::ServiceId: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::ToolContext: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
-auto runvil::prompt::ArgDecl: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil::prompt::ArgType: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil::prompt::ArgsDecl: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil::prompt::ArgsDeclIter: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::prompt::ArgsSchema: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::prompt::FileDecl: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::prompt::Frontmatter: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::prompt::RoleRequirements: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
@@ -220,10 +216,7 @@ derives runvil::plugin::PackRegistry: Debug, Default
 derives runvil::plugin::RenderContext: Debug
 derives runvil::plugin::ServiceId: Clone, Copy, Debug, Eq, Hash, PartialEq
 derives runvil::plugin::ToolContext: Debug
-derives runvil::prompt::ArgDecl: Clone, Debug, Deserialize, Eq, PartialEq
-derives runvil::prompt::ArgType: Clone, Copy, Debug, Deserialize, Eq, PartialEq
-derives runvil::prompt::ArgsDecl: Clone, Debug, Default, Deserialize, Eq, PartialEq
-derives runvil::prompt::ArgsDeclIter: Clone, Debug
+derives runvil::prompt::ArgsSchema: Clone, Debug, Default, Deserialize, Eq, PartialEq
 derives runvil::prompt::FileDecl: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil::prompt::Frontmatter: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil::prompt::RoleRequirements: Clone, Copy, Debug, Deserialize, Eq, PartialEq
@@ -266,12 +259,10 @@ impl core::fmt::Display for runvil::model::Role
 impl core::fmt::Display for runvil::packs::GlobalName
 impl core::fmt::Display for runvil::packs::PackId
 impl core::fmt::Display for runvil::plugin::ServiceId
-impl core::fmt::Display for runvil::prompt::ArgType
 impl core::fmt::Display for runvil::vfs::PathReason
 impl core::fmt::Display for runvil::vfs::VfsError
 impl core::fmt::Display for runvil::vfs::VfsPath
 impl core::fmt::Display for runvil::vfs::VfsPathBuf
-impl core::iter::traits::exact_size::ExactSizeIterator for runvil::prompt::ArgsDeclIter<'_>
 impl core::ops::drop::Drop for runvil::vfs::Access
 impl core::str::traits::FromStr for runvil::ToolId
 impl core::str::traits::FromStr for runvil::ToolId { type Err = runvil::Error }
@@ -291,13 +282,8 @@ impl runvil::vfs::Policy for runvil::vfs::ModePolicy
 impl runvil::vfs::Vfs for runvil::vfs::MemoryBackend
 impl runvil::vfs::Vfs for runvil::vfs::RealBackend
 impl runvil::vfs::Vfs for runvil::vfs::VfsRef
-impl<'a> core::iter::traits::collect::IntoIterator for &'a runvil::prompt::ArgsDecl
-impl<'a> core::iter::traits::collect::IntoIterator for &'a runvil::prompt::ArgsDecl { type IntoIter = runvil::prompt::ArgsDeclIter<'a> }
-impl<'a> core::iter::traits::collect::IntoIterator for &'a runvil::prompt::ArgsDecl { type Item = (&'a str, &'a runvil::prompt::ArgDecl) }
 impl<'a> core::iter::traits::iterator::Iterator for runvil::model::ArgumentNames<'a>
 impl<'a> core::iter::traits::iterator::Iterator for runvil::model::ArgumentNames<'a> { type Item = &'a str }
-impl<'a> core::iter::traits::iterator::Iterator for runvil::prompt::ArgsDeclIter<'a>
-impl<'a> core::iter::traits::iterator::Iterator for runvil::prompt::ArgsDeclIter<'a> { type Item = (&'a str, &'a runvil::prompt::ArgDecl) }
 impl<'a> runvil::plugin::RenderContext<'a>
 impl<'a> runvil::plugin::ToolContext<'a>
 impl<'a> runvil::vfs::OpEvent<'a>
@@ -538,18 +524,10 @@ pub fn runvil::plugin::ToolContext::access(&self) -> &'a runvil::vfs::Access
 pub fn runvil::plugin::ToolContext::new(tool: &'a runvil::ToolId, access: &'a runvil::vfs::Access, origin: &'a runvil::effect::ToolCallOrigin) -> Self
 pub fn runvil::plugin::ToolContext::origin(&self) -> &'a runvil::effect::ToolCallOrigin
 pub fn runvil::plugin::ToolContext::tool(&self) -> &'a runvil::ToolId
-pub fn runvil::prompt::ArgDecl::default(&self) -> core::option::Option<&serde_yaml_ng::value::Value>
-pub fn runvil::prompt::ArgDecl::description(&self) -> core::option::Option<&str>
-pub fn runvil::prompt::ArgDecl::is_optional(&self) -> bool
-pub fn runvil::prompt::ArgDecl::kind(&self) -> runvil::prompt::ArgType
-pub fn runvil::prompt::ArgsDecl::get(&self, name: &str) -> core::option::Option<&runvil::prompt::ArgDecl>
-pub fn runvil::prompt::ArgsDecl::is_default(&self) -> bool
-pub fn runvil::prompt::ArgsDecl::is_empty(&self) -> bool
-pub fn runvil::prompt::ArgsDecl::iter(&self) -> runvil::prompt::ArgsDeclIter<'_>
-pub fn runvil::prompt::ArgsDecl::len(&self) -> usize
+pub fn runvil::prompt::ArgsSchema::as_json(&self) -> &serde_json::value::Value
 pub fn runvil::prompt::FileDecl::description(&self) -> &str
 pub fn runvil::prompt::FileDecl::path(&self) -> &str
-pub fn runvil::prompt::Frontmatter::args(&self) -> &runvil::prompt::ArgsDecl
+pub fn runvil::prompt::Frontmatter::args(&self) -> &runvil::prompt::ArgsSchema
 pub fn runvil::prompt::Frontmatter::description(&self) -> &str
 pub fn runvil::prompt::Frontmatter::max_tool_iterations(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
 pub fn runvil::prompt::Frontmatter::name(&self) -> &str
@@ -655,6 +633,7 @@ pub runvil::Error::prose: alloc::string::String
 pub runvil::ErrorCode::AlreadyExists = 602
 pub runvil::ErrorCode::Anchor = 609
 pub runvil::ErrorCode::ApprovalRequired = 611
+pub runvil::ErrorCode::ArgsInvalid = 705
 pub runvil::ErrorCode::Backend = 621
 pub runvil::ErrorCode::CallDepthExceeded = 204
 pub runvil::ErrorCode::Canceled = 702
@@ -889,8 +868,8 @@ pub runvil::event::Event::TaskFailed::provenance: runvil::ids::Provenance
 pub runvil::event::Event::TaskFailed::section: alloc::string::String
 pub runvil::event::Event::TaskFailed::task: runvil::ids::TaskId
 pub runvil::event::Event::TaskStarted { .. }
+pub runvil::event::Event::TaskStarted::args: core::option::Option<serde_json::value::Value>
 pub runvil::event::Event::TaskStarted::index: core::option::Option<u64>
-pub runvil::event::Event::TaskStarted::input: core::option::Option<alloc::string::String>
 pub runvil::event::Event::TaskStarted::item: core::option::Option<serde_json::value::Value>
 pub runvil::event::Event::TaskStarted::provenance: runvil::ids::Provenance
 pub runvil::event::Event::TaskStarted::section: alloc::string::String
@@ -1060,10 +1039,6 @@ pub runvil::plugin::PackOrigin::Builtin
 pub runvil::plugin::PackOrigin::Plugin
 pub runvil::plugin::RenderContext::entry: &'a str
 pub runvil::plugin::RenderContext::model: &'a runvil::model::ModelInfo
-pub runvil::prompt::ArgType::Boolean
-pub runvil::prompt::ArgType::Integer
-pub runvil::prompt::ArgType::Number
-pub runvil::prompt::ArgType::String
 pub runvil::vfs::Entry::description: core::option::Option<alloc::string::String>
 pub runvil::vfs::Entry::name: alloc::string::String
 pub runvil::vfs::Entry::stat: runvil::vfs::Stat
@@ -1202,9 +1177,7 @@ pub struct runvil::plugin::PackRegistry { /* private fields */ }
 pub struct runvil::plugin::ServiceId { /* private fields */ }
 pub struct runvil::plugin::ServiceKey<T: ?core::marker::Sized + core::marker::Send + core::marker::Sync + 'static> { /* private fields */ }
 pub struct runvil::plugin::ToolContext<'a> { /* private fields */ }
-pub struct runvil::prompt::ArgDecl { /* private fields */ }
-pub struct runvil::prompt::ArgsDecl { /* private fields */ }
-pub struct runvil::prompt::ArgsDeclIter<'a> { /* private fields */ }
+pub struct runvil::prompt::ArgsSchema { /* private fields */ }
 pub struct runvil::prompt::FileDecl { /* private fields */ }
 pub struct runvil::prompt::Frontmatter { /* private fields */ }
 pub struct runvil::prompt::RoleRequirements { /* private fields */ }

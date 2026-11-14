@@ -122,7 +122,8 @@ impl fmt::Debug for Run {
 
 impl Run {
     /// Builds a run of `prompt` with the arguments `args` and the params
-    /// `params`.
+    /// `params`. `args` is the text of one JSON object, such as `{}` for
+    /// a run with nothing to pass.
     ///
     /// Building a run fills its five model roles from the params' role
     /// map, as [`RunParams::with_models`](super::RunParams::with_models)
@@ -130,15 +131,18 @@ impl Run {
     /// holds whatever catalog and roster the params' builders set.
     ///
     /// Building a run never fails. The first `step` checks, in order,
-    /// that the prompt declares a supported `runvil:` version, that the
-    /// params' filesystem declares a store whose backend passes its
-    /// probe, and that the params meet what the prompt requires: each
+    /// that the prompt declares a supported `runvil:` version, that
+    /// `args` is a JSON object the prompt's `args` declaration accepts,
+    /// that the params' filesystem declares a store whose backend passes
+    /// its probe, and that the params meet what the prompt requires: each
     /// Pack the prompt declares is on the roster and can serve (a run given
     /// no roster skips this check), each declared role's requirements hold
     /// for the model that fills it, a non-empty role map has a `default`
     /// entry, and no tool of the catalog and no Pack of the roster has a
     /// Pack id the Engine reserves, such as `adhoc`. When a check fails,
     /// that step returns `Done` with the failure and no events. The
+    /// arguments failure has the code `ErrorCode::ArgsInvalid`, and its
+    /// message names the first argument that does not match. The
     /// requirements failure has the code `ErrorCode::RequirementsUnmet`,
     /// and its message names every gap. When the run's cancel flag is set
     /// as a check fails, the run ends with the cancel instead.

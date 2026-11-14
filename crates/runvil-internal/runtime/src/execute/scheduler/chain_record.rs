@@ -373,7 +373,7 @@ pub(super) struct Chain {
     pub(super) parked: Option<Parked>,
     /// The chain's fork of the run state: the run's own for the root walk,
     /// and the caller's for a `call` child or the spawner's for a task,
-    /// through `with_args` when the call or spawn gave an input. A task's
+    /// through `with_args` when the call or spawn passed arguments. A task's
     /// fork also reports under its own task id with its own turn counter
     /// (`with_task`).
     pub(super) ctx: ChainState,
@@ -487,9 +487,20 @@ impl Chain {
     }
 
     /// What `tasks.status` reports the chain blocked on, or `None` while
-    /// it runs or between blocks.
+    /// it runs or between blocks. A chain that holds the answer to what it
+    /// was parked on waits on nothing, though it has not run since, so it
+    /// reports `None` too, unless it waits for its slots.
     pub(super) fn blocked(&self) -> Option<Blocked> {
-        self.parked.as_ref().map(Parked::blocked)
+        let parked = self.parked.as_ref()?;
+        let answered = self
+            .entered
+            .as_ref()
+            .and_then(|entered| entered.running.as_ref())
+            .is_some_and(|running| running.answer.is_some());
+        if answered && !matches!(parked, Parked::Queued) {
+            return None;
+        }
+        Some(parked.blocked())
     }
 
     /// Ends the chain's `join_any` wait when its set holds `task`, and
@@ -639,7 +650,7 @@ impl Chain {
             .expect("the test prompt parses");
         let ctx = ChainState::root(
             Arc::new(prompt),
-            "",
+            "{}",
             RunParams::new(TEST_SEED, TEST_STARTED_AT),
         );
         Chain {

@@ -139,15 +139,17 @@ end
 
 -- `call` for the code it is installed for. `from` is nil for a section's
 -- own code and a library's identity for that library's code; the request
--- carries it, and the driver resolves the target's path from there. The
+-- carries it, and the driver resolves the target's path from there.
+-- `args` is the called chain's arguments, a table of named fields or a
+-- string, and with none the chain reads the caller's `args`. The
 -- driver resumes it with the called chain's final text, or with nil for a
 -- chain that ended with no text, and that is the call's value.
 local function call_from(from)
-  return function(target, input)
+  return function(target, args)
     local ok, result = yield({
       op = "call",
       target = target,
-      input = input,
+      args = args,
       var = var_snapshot(),
       from = from,
     })

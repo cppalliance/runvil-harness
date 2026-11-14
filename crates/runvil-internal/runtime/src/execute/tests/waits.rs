@@ -10,7 +10,7 @@
 use runvil_types::event::Event;
 
 use super::context::task;
-use super::scheduler::{asks, scheduler_scenario};
+use super::scheduler::{asks, is_timer, scheduler_scenario};
 use super::tasks::TaskRecorder;
 use super::*;
 use crate::execute::scheduler::test_hooks::TaskState;
@@ -180,6 +180,44 @@ fn status_reports_a_parked_task_and_then_a_finished_one() {
             "done keys=depth,note,ok,state,target,tasks,turns".to_owned(),
         ],
         "status fields before the child runs, while it is parked, and after it finished"
+    );
+}
+
+#[test]
+fn status_reports_no_block_for_a_task_whose_answer_arrived() {
+    // The spawner's timed wait and the child's model round are both held.
+    // The timer is released and then the round, before the run steps, so
+    // the spawner runs first and reads the child's status while the child
+    // holds its reply and has not run since: the round is counted, and the
+    // child waits on nothing.
+    let gateway = ScriptedChat::new(vec![text("slow answer")]);
+    let md = tasks_prompt(
+        "local t = tasks.spawn('../Child')\n\
+         local first = tasks.join_any({ t }, { timeout = 30 })\n\
+         assert(first == nil, 'the timer fires first')\n\
+         local s = tasks.status(t)\n\
+         log('state=' .. s.state .. ' section=' .. tostring(s.section)\n\
+           .. ' blocked=' .. tostring(s.blocked) .. ' turns=' .. s.turns)\n\
+         local _, ok, result = tasks.join_any({ t })\n\
+         assert(ok and result == 'slow answer', tostring(result))\n\
+         return 'done'",
+        &[("Child", "return models.infer('slow please')")],
+    );
+    let slow = asks("slow please");
+    let mut rig = Rig::start(
+        scheduler_scenario(md)
+            .chat(&gateway)
+            .hold(move |effect| is_timer(effect) || slow(effect)),
+    );
+    rig.settle();
+    rig.release(is_timer);
+    rig.release(asks("slow please"));
+    let rig = rig.finish();
+    assert_eq!(rig.trace().text(), "done");
+    assert_eq!(
+        TaskRecorder::replayed(rig.trace()).logs("Main"),
+        vec!["state=running section=Child blocked=nil turns=1".to_owned()],
+        "a task that holds its reply is not blocked on the round"
     );
 }
 

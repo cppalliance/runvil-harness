@@ -72,7 +72,7 @@ fn tool_round(offered: &[Offered]) -> Round {
     let ctx = ctx
         .with_tools(catalog)
         .with_models(BTreeMap::from([(ModelRole::Default, model)]));
-    let mut run = Run::new(Arc::new(prompt), "", ctx);
+    let mut run = Run::new(Arc::new(prompt), "{}", ctx);
     let mut rounds = Vec::new();
     let result = loop {
         let effects = match run.step() {

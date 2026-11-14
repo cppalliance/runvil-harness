@@ -232,7 +232,7 @@ fn a_required_helper_survives_prologue_model_and_epilog() {
             "
             ```lua
             require '/helpers'
-            var.question = decorate(args)
+            var.question = decorate(args.text)
             ```
 
             Ask using {{ var.question }}.
@@ -246,7 +246,7 @@ fn a_required_helper_survives_prologue_model_and_epilog() {
             "function decorate(value) return '<' .. value .. '>' end",
         );
     let trace = Scenario::new(source.build())
-        .args("input")
+        .args(r#"{"text":"input"}"#)
         .bound()
         .chat(&gateway)
         .run();

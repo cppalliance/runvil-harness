@@ -16,9 +16,7 @@ use crate::protocol::{NonEmpty, Request};
 use crate::proxy::plain;
 use crate::section::scalar_return;
 
-use super::{
-    FieldFailure, call_error, call_optional_string, call_string, call_target, shim_from, shim_var,
-};
+use super::{FieldFailure, call_args, call_error, call_string, call_target, shim_from, shim_var};
 
 /// Parses one task id string; a malformed path is the call's error naming
 /// why the parse refused it.
@@ -37,14 +35,14 @@ fn call_task(table: &mlua::Table) -> std::result::Result<TaskId, FieldFailure> {
 }
 
 /// Parses a `spawn` request: the author-supplied `target`, the optional
-/// author-supplied `input`, `item`, and `index` seeds, plus the
+/// author-supplied `args`, `item`, and `index` seeds, plus the
 /// shim-produced `var` snapshot.
 pub(super) fn parse_spawn(
     lua: &Lua,
     table: &mlua::Table,
 ) -> std::result::Result<Request, FieldFailure> {
     let target = call_target(table)?;
-    let input = call_optional_string(table, "input")?;
+    let args = call_args(lua, table)?;
     let item = match table.raw_get::<Value>("item") {
         Ok(Value::Nil) => None,
         Ok(value @ (Value::Function(_) | Value::UserData(_) | Value::Thread(_))) => {
@@ -86,7 +84,7 @@ pub(super) fn parse_spawn(
     let from = shim_from(table)?;
     Ok(Request::Spawn {
         target,
-        input,
+        args,
         item,
         index,
         var,

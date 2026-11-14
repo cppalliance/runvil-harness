@@ -209,7 +209,7 @@ const HELD_STORE: &str = "---\nname: held-store\ndescription: d\nrunvil: 0\n---\
 /// Starts the `HELD_STORE` run over `vfs`.
 fn held_store_run(vfs: &VfsRef) -> Run {
     let ctx = test_params().with_vfs(vfs.clone());
-    Run::new(Arc::new(parse(HELD_STORE)), "", ctx)
+    Run::new(Arc::new(parse(HELD_STORE)), "{}", ctx)
 }
 
 /// Answers `effects` through the local performer, keeping each one in

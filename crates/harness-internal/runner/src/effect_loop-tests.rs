@@ -42,7 +42,7 @@ fn lost_run() -> Run {
     );
     let params = RunParams::new(SEED, Timestamp::UNIX_EPOCH)
         .with_tools(ToolCatalog::new([wait]).expect("the one-tool catalog is valid"));
-    let mut run = Run::new(Arc::new(prompt.expect("the prompt parses")), "", params);
+    let mut run = Run::new(Arc::new(prompt.expect("the prompt parses")), "{}", params);
     let Step::Pending { effects, .. } = run.step() else {
         panic!("the run parks on its tool call");
     };

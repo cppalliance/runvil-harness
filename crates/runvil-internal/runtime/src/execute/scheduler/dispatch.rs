@@ -84,13 +84,13 @@ impl Scheduler {
             }
             Request::Call {
                 target,
-                input,
+                args,
                 var,
                 from,
-            } => self.dispatch_call(id, &target, input.as_deref(), &var, from.as_ref()),
+            } => self.dispatch_call(id, &target, args, &var, from.as_ref()),
             Request::Spawn {
                 target,
-                input,
+                args,
                 item,
                 index,
                 var,
@@ -98,7 +98,7 @@ impl Scheduler {
             } => self.dispatch_spawn(
                 id,
                 &target,
-                input.as_deref(),
+                args,
                 TaskSeed { item, index },
                 var,
                 from.as_ref(),
@@ -138,11 +138,11 @@ impl Scheduler {
         &mut self,
         id: ChainIndex,
         target: &str,
-        input: Option<&str>,
+        args: Option<serde_json::Value>,
         var: &serde_json::Value,
         from: Option<&LibraryKey>,
     ) -> Result<()> {
-        match self.prepare_call(id, target, input, var, from) {
+        match self.prepare_call(id, target, args, var, from) {
             Ok(child) => {
                 self.ready.push_back(child);
                 Ok(())
@@ -159,18 +159,17 @@ impl Scheduler {
         &mut self,
         id: ChainIndex,
         target: &str,
-        input: Option<&str>,
+        args: Option<serde_json::Value>,
         var: &serde_json::Value,
         from: Option<&LibraryKey>,
     ) -> Result<ChainIndex> {
         let chain = &self.chains[id];
         let depth = chain.call_depth.deeper()?;
-        // An explicit input forks the chain's args (and `argv` re-derives
-        // from them); a no-input call inherits the caller's context whole,
-        // so the caller's `argv` reaches the chain rather than re-deriving
-        // from the unchanged args.
-        let child_ctx = match input {
-            Some(input) => chain.ctx.with_args(input),
+        // A call that passes arguments gives the chain its own `args`; a
+        // call that passes none hands the chain the caller's context
+        // whole, so the chain reads the caller's `args`.
+        let child_ctx = match args {
+            Some(args) => chain.ctx.with_args(args),
             None => chain.ctx.clone(),
         };
         // A call chain is a blocking child: it borrows the caller's access

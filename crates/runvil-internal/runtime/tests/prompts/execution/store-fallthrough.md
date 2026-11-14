@@ -8,7 +8,7 @@ runvil: 0
 
 ```lua
 log("writing state")
-store.write("handoff.txt", args)
+store.write("handoff.txt", args.text)
 ```
 
 ## Read

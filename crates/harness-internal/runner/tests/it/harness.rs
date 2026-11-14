@@ -49,7 +49,8 @@ mod stop_timing;
 const PATIENCE: Duration = Duration::from_secs(10);
 
 /// The setup of a run recorded through `recorder` and served by `broker`,
-/// with [`MODEL`] selected, no arguments, and a fresh memory store.
+/// with [`MODEL`] selected, the empty object `{}` as its arguments, and a
+/// fresh memory store.
 pub(crate) fn setup(
     recorder: Arc<dyn RunRecorder>,
     broker: impl InferenceBroker + 'static,

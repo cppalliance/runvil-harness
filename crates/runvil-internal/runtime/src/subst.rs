@@ -2,11 +2,11 @@
 //!
 //! When a section's Lua first reads the lazy `prose` value, the Engine
 //! resolves `{{ path }}` placeholders in the pending Markdown template. Lua
-//! source is never substituted. Five sources are available: `args` (the single
-//! raw input string), `argv` (the chain's `argv`, derived from its args;
-//! nil when it holds no value), `item` (the item seeded into this section - a fanout arm's or a
-//! `tasks.spawn` task's first entry - nil otherwise), `var` (values the
-//! section's Lua wrote), and `sys` (runtime-provided metadata). An unknown
+//! source is never substituted. Four sources are available: `args` (the
+//! chain's arguments, a JSON object), `item` (the item seeded into this
+//! section - a fanout arm's or a `tasks.spawn` task's first entry - nil
+//! otherwise), `var` (values the section's Lua wrote), and `sys`
+//! (runtime-provided metadata). An unknown
 //! first segment resolves as a bare global: a section-local Lua global
 //! (`x = 42` without `local`) read through a caller-supplied lookup, with
 //! dotted paths indexing into its JSON form. Resolution is a single pass with
@@ -51,17 +51,14 @@ use crate::Result;
 ///   (`var.`, `var..x`).
 /// - `unknown_namespace`: the leading namespace is not one of the known
 ///   roots and names no bare global.
-/// - `not_a_table`: a key path after `args` or `item`, which render whole
-///   only.
-/// - `missing_key`: a key path found no value: under `var`, `sys`, `argv`,
+/// - `not_a_table`: a key path after `item`, which renders whole only.
+/// - `missing_key`: a key path found no value: under `var`, `sys`, `args`,
 ///   or a bare global.
 /// - `null_value`: the resolved value was JSON null, for a `var`, `sys`,
-///   `argv`, or bare global source. A null `item` is not this: `{{ item }}`
+///   `args`, or bare global source. A null `item` is not this: `{{ item }}`
 ///   renders it as the text `null`.
 /// - `nil_item`: `{{ item }}` was used with no item seeded into this
 ///   section.
-/// - `nil_argv`: an `argv` placeholder, bare or dotted, was used while
-///   `argv` was nil.
 /// - `serialize`: the bare-global lookup failed: the global cannot become
 ///   JSON data, the name is `prose` itself, or the lookup raised.
 fn make_failure_error(reason: &str, offset: usize, detail: String) -> Error {
@@ -87,12 +84,11 @@ type SubstResult<T> = std::result::Result<T, Error>;
 
 /// The value sources `{{ }}` placeholders resolve against.
 ///
-/// `var` and `sys` are JSON objects.
+/// `args`, `var`, and `sys` are JSON objects.
 pub(crate) struct Sources<'a> {
-    /// The raw args string: `{{ args }}`.
-    pub(crate) args: &'a str,
-    /// The chain's `argv`: `{{ argv }}` and dotted paths.
-    pub(crate) argv: Option<&'a Value>,
+    /// The chain's arguments: `{{ args }}`, which renders the whole
+    /// object, and dotted paths.
+    pub(crate) args: &'a Value,
     /// The item seeded into this section on a fanout arm's or a
     /// `tasks.spawn` task's first entry, rendered per
     /// [`render_item`](crate::lua::render_item): `{{ item }}`. `None` on
@@ -179,20 +175,6 @@ fn placeholder_line(line: Option<NonZeroU32>, before: &str) -> Option<NonZeroU32
     line?.checked_add(newlines)
 }
 
-/// The nil-`argv` failure shared by the bare and dotted `{{ argv }}` paths.
-fn nil_argv<'a>(argv: Option<&'a Value>, path: &str, offset: usize) -> SubstResult<&'a Value> {
-    argv.ok_or_else(|| {
-        make_failure_error(
-            "nil_argv",
-            offset,
-            format!(
-                "{{{{ {} }}}} is nil (argv holds no value)",
-                path_preview(path)
-            ),
-        )
-    })
-}
-
 /// Resolves an unknown first segment as a bare global: the caller's lookup
 /// reads the section-local Lua global and converts it to JSON.
 fn bare_global_root(
@@ -229,9 +211,6 @@ fn bare_global_root(
 
 /// Resolves a single `{{ }}` path to its rendered string.
 fn resolve(path: &str, offset: usize, sources: &Sources<'_>) -> SubstResult<String> {
-    if path == "args" {
-        return Ok(sources.args.to_string());
-    }
     if path == "item" {
         return sources.item.map(crate::lua::render_item).ok_or_else(|| {
             make_failure_error(
@@ -241,10 +220,6 @@ fn resolve(path: &str, offset: usize, sources: &Sources<'_>) -> SubstResult<Stri
             )
         });
     }
-    if path == "argv" {
-        return render(nil_argv(sources.argv, path, offset)?, path, offset);
-    }
-
     // Validate the complete segment grammar before any lookup: every segment
     // (namespace included) must be nonempty and free of leading or trailing
     // whitespace, so `var.`, `var..x`, and `var. .x` are rejected up front even
@@ -271,14 +246,7 @@ fn resolve(path: &str, offset: usize, sources: &Sources<'_>) -> SubstResult<Stri
     let root = match namespace {
         "var" => sources.var,
         "sys" => sources.sys,
-        "argv" => nil_argv(sources.argv, path, offset)?,
-        "args" => {
-            return Err(make_failure_error(
-                "not_a_table",
-                offset,
-                "args is a string, not a table".to_string(),
-            ));
-        }
+        "args" => sources.args,
         "item" => {
             return Err(make_failure_error(
                 "not_a_table",
@@ -305,8 +273,8 @@ fn resolve(path: &str, offset: usize, sources: &Sources<'_>) -> SubstResult<Stri
                 })?;
             }
         }
-        // A bare `var`/`sys` with no key stays an error; a bare global with
-        // no keys renders its whole JSON value.
+        // A bare `var`/`sys` with no key stays an error; a bare `args` or
+        // a bare global with no keys renders its whole JSON value.
         None if matches!(namespace, "var" | "sys") => {
             return Err(make_failure_error(
                 "bad_path",

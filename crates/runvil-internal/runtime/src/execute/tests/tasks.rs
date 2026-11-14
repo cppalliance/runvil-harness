@@ -148,7 +148,7 @@ fn a_finished_child_moves_its_entry_to_done_and_reports_task_succeeded() {
         &Observation::TaskStarted {
             task: task("0.0"),
             target: "Child".to_owned(),
-            input: None,
+            args: None,
             item: None,
             index: None,
             var: json!({}),
@@ -202,11 +202,11 @@ fn task_started_includes_the_spawn_seeds_and_the_child_sees_them() {
     let md = spawner_prompt(
         "var.k = 1\n\
          log('root taskid=' .. sys.taskid)\n\
-         tasks.spawn('../Child', { input = 'child args', item = { name = 'alpha' }, index = 7 })\n\
+         tasks.spawn('../Child', { args = { topic = 'child args' }, item = { name = 'alpha' }, index = 7 })\n\
          store.write('park', 'x')\n\
          return 'done'",
         "log('taskid=' .. sys.taskid .. ' id=' .. sys.id .. ' index=' .. sys.index\n\
-           .. ' item=' .. item.name .. ' args=' .. args .. ' k=' .. tostring(var.k))",
+           .. ' item=' .. item.name .. ' topic=' .. args.topic .. ' k=' .. tostring(var.k))",
     );
     let rig = Rig::run(scheduler_scenario(md));
     assert_eq!(rig.trace().text(), "done", "the run completes");
@@ -217,7 +217,7 @@ fn task_started_includes_the_spawn_seeds_and_the_child_sees_them() {
         &Observation::TaskStarted {
             task: task("0.0"),
             target: "Child".to_owned(),
-            input: Some("child args".to_owned()),
+            args: Some(json!({ "topic": "child args" })),
             item: Some(json!({ "name": "alpha" })),
             index: Some(7),
             var: json!({ "k": 1 }),
@@ -226,7 +226,7 @@ fn task_started_includes_the_spawn_seeds_and_the_child_sees_them() {
     recorder.position("Spawner", &Observation::Lua("root taskid=0".to_owned()));
     recorder.position(
         "Child",
-        &Observation::Lua("taskid=0.0 id=0.0.0 index=7 item=alpha args=child args k=1".to_owned()),
+        &Observation::Lua("taskid=0.0 id=0.0.0 index=7 item=alpha topic=child args k=1".to_owned()),
     );
 }
 

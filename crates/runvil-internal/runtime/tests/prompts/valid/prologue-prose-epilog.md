@@ -10,7 +10,7 @@ Transform one model response.
 ## Transform
 
 ```lua
-var.subject = args
+var.subject = args.text
 ```
 
 Write about {{ var.subject }}.

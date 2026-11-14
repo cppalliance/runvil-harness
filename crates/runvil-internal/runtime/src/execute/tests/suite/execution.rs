@@ -78,7 +78,9 @@ fn log_fixture_reports_exact_author_checkpoints() {
 
 #[test]
 fn prologue_return_fixture_skips_model_and_epilog() {
-    let trace = Scenario::new(PROLOGUE_RETURN).args("early result").run();
+    let trace = Scenario::new(PROLOGUE_RETURN)
+        .args(r#"{"text":"early result"}"#)
+        .run();
     assert_eq!(trace.text(), "early result");
     assert!(
         trace.read("unreachable.txt").is_err(),
@@ -92,7 +94,9 @@ fn prologue_return_fixture_skips_model_and_epilog() {
 
 #[test]
 fn store_fixture_persists_state_across_fall_through() {
-    let trace = Scenario::new(STORE_FALLTHROUGH).args("handoff value").run();
+    let trace = Scenario::new(STORE_FALLTHROUGH)
+        .args(r#"{"text":"handoff value"}"#)
+        .run();
     assert_eq!(trace.text(), "handoff value");
     assert_eq!(
         trace
@@ -112,7 +116,10 @@ fn store_fixture_persists_state_across_fall_through() {
 #[test]
 fn concurrent_runs_keep_their_records_separate() {
     let start = |args| Scenario::new(STORE_FALLTHROUGH).args(args).start();
-    let (mut first, mut second) = (start("first result"), start("second result"));
+    let (mut first, mut second) = (
+        start(r#"{"text":"first result"}"#),
+        start(r#"{"text":"second result"}"#),
+    );
     // Both runs take every step on this thread, one step of each in turn.
     assert!(first.step(), "the first run is pending on its store write");
     assert!(

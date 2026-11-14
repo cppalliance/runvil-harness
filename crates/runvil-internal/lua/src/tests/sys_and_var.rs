@@ -4,38 +4,50 @@
 use super::*;
 
 #[test]
-fn returns_args_verbatim() {
+fn returns_an_args_field_verbatim() {
     assert_eq!(
-        run("return args", "hello").unwrap().returned.as_deref(),
+        run("return args.text", &json!({ "text": "hello" }))
+            .unwrap()
+            .returned
+            .as_deref(),
         Some("hello")
     );
 }
 
 #[test]
 fn expression_only_compatibility_chunk_returns_its_value() {
-    assert_eq!(run("42", "").unwrap().returned.as_deref(), Some("42"));
+    assert_eq!(
+        run("42", &json!({})).unwrap().returned.as_deref(),
+        Some("42")
+    );
 }
 
 #[test]
 fn no_return_is_none() {
-    assert_eq!(run("local x = 1", "hello").unwrap().returned, None);
+    assert_eq!(run("local x = 1", &json!({})).unwrap().returned, None);
 }
 
 #[test]
 fn reads_sys() {
     assert_eq!(
-        run("return sys.id", "").unwrap().returned.as_deref(),
+        run("return sys.id", &json!({}))
+            .unwrap()
+            .returned
+            .as_deref(),
         Some("1")
     );
     assert_eq!(
-        run("return sys.when", "").unwrap().returned.as_deref(),
+        run("return sys.when", &json!({}))
+            .unwrap()
+            .returned
+            .as_deref(),
         Some("t")
     );
 }
 
 #[test]
 fn unknown_sys_field_is_a_lua_error() {
-    let error = run("return sys.bogus", "").expect_err("missing sys field must fail");
+    let error = run("return sys.bogus", &json!({})).expect_err("missing sys field must fail");
     assert!(
         error.to_string().contains("unknown sys field 'bogus'"),
         "error was {error}"
@@ -44,7 +56,8 @@ fn unknown_sys_field_is_a_lua_error() {
 
 #[test]
 fn writing_sys_field_is_a_lua_error() {
-    let existing = run("sys.when = 'x'", "").expect_err("writing an existing sys field must fail");
+    let existing =
+        run("sys.when = 'x'", &json!({})).expect_err("writing an existing sys field must fail");
     assert!(
         existing
             .to_string()
@@ -52,7 +65,7 @@ fn writing_sys_field_is_a_lua_error() {
         "error was {existing}"
     );
 
-    let created = run("sys.extra = 1", "").expect_err("creating a sys field must fail");
+    let created = run("sys.extra = 1", &json!({})).expect_err("creating a sys field must fail");
     assert!(
         created
             .to_string()
@@ -70,17 +83,21 @@ fn a_sys_write_raises_the_whole_refusal_for_a_string_integer_or_other_key() {
     ] {
         let source =
             format!("local ok, err = pcall(function() {target} = 1 end)\nreturn tostring(err)");
-        let out = run(&source, "").expect("the pcall catches the refusal");
+        let out = run(&source, &json!({})).expect("the pcall catches the refusal");
         let caught = out.returned.expect("the chunk returns the caught error");
         assert_eq!(refusal_line(&caught), Some(refusal), "writing {target}");
     }
-    let label = run("return getmetatable(sys)", "").unwrap();
+    let label = run("return getmetatable(sys)", &json!({})).unwrap();
     assert_eq!(label.returned.as_deref(), Some("sys is sealed"));
 }
 
 #[test]
 fn var_is_read_back() {
-    let out = run("var.greeting = 'hi ' .. args", "bob").unwrap();
+    let out = run(
+        "var.greeting = 'hi ' .. args.text",
+        &json!({ "text": "bob" }),
+    )
+    .unwrap();
     assert_eq!(
         out.var.get("greeting").and_then(|v| v.as_str()),
         Some("hi bob")
@@ -91,7 +108,7 @@ fn var_is_read_back() {
 fn var_guard_allows_json_data_and_reads_back() {
     let out = run(
         "var.n = 1\nvar.s = 'x'\nvar.t = { a = {1, 2} }\nvar.b = true",
-        "",
+        &json!({}),
     )
     .expect("JSON data writes must pass the guard");
     assert_eq!(
@@ -102,7 +119,7 @@ fn var_guard_allows_json_data_and_reads_back() {
 
 #[test]
 fn var_rejects_a_function_at_the_assigning_line() {
-    let error = run("var.f = function() end", "")
+    let error = run("var.f = function() end", &json!({}))
         .expect_err("a function assigned into var must fail at the assigning line");
     assert!(
         error
@@ -114,7 +131,7 @@ fn var_rejects_a_function_at_the_assigning_line() {
 
 #[test]
 fn var_rejects_a_nested_function_at_the_assigning_line() {
-    let error = run("var.t = { f = function() end }", "")
+    let error = run("var.t = { f = function() end }", &json!({}))
         .expect_err("a nested function must fail the deep check at the assigning line");
     assert!(
         error.to_string().contains("function"),
@@ -133,7 +150,7 @@ fn var_guard_error_is_catchable_at_the_assigning_line() {
          assert(tostring(err):match('must be JSON data'), tostring(err))\n\
          var.kept = 'yes'\n\
          return var.kept",
-        "",
+        &json!({}),
     )
     .expect("the caught guard error must not fail the chunk");
     assert_eq!(out.returned.as_deref(), Some("yes"));
@@ -149,7 +166,7 @@ fn var_guard_rejects_incremental_nested_function_writes_at_the_assigning_line() 
          assert(tostring(err):match('var.t.f must be JSON data'), tostring(err))\n\
          var.t.kept = 'yes'\n\
          return var.t.kept",
-        "",
+        &json!({}),
     )
     .expect("the nested guard error must remain catchable");
     assert_eq!(out.returned.as_deref(), Some("yes"));
@@ -185,16 +202,17 @@ fn assigning_nil_to_a_var_field_removes_it_from_var_and_its_snapshot() {
 #[test]
 fn an_empty_marked_list_in_var_reads_back_as_an_empty_array() {
     for source in ["var.items = json.array()", "var.items = json.decode('[]')"] {
-        let out = run(source, "").expect("a marked list passes the guard");
+        let out = run(source, &json!({})).expect("a marked list passes the guard");
         assert_eq!(out.var, json!({ "items": [] }), "after {source}");
     }
 }
 
 #[test]
 fn a_nested_marked_list_reads_back_as_an_array_and_a_plain_empty_table_as_an_object() {
-    let nested = run("var.t = { list = json.array() }", "").expect("the nested list passes");
+    let nested =
+        run("var.t = { list = json.array() }", &json!({})).expect("the nested list passes");
     assert_eq!(nested.var, json!({ "t": { "list": [] } }));
-    let plain = run("var.items = {}", "").expect("an empty table passes the guard");
+    let plain = run("var.items = {}", &json!({})).expect("an empty table passes the guard");
     assert_eq!(plain.var, json!({ "items": {} }));
 }
 
@@ -207,8 +225,11 @@ fn an_empty_list_seeded_from_rust_reads_back_as_an_empty_array() {
 
 #[test]
 fn json_null_in_var_reads_back_as_null_and_equals_json_null_in_lua() {
-    let out = run("var.x = json.null\nreturn tostring(var.x == json.null)", "")
-        .expect("json.null passes the guard");
+    let out = run(
+        "var.x = json.null\nreturn tostring(var.x == json.null)",
+        &json!({}),
+    )
+    .expect("json.null passes the guard");
     assert_eq!(out.returned.as_deref(), Some("true"));
     assert_eq!(out.var, json!({ "x": null }));
 }
@@ -217,11 +238,99 @@ fn json_null_in_var_reads_back_as_null_and_equals_json_null_in_lua() {
 fn reassigning_the_var_global_fails_read_back() {
     // `var = 5` drops the guarded proxy from reach; read-back must reject it
     // rather than silently roll the pre-reassignment data forward.
-    let error = run("var = 5", "").expect_err("reassigning the var global must fail at read-back");
+    let error =
+        run("var = 5", &json!({})).expect_err("reassigning the var global must fail at read-back");
     assert!(
         error.to_string().contains("`var` global was reassigned"),
         "the error must name the reassignment: {error}"
     );
+}
+
+/// Runs `write` on a fresh VM under `pcall`, after `var.t = {}` and
+/// `var.list = { 'a' }`, and returns whether it raised, the error's kind,
+/// its refusal line, and `var` as JSON text after it.
+fn var_write(write: &str) -> (bool, String, String, String) {
+    let vm = TestVm::new().shims().build();
+    let (raised, kind, message, var): (bool, String, String, String) = vm.eval(&format!(
+        "var.t = {{}}\n\
+         var.list = {{ 'a' }}\n\
+         local ok, err = pcall(function() {write} end)\n\
+         if ok then return false, '', '', json.encode(var) end\n\
+         return true, tostring(err.kind), tostring(err), json.encode(var)"
+    ));
+    let line = refusal_line(&message).unwrap_or(&message).to_owned();
+    (raised, kind, line, var)
+}
+
+#[test]
+fn a_var_write_under_a_key_with_no_json_form_is_refused_at_the_assigning_line() {
+    // Each key would break the read-back of `var` long after the write, so
+    // the guard refuses it where it is written and stores nothing.
+    for (write, refusal) in [
+        (
+            "var[true] = 1",
+            "a key of var must be a string, got boolean",
+        ),
+        ("var[2.5] = 1", "a key of var must be a string, got number"),
+        ("var[{}] = 1", "a key of var must be a string, got table"),
+        // The root holds named fields alone.
+        ("var[1] = 'x'", "a key of var must be a string, got integer"),
+        (
+            "var.t[true] = 1",
+            "a key of var.t must be a string or a list index, got boolean",
+        ),
+        (
+            "var.t[2.5] = 1",
+            "a key of var.t must be a string or a list index, got number",
+        ),
+        (
+            "var.t[0] = 'x'",
+            "a list index of var.t must be 1 or more, got 0",
+        ),
+        (
+            "var.t[5] = 'x'",
+            "var.t[5] is past the end of the list, whose length is 0",
+        ),
+        (
+            "var.list[3] = 'c'",
+            "var.list[3] is past the end of the list, whose length is 1",
+        ),
+    ] {
+        let (raised, kind, line, var) = var_write(write);
+        assert!(raised, "{write} must raise");
+        assert_eq!(kind, "lua", "{write}");
+        assert_eq!(line, refusal, "{write}");
+        assert_eq!(var, r#"{"list":["a"],"t":{}}"#, "{write} stores nothing");
+    }
+}
+
+#[test]
+fn a_var_list_takes_its_next_item_and_a_new_value_for_an_item_it_holds() {
+    for (write, held) in [
+        ("var.list[2] = 'b'", r#"{"list":["a","b"],"t":{}}"#),
+        ("var.list[1] = 'z'", r#"{"list":["z"],"t":{}}"#),
+        // A float with no fraction is the integer it equals.
+        ("var.list[2.0] = 'b'", r#"{"list":["a","b"],"t":{}}"#),
+        ("var.t[1] = 'first'", r#"{"list":["a"],"t":["first"]}"#),
+        // A nil removes a key of any kind without a refusal.
+        ("var[true] = nil", r#"{"list":["a"],"t":{}}"#),
+    ] {
+        let (raised, _kind, line, var) = var_write(write);
+        assert!(!raised, "{write} must pass, got {line}");
+        assert_eq!(var, held, "{write}");
+    }
+}
+
+#[test]
+fn a_var_write_of_a_table_with_a_key_that_is_not_a_string_reads_as_the_guards_refusal() {
+    let (raised, kind, line, var) = var_write("var.t = { [true] = 1 }");
+    assert!(raised, "the write must raise");
+    assert_eq!(kind, "lua");
+    assert_eq!(
+        line,
+        "var.t must be JSON data: invalid type: boolean `true`, expected a string key"
+    );
+    assert_eq!(var, r#"{"list":["a"],"t":{}}"#, "the write stores nothing");
 }
 
 /// A VM whose Lua heap is 4 MiB, so a write may read at most 524,288 values

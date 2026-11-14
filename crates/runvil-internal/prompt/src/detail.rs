@@ -10,6 +10,24 @@ use runvil_types::error::Error;
 
 use crate::{Prompt, Section};
 
+/// The name of the one argument a prompt with no `args:` key declares,
+/// and the field a string given as a chain's arguments goes under.
+pub const TEXT_FIELD: &str = crate::contract::TEXT_FIELD;
+
+/// Reads `text`, the arguments a caller passes a run of `prompt`, against
+/// the prompt's `args` declaration, and returns the object the run holds:
+/// the caller's fields, with the declared default of each field left out.
+///
+/// # Errors
+/// Returns an `ArgsInvalid` failure with no location when `text` is not
+/// JSON, is JSON but no object, or holds a value the declaration refuses.
+/// Its `Reason` fact is `not_json`, `not_an_object`, `required`, `type`,
+/// `enum`, or `undeclared`, and for the last four its `Name` fact is the
+/// path of the refused argument.
+pub fn accept_args(prompt: &Prompt, text: &str) -> Result<serde_json::Value, Error> {
+    crate::contract::accept_args(prompt.frontmatter().args(), text)
+}
+
 /// Gives a parse failure the Engine raises about a parsed prompt the
 /// prompt's frontmatter `name` as its `Name` fact, its place in the
 /// prompt's `file`, and the prose a failure the parse returns has.

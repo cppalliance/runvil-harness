@@ -81,7 +81,7 @@ fn run_once(prompt: &Prompt, chat: &ScriptedChat, context: u32) -> Result<String
     let model = bench_catalog(context).models()[0].clone();
     let ctx = RunParams::new(SEED, Timestamp::UNIX_EPOCH)
         .with_models(BTreeMap::from([(ModelRole::Default, model)]));
-    let run = Run::new(Arc::new(prompt.clone()), "", ctx);
+    let run = Run::new(Arc::new(prompt.clone()), "{}", ctx);
     let (result, _) = drive(run, |_, effect| {
         perform_locally(effect, &mut |round| {
             let Effect::Chat {

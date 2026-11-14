@@ -8,7 +8,7 @@ use runvil_types::models::ModelRole;
 use runvil_types::packs::PackRef;
 
 use crate::contract::RoleMap;
-use crate::{ArgsDecl, Result, RoleRequirements, error};
+use crate::{ArgsSchema, Result, RoleRequirements, error};
 
 /// The file a prompt's frontmatter declares under `output:`.
 ///
@@ -70,10 +70,10 @@ pub struct Frontmatter {
     /// section.
     #[serde(default)]
     uses: Vec<PackRef>,
-    /// The typed args declaration; an absent `args:` key yields the default
-    /// [`ArgsDecl`].
+    /// The arguments the prompt declares; an absent `args:` key yields
+    /// the default [`ArgsSchema`].
     #[serde(default)]
-    args: ArgsDecl,
+    args: ArgsSchema,
     /// The requirements declared per model role.
     #[serde(default)]
     models: RoleMap,
@@ -159,11 +159,12 @@ impl Frontmatter {
         &self.uses
     }
 
-    /// Returns the typed args declaration.
+    /// Returns the arguments the prompt declares.
     ///
-    /// A prompt that omits the `args:` key yields the default [`ArgsDecl`].
+    /// A prompt that omits the `args:` key yields the default
+    /// [`ArgsSchema`].
     #[must_use]
-    pub fn args(&self) -> &ArgsDecl {
+    pub fn args(&self) -> &ArgsSchema {
         &self.args
     }
 

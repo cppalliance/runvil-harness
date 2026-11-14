@@ -104,7 +104,8 @@ impl SectionVm {
     /// before each chunk and read after it by the control-run path. The
     /// `call` closure snapshots this VM's `var` at call time (reading the
     /// hidden data table through the in-scope `&Lua`) and hands the JSON to
-    /// its callback, so a contained chain seeds from a clone and its writes
+    /// its callback beside the target and the `args` value as the author
+    /// wrote them, so a contained chain seeds from a clone and its writes
     /// never reach this VM.
     ///
     /// # Errors
@@ -112,7 +113,7 @@ impl SectionVm {
     #[cfg(test)]
     pub(crate) fn install_test_control_globals<E, R>(&self, call_callback: E, read: R) -> Result<()>
     where
-        E: Fn(Value, Option<String>, Json) -> std::result::Result<String, Error> + Send + 'static,
+        E: Fn(Value, Value, Json) -> std::result::Result<String, Error> + Send + 'static,
         R: Fn(String, Option<LibraryKey>) -> std::result::Result<SectionRead, Error>
             + Send
             + Sync
@@ -121,9 +122,9 @@ impl SectionVm {
         let globals = self.lua.globals();
         let call_fn = self
             .lua
-            .create_function(move |lua, (target, input): (Value, Option<String>)| {
+            .create_function(move |lua, (target, args): (Value, Value)| {
                 let var = var_to_json(lua).map_err(mlua::Error::external)?;
-                call_callback(target, input, var).map_err(mlua::Error::external)
+                call_callback(target, args, var).map_err(mlua::Error::external)
             })
             .map_err(error::make_lua_error)?;
         globals

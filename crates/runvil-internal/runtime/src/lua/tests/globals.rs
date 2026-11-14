@@ -59,18 +59,16 @@ fn offering() -> ToolSet {
 
 /// Builds a section VM through the real setup path with every conditional
 /// Engine global bound: a caller-supplied application-state snapshot
-/// (`ui`), a collection member (`item`), a non-nil `argv`,
+/// (`ui`), a collection member (`item`),
 /// a block's lazy `prose`, the model roles in [`ROLE_LABELS`], the tools of
 /// [`offering`], and a `require` whose resolver reaches no library.
 fn fully_bound_vm() -> SectionVm {
-    let argv = json!({ "prose": "" });
     let item = json!("member");
     let ui = Arc::new(json!({}));
     let vm = set_up_vm(&VmBinds {
         section: "Globals",
         tools: &offering(),
         models: &roles(),
-        argv: Some(&argv),
         seed: VmSeed {
             var: None,
             item: Some(&item),

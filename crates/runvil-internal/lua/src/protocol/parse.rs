@@ -24,6 +24,7 @@ use tasks::{
 use tools::{parse_adhoc_tool_done, parse_tool_call, parse_tool_calls};
 
 use crate::error::{self, Error, make_lua_runtime_error};
+use crate::json::to_json;
 use crate::models::LuaModelHandle;
 use crate::section::{LibraryKey, resolve_section_target};
 
@@ -80,17 +81,34 @@ fn call_string(table: &mlua::Table, name: &str) -> std::result::Result<String, F
     }
 }
 
-/// Reads one author-supplied optional string argument: absent or nil is
-/// `None`, any other wrong shape is the call's error.
-fn call_optional_string(
+/// What the `args` of a `call` or a spawn must be, the text every refusal
+/// of another shape starts with.
+const ARGS_SHAPE: &str = "args must be a table of named fields or a string";
+
+/// Reads the author-supplied `args` of a `call` or a spawn, the
+/// arguments the chain it starts reads: absent or nil is `None`, a string
+/// is that string, and a table of named fields is the JSON object it
+/// converts to under the `json.encode` rules. Those rules read a
+/// read-only view as the table it stands for, so the caller's own `args`
+/// passes on as its data. An unmarked empty table is the empty object. A
+/// list, a marked empty one included, a value of any other type, and a
+/// table with no JSON form are each the call's error.
+fn call_args(
+    lua: &Lua,
     table: &mlua::Table,
-    name: &str,
-) -> std::result::Result<Option<String>, FieldFailure> {
-    match table.raw_get::<Value>(name) {
+) -> std::result::Result<Option<serde_json::Value>, FieldFailure> {
+    match table.raw_get::<Value>("args") {
         Ok(Value::Nil) => Ok(None),
-        Ok(Value::String(value)) => call_text(&value, name).map(Some),
+        Ok(Value::String(text)) => call_text(&text, "args")
+            .map(serde_json::Value::String)
+            .map(Some),
+        Ok(value @ Value::Table(_)) => match to_json(lua, "args", false, &value) {
+            Ok(object @ serde_json::Value::Object(_)) => Ok(Some(object)),
+            Ok(_) => Err(call_error(format!("{ARGS_SHAPE}, got a list"))),
+            Err(error) => Err(FieldFailure::Argument(error::make_lua_error(error))),
+        },
         Ok(other) => Err(call_error(format!(
-            "{name} must be a string, got {}",
+            "{ARGS_SHAPE}, got {}",
             other.type_name()
         ))),
         Err(_) => Err(FieldFailure::Malformed),
@@ -262,16 +280,16 @@ fn call_handle(
     }
 }
 
-/// Parses a `call` request: the author-supplied `target` and `input`,
+/// Parses a `call` request: the author-supplied `target` and `args`,
 /// plus the shim-produced `var` snapshot.
 fn parse_call(lua: &Lua, table: &mlua::Table) -> std::result::Result<Request, FieldFailure> {
     let target = call_target(table)?;
-    let input = call_optional_string(table, "input")?;
+    let args = call_args(lua, table)?;
     let var = shim_var(lua, table)?;
     let from = shim_from(table)?;
     Ok(Request::Call {
         target,
-        input,
+        args,
         var,
         from,
     })

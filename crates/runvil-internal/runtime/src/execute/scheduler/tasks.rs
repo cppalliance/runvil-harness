@@ -545,12 +545,12 @@ impl Scheduler {
         &mut self,
         id: ChainIndex,
         target: &str,
-        input: Option<&str>,
+        args: Option<serde_json::Value>,
         seed: TaskSeed,
         var: serde_json::Value,
         from: Option<&LibraryKey>,
     ) -> Result<()> {
-        match self.prepare_spawn(id, target, input, seed, var, from) {
+        match self.prepare_spawn(id, target, args, seed, var, from) {
             Ok((task, child, record)) => {
                 // The child waits for admission, queued behind the
                 // spawner; the drain admits it when a slot frees up at
@@ -578,7 +578,7 @@ impl Scheduler {
         &mut self,
         id: ChainIndex,
         target: &str,
-        input: Option<&str>,
+        args: Option<serde_json::Value>,
         seed: TaskSeed,
         var: serde_json::Value,
         from: Option<&LibraryKey>,
@@ -590,13 +590,18 @@ impl Scheduler {
         // another section.
         let spawner_section = chain.section_name().to_owned();
         let spawn_line = chain.frame()?.vm().call_line();
-        // An explicit input forks the chain's args (and `argv` re-derives
-        // from them), as a `call` with input does; otherwise the chain
-        // inherits the spawner's context whole, but for the turn counter,
-        // which `with_task` replaces below.
-        let child_ctx = match input {
-            Some(input) => chain.ctx.with_args(input),
-            None => chain.ctx.clone(),
+        // A spawn that passes arguments gives the chain its own `args`,
+        // as a `call` that passes them does; otherwise the chain takes
+        // the spawner's context whole, but for the turn counter, which
+        // `with_task` replaces below. The start event reports the chain's
+        // own `args`, as the chain reads them.
+        let (child_ctx, own_args) = match args {
+            Some(args) => {
+                let ctx = chain.ctx.with_args(args);
+                let own = serde_json::Value::clone(ctx.args());
+                (ctx, Some(own))
+            }
+            None => (chain.ctx.clone(), None),
         };
         // A spawned chain's effective limit starts with its spawner's:
         // its tasks run within the spawner's share and every ancestor's.
@@ -667,7 +672,7 @@ impl Scheduler {
         // The task waits for admission from here, and the spawn record
         // holds what the start event reports once the task first runs.
         let record = SpawnRecord {
-            input: input.map(str::to_owned),
+            args: own_args,
             section: spawner_section,
         };
         Ok((task, child, record))

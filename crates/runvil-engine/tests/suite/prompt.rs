@@ -3,6 +3,7 @@
 use runvil_engine::ErrorCode;
 use runvil_engine::Prompt;
 use runvil_engine::model::{ModelRole, ThinkingMode};
+use serde_json::json;
 
 use super::prepare::refusal;
 use super::support::{Built, Scenario, TestResult, model, prompt};
@@ -10,12 +11,12 @@ use super::support::{Built, Scenario, TestResult, model, prompt};
 const CONTRACT: &str = "
     output: { path: note.md, description: The note the greeter leaves }
     uses: [text]
-    args: { times: { type: integer, optional: true, default: 1 }, name: { type: string } }
+    args: { type: object, properties: { times: { type: integer, default: 1 }, name: { type: string } }, required: [name] }
     models: { fast: {} }
 ";
 
 #[test]
-fn the_frontmatter_lists_every_declaration_with_arguments_sorted_by_name() -> TestResult {
+fn the_frontmatter_lists_every_declaration_and_gives_its_arguments_as_json_schema() -> TestResult {
     let source = prompt(CONTRACT, &[("Greet", "return 'done'")]);
     let parsed = Prompt::parse(&|_: &str| Ok(source.clone()), "prompt")?;
     let frontmatter = parsed.frontmatter();
@@ -45,12 +46,18 @@ fn the_frontmatter_lists_every_declaration_with_arguments_sorted_by_name() -> Te
         .collect();
     assert_eq!(roles, [(ModelRole::Fast, None)]);
 
-    assert!(
-        frontmatter
-            .args()
-            .iter()
-            .map(|(name, _)| name)
-            .eq(["name", "times"])
+    assert_eq!(
+        frontmatter.args().as_json(),
+        &json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "times": { "type": "integer", "default": 1 },
+            },
+            "required": ["name"],
+            "additionalProperties": false,
+        }),
+        "the declaration reads back as plain JSON Schema, each closed object saying so"
     );
 
     let misspelled = source.replace("uses:", "use:");

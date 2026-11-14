@@ -64,7 +64,7 @@ fn a_library_hands_its_prose_to_the_caller_and_leaves_the_callers_prose_alone() 
         .prose(
             "house_style",
             "
-            Write in a {{ style }} voice for {{ args }}.
+            Write in a {{ style }} voice for {{ args.text }}.
 
             ```lua
             return prose
@@ -80,7 +80,9 @@ fn a_library_hands_its_prose_to_the_caller_and_leaves_the_callers_prose_alone() 
             error('the style broke')
             ```",
         );
-    let trace = require_case(source.build()).args("readers").run();
+    let trace = require_case(source.build())
+        .args(r#"{"text":"readers"}"#)
+        .run();
     assert_eq!(
         trace.text(),
         "First one.|First one.|Write in a terse voice for readers.|false|false|Broken terse.\

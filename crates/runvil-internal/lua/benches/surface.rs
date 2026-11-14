@@ -48,7 +48,7 @@ fn builder_vm() -> SectionVm {
     )
     .expect("the bench VM builds")
     .inject_test_values(
-        "",
+        &json!({}),
         &json!({}),
         &std::sync::Arc::new(
             runvil_vfs::VfsRef::default()

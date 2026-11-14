@@ -17,13 +17,13 @@ use crate::{CoroStep, LuaProgram, Request, SectionVm, YieldParse, install_ui};
 mod environment;
 
 /// Builds a section VM through section setup up to where preludes install:
-/// Engine injection with a bound `argv`, the Engine globals, the control
-/// globals, and every coroutine yield shim, whose install puts
+/// Engine injection with one field in `args`, the Engine globals, the
+/// control globals, and every coroutine yield shim, whose install puts
 /// `models.loop` on `models` too.
 #[track_caller]
 fn prelude_vm(setup: TestVm<'_>) -> BuiltVm {
-    let argv = json!({ "mode": "argv" });
-    setup.argv(Some(&argv)).shims().build()
+    let args = json!({ "mode": "args" });
+    setup.args(&args).shims().build()
 }
 
 /// [`section_vm`] with the guarded `var` seeded from `var`.
@@ -317,11 +317,11 @@ fn ui_and_item_collide_on_a_vm_that_binds_neither() {
 }
 
 #[test]
-fn argv_prose_and_messages_collide_though_the_g_metatable_serves_them() {
+fn args_prose_and_messages_collide_though_the_g_metatable_serves_them() {
     let vm = section_vm();
     vm.install_lazy_prose(|_| Ok("the block's prose".to_owned()))
         .expect("the prose guard installs");
-    for name in ["argv", "prose", "messages"] {
+    for name in ["args", "prose", "messages"] {
         let raw: Value = vm.lua().globals().raw_get(name).expect("a raw read");
         assert!(
             raw.is_nil(),

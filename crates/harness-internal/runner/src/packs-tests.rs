@@ -248,7 +248,7 @@ fn unavailable_for(reason: &str) -> RosterEntry {
 fn refusal(run: &RunPacks, prompt: &Prompt) -> String {
     let ctx = RunParams::new(RunSeed::from_bytes([0; 32]), Timestamp::UNIX_EPOCH)
         .with_packs(run.roster());
-    match Run::new(Arc::new(prompt.clone()), "", ctx).step() {
+    match Run::new(Arc::new(prompt.clone()), "{}", ctx).step() {
         Step::Done {
             result: Err(error), ..
         } => error.located_message(),

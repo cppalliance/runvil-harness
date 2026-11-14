@@ -25,7 +25,7 @@ fn research_ada_lovelace() -> TestResult<Trace> {
         Tool::untrusted("web/search", "search results"),
         [search, text("a factual summary")],
     )
-    .args("Ada Lovelace")
+    .args(r#"{"text":"Ada Lovelace"}"#)
     .params(move |ctx| ctx.with_tools(catalog.clone()))
     .run(&fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?)
 }

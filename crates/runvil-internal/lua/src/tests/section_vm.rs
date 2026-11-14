@@ -42,12 +42,12 @@ fn section_vm_preserves_one_environment_across_all_phases() {
     // level reads `args` and `store`; the functions it defines resolve the
     // same globals when later chunks call them.
     let first = program(
-        "first_saw_args = args\n\
+        "first_saw_args = args.text\n\
              first_saw_store = store.read('seed.txt')\n\
              function decorate(value) return '<' .. value .. '>' end",
     );
     let prologue = program(
-        "var.decorated = decorate(args)\n\
+        "var.decorated = decorate(args.text)\n\
              store.write('phase.txt', var.decorated)",
     );
     let between = program("phase_marker = 'model answer'");
@@ -58,9 +58,10 @@ fn section_vm_preserves_one_environment_across_all_phases() {
     store
         .write("seed.txt", b"seeded")
         .expect("the memory store can seed a file");
+    let args = json!({ "text": "input" });
     let sys = json!({ "id": 7 });
     let vm = TestVm::new()
-        .args("input")
+        .args(&args)
         .sys(&sys)
         .access(access.clone())
         .inject();
@@ -104,11 +105,10 @@ fn a_refused_injection_hands_back_the_vm_for_its_teardown() {
     let failure = SectionVm::new(&test_nonce(), recorder.emitter(), "Seed")
         .expect("VM must build")
         .inject_values(
-            "",
+            &json!({}),
             &json!({}),
             &fresh_access().access,
             Some(&json!(5)),
-            None,
             &Arc::new(Mutex::new(None)),
         )
         .expect_err("a non-object var seed is refused");
@@ -165,7 +165,7 @@ fn section_vm_value_injection_bypasses_chunk_global_metatables() {
     );
     let inspect = program(
         "return tostring(captured.args) .. ',' .. tostring(captured.fixtures_search) .. ',' .. \
-         args .. ',' .. type(fixtures_search) .. ',' .. tools.get('fixtures/search').id",
+         args.text .. ',' .. type(fixtures_search) .. ',' .. tools.get('fixtures/search').id",
     );
     let bindings = fixture_set(&[("search", "search the web")]);
     let access = fresh_access();
@@ -177,7 +177,11 @@ fn section_vm_value_injection_bypasses_chunk_global_metatables() {
         "Test",
     )
     .expect("VM must build")
-    .inject_test_values("private input", &json!({}), &access.access)
+    .inject_test_values(
+        &json!({ "text": "private input" }),
+        &json!({}),
+        &access.access,
+    )
     .expect("Engine values must inject");
     let observer = null_emitter();
     vm.install_engine_globals(&observer, "Test", &access.scope)
@@ -194,13 +198,14 @@ fn section_vm_value_injection_bypasses_chunk_global_metatables() {
 
 #[test]
 fn section_vm_reports_store_operations_in_each_chunk() {
-    let write = program("store.write('state.txt', args)");
+    let write = program("store.write('state.txt', args.text)");
     let read = program("return store.read('state.txt')");
     let recorder = Recorder::default();
     let access = fresh_access();
+    let args = json!({ "text": "private input" });
     let vm = TestVm::new()
         .section("Gather")
-        .args("private input")
+        .args(&args)
         .access(access.clone())
         .inject();
     let observer = recorder.emitter().clone();
@@ -290,13 +295,17 @@ fn section_vms_isolate_mutated_globals() {
 #[test]
 fn section_lifecycle_reports_are_ordered_exact_and_payload_free() {
     let first = program("private_global = 'chunk secret'");
-    let prologue = program("var.value = args");
+    let prologue = program("var.value = args.text");
     let epilog = program("return 'epilog done'");
     let recorder = Recorder::default();
     let access = fresh_access();
     let vm = SectionVm::new(&test_nonce(), recorder.emitter(), "Gather")
         .expect("VM must build")
-        .inject_test_values("private input", &json!({}), &access.access)
+        .inject_test_values(
+            &json!({ "text": "private input" }),
+            &json!({}),
+            &access.access,
+        )
         .expect("Engine values must inject");
     let observer = recorder.emitter().clone();
     vm.install_engine_globals(&observer, "Gather", &access.scope)

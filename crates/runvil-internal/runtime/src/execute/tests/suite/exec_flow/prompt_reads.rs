@@ -15,7 +15,7 @@ const RULES: &str = "  Indented first line.\n\n\
 var.never = 'run'\n\
 ```\n\n\
 ---\n\n\
-Closing line with {{ args }}.";
+Closing line with {{ args.text }}.";
 
 /// The sections every test joins after its own `Main`: a child list `Kid`
 /// with a grandchild `Grand`, a numbered `Nums`, the raw `Rules`, an empty

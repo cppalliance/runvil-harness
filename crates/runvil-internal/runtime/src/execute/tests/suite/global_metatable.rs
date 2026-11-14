@@ -1,26 +1,27 @@
 //! An author's own metatable on `_G`: it keeps working for every other
 //! global (defaults, strict errors, write hooks) in the preamble and in
 //! later sections, set by a required library and across fences, while
-//! `argv`, `prose`, and `messages` stay guarded whatever author code does
+//! `args`, `prose`, and `messages` stay guarded whatever author code does
 //! to `_G`'s metatable.
 
 use runvil_prompt::test_support::PromptSource;
 
 use crate::test_support::scenario::Scenario;
 
-/// One declared `query` string, so `argv` is the parsed JSON or nil.
+/// One declared optional `query` string, so `args` is a table that holds
+/// the field or does not.
 fn query_source() -> PromptSource {
-    PromptSource::new().front("args: { query: { type: string } }")
+    PromptSource::new().front("args: { type: object, properties: { query: { type: string } } }")
 }
 
 #[test]
-fn a_library_defaults_metatable_works_beside_read_only_argv_and_prose() {
+fn a_library_defaults_metatable_works_beside_read_only_args_and_prose() {
     let source = query_source()
         .preamble(
             "
             require '/defaults'
             assert(tone == 'friendly', 'the preamble reads the default')
-            assert(not pcall(function() argv = 'hijacked' end), 'argv is read-only in the preamble')
+            assert(not pcall(function() args = 'hijacked' end), 'args is read-only in the preamble')
             assert(not pcall(function() prose = 'x' end), 'prose is read-only in the preamble')",
         )
         .prose(
@@ -32,8 +33,8 @@ fn a_library_defaults_metatable_works_beside_read_only_argv_and_prose() {
             require '/defaults'
             assert(prose == 'Tone: friendly.', 'a default renders in prose: ' .. prose)
             assert(missing == nil, 'a global with no default reads nil')
-            local ok, err = pcall(function() argv = 'hijacked' end)
-            assert(not ok and tostring(err):find('argv is read-only: assign to `var` or a section global instead', 1, true), 'argv stays read-only: ' .. tostring(err))
+            local ok, err = pcall(function() args = 'hijacked' end)
+            assert(not ok and tostring(err):find('args is read-only: assign to `var` or a section global instead', 1, true), 'args stays read-only: ' .. tostring(err))
             var.n = 2
             ```
 
@@ -50,9 +51,9 @@ fn a_library_defaults_metatable_works_beside_read_only_argv_and_prose() {
             "Second",
             "
             require '/defaults'
-            assert(argv.query == 'x', 'argv reads in a later section')
-            assert(not pcall(function() argv = 'hijacked' end), 'argv stays read-only in a later section')
-            return argv.query .. ' ' .. tone",
+            assert(args.query == 'x', 'args reads in a later section')
+            assert(not pcall(function() args = 'hijacked' end), 'args stays read-only in a later section')
+            return args.query .. ' ' .. tone",
         )
         .section(
             "defaults",
@@ -67,7 +68,7 @@ fn a_library_defaults_metatable_works_beside_read_only_argv_and_prose() {
 }
 
 #[test]
-fn a_strict_metatable_raises_its_own_error_while_the_guard_serves_argv_prose_and_messages() {
+fn a_strict_metatable_raises_its_own_error_while_the_guard_serves_args_prose_and_messages() {
     let source = query_source()
         .preamble(
             "
@@ -86,7 +87,7 @@ fn a_strict_metatable_raises_its_own_error_while_the_guard_serves_argv_prose_and
             assert(not ok, 'an undefined global raises')
             assert(type(err) == 'string', 'the author error comes back as raised, got ' .. type(err))
             assert(err:find(']:2: undefined global undefined_here', 1, true), 'the error names the reading line: ' .. err)
-            assert(argv.query == 'x', 'the guard serves argv, not the strict handler')
+            assert(args.query == 'x', 'the guard serves args, not the strict handler')
             assert(prose == 'Hi.', 'the guard serves prose, not the strict handler')
             assert(#messages == 0, 'the guard serves messages, not the strict handler')
             return 'strict'
@@ -106,16 +107,17 @@ fn a_strict_metatable_raises_its_own_error_while_the_guard_serves_argv_prose_and
 }
 
 #[test]
-fn a_nil_argv_reads_nil_under_a_strict_index_and_a_write_hook_never_sees_it() {
+fn an_empty_args_reads_as_a_table_under_a_strict_index_and_a_write_hook_never_sees_it() {
     let source = query_source()
         .section(
             "Only",
             "
             require '/hooks'
-            assert(argv == nil, 'a nil argv reads nil, not the strict handler error')
-            assert(not pcall(function() argv = { query = 'built' } end), 'a nil argv is read-only')
-            assert(seen.argv == nil, 'the write hook never sees argv')
-            assert(argv == nil, 'the refused assignment wrote nothing')
+            assert(type(args) == 'table', 'an empty args reads as a table, not the strict handler error')
+            assert(args.query == nil, 'a field the caller left out reads nil')
+            assert(not pcall(function() args = { query = 'built' } end), 'an empty args is read-only')
+            assert(seen.args == nil, 'the write hook never sees args')
+            assert(args.query == nil, 'the refused assignment wrote nothing')
             return 'guarded'",
         )
         .section(
@@ -127,12 +129,12 @@ fn a_nil_argv_reads_nil_under_a_strict_index_and_a_write_hook_never_sees_it() {
               __newindex = function(_, key, value) seen[key] = value end,
             })",
         );
-    let trace = Scenario::new(source.build()).args("broken json").run();
+    let trace = Scenario::new(source.build()).run();
     assert_eq!(trace.text(), "guarded");
 }
 
 #[test]
-fn setmetatable_on_g_in_a_block_frees_neither_argv_nor_prose() {
+fn setmetatable_on_g_in_a_block_frees_neither_args_nor_prose() {
     let source = query_source().prose(
         "Only",
         "
@@ -140,18 +142,19 @@ fn setmetatable_on_g_in_a_block_frees_neither_argv_nor_prose() {
 
         ```lua
         setmetatable(_G, nil)
-        local a = pcall(function() argv = 'x' end)
+        local a = pcall(function() args = 'x' end)
         setmetatable(_G, {})
         local b = pcall(function() prose = 'x' end)
         captured = {}
         setmetatable(_G, { __newindex = function(_, k, v) captured[k] = v end })
-        local c = pcall(function() argv = 'x' end)
+        local c = pcall(function() args = 'x' end)
         local d = pcall(function() prose = 'x' end)
         assert(not (a or b or c or d), 'every assignment is refused')
-        assert(captured.argv == nil and captured.prose == nil, 'the author hook never sees argv or prose')
+        assert(captured.args == nil, 'the author hook never sees args')
+        assert(captured.prose == nil, 'the author hook never sees prose')
         plain = 'y'
         assert(captured.plain == 'y', 'the author hook sees other globals')
-        assert(argv.query == 'x' and prose == 'First.', 'both still read as the Engine set them')
+        assert(args.query == 'x' and prose == 'First.', 'both still read as the Engine set them')
         ```
 
         Second.
@@ -159,7 +162,7 @@ fn setmetatable_on_g_in_a_block_frees_neither_argv_nor_prose() {
         ```lua
         assert(prose == 'Second.', 'the next fence installs its prose under the author metatable')
         assert(getmetatable(_G).__newindex ~= nil, 'the author metatable survives the next fence')
-        assert(not pcall(function() argv = 'x' end), 'argv is still read-only')
+        assert(not pcall(function() args = 'x' end), 'args is still read-only')
         return 'guarded'
         ```",
     );
@@ -212,7 +215,7 @@ fn getmetatable_on_g_returns_a_librarys_metatable_and_edits_apply_live() {
             getmetatable(_G).__index = function(_, key) return 'live ' .. key end
             assert(tone == 'live tone', 'an edit applies at once')
             getmetatable(_G).__newindex = function() end
-            assert(not pcall(function() argv = 'x' end), 'an edit cannot free argv')
+            assert(not pcall(function() args = 'x' end), 'an edit cannot free args')
             return tone",
         )
         .section(

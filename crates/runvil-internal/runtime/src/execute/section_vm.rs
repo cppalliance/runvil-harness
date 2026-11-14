@@ -50,11 +50,9 @@ pub(crate) struct VmSeed<'a> {
 /// Bundled so the frame constructor threads one linear set of borrows
 /// into [`setup_section_vm`] rather than a dozen parameters.
 pub(crate) struct SectionVmSetup<'a> {
-    /// The run's argument string, installed as the `args` global.
-    pub(crate) args: &'a str,
-    /// The chain's `argv` (`ChainState::argv`), installed read-only;
-    /// `None` installs nil.
-    pub(crate) argv: Option<&'a serde_json::Value>,
+    /// The chain's arguments (`ChainState::args`), a JSON object,
+    /// installed read-only as the `args` global.
+    pub(crate) args: &'a serde_json::Value,
     /// The `sys` JSON the frame constructor built for this section entry.
     pub(crate) sys: &'a serde_json::Value,
     /// The chain step's VFS access capability backing the Lua `store`
@@ -150,7 +148,6 @@ where
             setup.sys,
             setup.access,
             setup.seed.var,
-            setup.argv,
             setup.selection,
         )
         .map_err(|failure| failure.teardown(setup.emitter, setup.section_name))?;

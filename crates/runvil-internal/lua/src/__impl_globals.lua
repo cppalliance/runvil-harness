@@ -5,14 +5,15 @@
 -- strips the raw functions it captures and before any other chunk
 -- captures `setmetatable` or `getmetatable`. The chunk arguments are
 -- privileged captures, never globals: `globals` is the VM's globals table,
--- `state` is the Engine's slot table (`argv` once injection installs it,
+-- `state` is the Engine's slot table (`args` once injection installs the
+-- read-only table of the chain's arguments,
 -- `prose` once a block installs its render,
 -- `messages` once injection installs the section's list, and `author` for
--- the metatable author code set on `_G`), and `refuse_argv()`,
+-- the metatable author code set on `_G`), and `refuse_args()`,
 -- `refuse_prose()`, and `refuse_messages()` raise the Engine's assignment
 -- refusals. The chunk returns the guard and the two replacements for the
 -- Engine to install.
-local globals, state, refuse_argv, refuse_prose, refuse_messages = ...
+local globals, state, refuse_args, refuse_prose, refuse_messages = ...
 
 local base_setmetatable, base_getmetatable = setmetatable, getmetatable
 local rawequal, rawget, rawset = rawequal, rawget, rawset
@@ -29,15 +30,15 @@ local guard = { __metatable = "_G is guarded" }
 -- `_G` keeps the author's other metamethods but never becomes weak.
 local own = { __index = true, __newindex = true, __metatable = true }
 
--- `argv`, `prose`, and `messages` never reach the author: `argv` always
--- serves the value injection installed, and `messages` always serves the
+-- `args`, `prose`, and `messages` never reach the author: `args` always
+-- serves the table injection installed, and `messages` always serves the
 -- section's one list. Every other key goes to the author's handler, read
 -- raw from the author's metatable on each access the way Lua reads a
 -- metamethod, and tail-called so the handler's error levels and yields
 -- behave as if it were the metamethod.
 function guard.__index(t, key)
-  if key == "argv" then
-    return state.argv
+  if key == "args" then
+    return state.args
   end
   if key == "prose" then
     local render = state.prose
@@ -55,8 +56,8 @@ function guard.__index(t, key)
 end
 
 function guard.__newindex(t, key, value)
-  if key == "argv" then
-    return refuse_argv()
+  if key == "args" then
+    return refuse_args()
   end
   if key == "prose" then
     return refuse_prose()

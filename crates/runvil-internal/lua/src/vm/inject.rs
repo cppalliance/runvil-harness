@@ -1,5 +1,5 @@
 //! Engine injection: the one step that turns an uninjected section VM into
-//! an injected one, installing `args`, `argv`, `sys`, `var`, the `tools`,
+//! an injected one, installing `args`, `sys`, `var`, the `tools`,
 //! `models`, and `compactors` tables, and the VM's `messages` list.
 
 use std::sync::{Arc, Mutex};
@@ -57,29 +57,25 @@ impl SectionVm<Uninjected> {
     /// to the arm's spawned identity, and a conflicting access from an
     /// identity not ordered after the arm's surfaces as a write race.
     ///
-    /// `argv` is the parsed form of the args string, installed read-only;
-    /// `None` installs nil.
+    /// `args` is the chain's arguments, one JSON object, which the `args`
+    /// global holds as a read-only table.
     ///
     /// `selection` holds the current model: `models.use` writes it, and
     /// [`current_model`](SectionVm::current_model) reads it.
     ///
     /// # Errors
     /// Returns the [`InjectFailure`] holding the bridging failure if Engine
-    /// values cannot be bridged.
-    #[expect(
-        clippy::similar_names,
-        reason = "args and argv are the spec'd global names; the pair is intentional"
-    )]
+    /// values cannot be bridged, or holding an `Internal` failure if `args`
+    /// or the `var` seed is not a JSON object.
     pub fn inject_values(
         self,
-        args: &str,
+        args: &Json,
         sys: &Json,
         access: &Arc<Access>,
         initial_var: Option<&Json>,
-        argv: Option<&Json>,
         selection: &Arc<Mutex<Option<ModelBinding>>>,
     ) -> std::result::Result<SectionVm, InjectFailure> {
-        if let Err(error) = self.install_values(args, sys, initial_var, argv, selection) {
+        if let Err(error) = self.install_values(args, sys, initial_var, selection) {
             return Err(InjectFailure {
                 vm: Box::new(self),
                 error: Box::new(error),
@@ -92,23 +88,15 @@ impl SectionVm<Uninjected> {
         }))
     }
 
-    #[expect(
-        clippy::similar_names,
-        reason = "args and argv are the spec'd global names; the pair is intentional"
-    )]
     fn install_values(
         &self,
-        args: &str,
+        args: &Json,
         sys: &Json,
         initial_var: Option<&Json>,
-        argv: Option<&Json>,
         selection: &Arc<Mutex<Option<ModelBinding>>>,
     ) -> Result<()> {
         let globals = self.lua.globals();
-        globals
-            .raw_set("args", args)
-            .map_err(error::make_lua_error)?;
-        crate::argv::install(&self.lua, argv)?;
+        crate::args::install(&self.lua, args)?;
         let sys_table = seal_sys(&self.lua, sys)?;
         globals
             .raw_set("sys", sys_table)

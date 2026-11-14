@@ -2,6 +2,11 @@
 name: analyst_example
 description: Demonstrate frontmatter model roles and models.use for careful model selection.
 runvil: 0
+args:
+  type: object
+  properties:
+    text: { type: string, description: The text to analyze }
+  required: [text]
 models:
   strong:
     min_context: 40000
@@ -17,7 +22,7 @@ models.use("strong")
 
 Analyze the following input carefully and return a short factual summary with no preamble:
 
-{{ args }}
+{{ args.text }}
 
 ```lua
 return models.infer(prose)

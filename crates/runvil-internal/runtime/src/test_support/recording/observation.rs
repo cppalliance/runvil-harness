@@ -170,8 +170,8 @@ pub(crate) enum Observation {
         task: TaskId,
         /// The name of the section the task's chain starts at.
         target: String,
-        /// The `opts.input` override, when given.
-        input: Option<String>,
+        /// The chain's own `args`, when `opts.args` gave them.
+        args: Option<Value>,
         /// The `opts.item` seed, when given.
         item: Option<Value>,
         /// The `opts.index` seed, when given.

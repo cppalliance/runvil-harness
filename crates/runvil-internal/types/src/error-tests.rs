@@ -88,7 +88,7 @@ fn an_error_is_a_cancel_exactly_when_its_code_is_canceled() {
 }
 
 /// Every code, in declaration order.
-const ALL: [ErrorCode; 68] = [
+const ALL: [ErrorCode; 69] = [
     ErrorCode::FrontmatterInvalid,
     ErrorCode::StructureInvalid,
     ErrorCode::FenceInvalid,
@@ -154,6 +154,7 @@ const ALL: [ErrorCode; 68] = [
     ErrorCode::Canceled,
     ErrorCode::Internal,
     ErrorCode::Stalled,
+    ErrorCode::ArgsInvalid,
     ErrorCode::RecorderFailed,
     ErrorCode::PluginLoadFailed,
     ErrorCode::NoOutput,
@@ -227,7 +228,8 @@ fn family(code: ErrorCode) -> u16 {
         ErrorCode::RequirementsUnmet
         | ErrorCode::Canceled
         | ErrorCode::Internal
-        | ErrorCode::Stalled => 7,
+        | ErrorCode::Stalled
+        | ErrorCode::ArgsInvalid => 7,
         ErrorCode::RecorderFailed | ErrorCode::PluginLoadFailed | ErrorCode::NoOutput => 8,
     }
 }

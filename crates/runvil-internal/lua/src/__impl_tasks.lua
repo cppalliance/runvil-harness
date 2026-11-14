@@ -23,9 +23,10 @@ local yield, var_snapshot, helpers = ...
 local raise, fail, engine_type = helpers.raise, helpers.fail, helpers.engine_type
 
 -- tasks.spawn(target, opts?): start a chain over `target` and return at
--- once with a Task handle. `opts.input` overrides the chain's args,
--- `opts.item` becomes its `item` global, `opts.index` its `sys.index`; the
--- caller's `var` seeds the chain.
+-- once with a Task handle. `opts.args` is the chain's arguments, a table
+-- of named fields or a string, and with none the chain reads the caller's
+-- `args`; `opts.item` becomes its `item` global, `opts.index` its
+-- `sys.index`; the caller's `var` seeds the chain.
 --
 -- `spawn_from(from)` makes the function for the code it is installed for:
 -- `from` is nil for a section's own code and a library's identity for that
@@ -40,7 +41,7 @@ local function spawn_from(from)
     local ok, result = yield({
       op = "spawn",
       target = target,
-      input = opts.input,
+      args = opts.args,
       item = opts.item,
       index = opts.index,
       var = var_snapshot(),

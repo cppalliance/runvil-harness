@@ -87,7 +87,6 @@ fn scheduler_vm_with_tools(
         section: "Test",
         tools,
         models,
-        argv: None,
         seed: VmSeed { var, item: None },
         ui: None,
     })
@@ -103,14 +102,13 @@ struct VmBinds<'a> {
     section: &'a str,
     tools: &'a ToolSet,
     models: &'a ModelSet,
-    argv: Option<&'a serde_json::Value>,
     seed: VmSeed<'a>,
     ui: Option<&'a Arc<serde_json::Value>>,
 }
 
 /// Builds the section VM `binds` describes through the real setup path,
-/// with no args or preludes and a `require` whose resolver reaches no
-/// library.
+/// with the empty object as its `args`, no preludes, and a `require`
+/// whose resolver reaches no library.
 #[track_caller]
 fn set_up_vm(binds: &VmBinds<'_>) -> SectionVm {
     let emitter = null_emitter();
@@ -122,13 +120,13 @@ fn set_up_vm(binds: &VmBinds<'_>) -> SectionVm {
         binds.section,
     )
     .expect("the section VM builds");
+    let args = json!({});
     let sys = json!({});
     let (access, scope) = fresh_access();
     let set = binds.models;
     let selection = Arc::new(Mutex::new(set.binding("default").cloned()));
     let setup = SectionVmSetup {
-        args: "",
-        argv: binds.argv,
+        args: &args,
         sys: &sys,
         access: &access,
         scope: &scope,

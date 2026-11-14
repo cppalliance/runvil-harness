@@ -12,7 +12,7 @@ Normalize the supplied subject.
 
 ```lua
 require '/helpers'
-var.subject = normalize(args)
+var.subject = normalize(args.text)
 ```
 
 ### Author note

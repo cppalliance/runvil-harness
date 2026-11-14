@@ -1,4 +1,4 @@
-//! Crate-wide tests for section VMs: sandboxing, logging, tool scoping, store operations, `var`, `argv`, sealed views, and the `json` global.
+//! Crate-wide tests for section VMs: sandboxing, logging, tool scoping, store operations, `var`, `args`, sealed views, and the `json` global.
 //!
 //! Each submodule holds one topic. The helpers below are shared by them;
 //! `recording`, `assert_chunk_name_resolves`, `refusal_line`, and the
@@ -35,7 +35,7 @@ use crate::walk_budget::DEFAULT_LUA_MEMORY_BYTES;
 #[path = "tests-recording.rs"]
 pub(crate) mod recording;
 
-mod argv;
+mod args;
 mod block_endings;
 mod budgets;
 mod cancellation;
@@ -220,7 +220,9 @@ fn failing_access() -> ScopedAccess {
     )
 }
 
-fn run(source: &str, args: &str) -> Result<LuaOutcome> {
+/// Runs a chunk on a fresh store, with the JSON object `args` as its
+/// `args` table.
+fn run(source: &str, args: &Json) -> Result<LuaOutcome> {
     run_chunk(
         source,
         args,
@@ -236,7 +238,7 @@ fn run(source: &str, args: &str) -> Result<LuaOutcome> {
 fn run_with(source: &str, access: &ScopedAccess) -> Result<LuaOutcome> {
     run_chunk(
         source,
-        "",
+        &json!({}),
         &json!({ "id": 1, "when": "t" }),
         access,
         &null_emitter(),

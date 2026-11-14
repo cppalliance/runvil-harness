@@ -250,12 +250,12 @@ pub(crate) struct Scenario {
 
 impl Scenario {
     /// A run of `source` under [`TEST_SEED`] and [`TEST_STARTED_AT`], with
-    /// empty args, a fresh memory store, no tools, no model, nothing filled
-    /// in, and no held effect.
+    /// the empty object `{}` as its args, a fresh memory store, no tools,
+    /// no model, nothing filled in, and no held effect.
     pub(crate) fn new(source: impl Into<String>) -> Scenario {
         Scenario {
             source: source.into(),
-            args: String::new(),
+            args: "{}".to_owned(),
             seed: TEST_SEED,
             params: Box::new(|ctx| ctx),
             store: TestStore::new(),
@@ -270,7 +270,9 @@ impl Scenario {
         }
     }
 
-    /// Sets the args string the run receives.
+    /// Sets the args the run receives: the text of one JSON object, which
+    /// the run's first step checks against the prompt's `args`
+    /// declaration.
     pub(crate) fn args(mut self, args: &str) -> Scenario {
         args.clone_into(&mut self.args);
         self

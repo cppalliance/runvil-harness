@@ -1,4 +1,4 @@
-//! Tests for the `_G` guard: `argv`, `prose`, and `messages` stay guarded
+//! Tests for the `_G` guard: `args`, `prose`, and `messages` stay guarded
 //! whatever author code does to `_G`'s metatable, the author's metatable
 //! composes behind the
 //! guard, and `setmetatable` and `getmetatable` behave as the base
@@ -14,8 +14,8 @@ use super::{GLOBALS_CHUNK_NAME, GLOBALS_SOURCE, RESERVED_NAMES, Reserved, reserv
 use crate::test_vm::{BuiltVm, TestVm};
 use crate::tests::{assert_chunk_name_resolves, refusal_line};
 
-/// The refusal line of an assignment to the `argv` global.
-const ARGV_REFUSAL: &str = "argv is read-only: assign to `var` or a section global instead";
+/// The refusal line of an assignment to the `args` global.
+const ARGS_REFUSAL: &str = "args is read-only: assign to `var` or a section global instead";
 
 /// The refusal line of an assignment to `prose`.
 const PROSE_REFUSAL: &str = "prose is read-only: assign to `var` or a section global instead";
@@ -29,49 +29,49 @@ const MESSAGES_REFUSAL: &str = "messages is the section's conversation and canno
 const PROSE: &str = "the block's prose";
 
 /// Builds a section VM the way section setup does up to the Pack
-/// preludes: `argv`, the Engine globals, the control globals, and the
+/// preludes: `args`, the Engine globals, the control globals, and the
 /// coroutine shims, with a block's lazy `prose` installed and one `kept`
 /// user record in `messages`.
 #[track_caller]
 fn guarded_vm() -> BuiltVm {
-    let argv = json!({ "query": "papers" });
-    let vm = TestVm::new().argv(Some(&argv)).shims().build();
+    let args = json!({ "query": "papers" });
+    let vm = TestVm::new().args(&args).shims().build();
     vm.install_lazy_prose(|_| Ok(PROSE.to_owned()))
         .expect("the prose guard installs");
     vm.exec("messages:user('kept')");
     vm
 }
 
-/// The caught refusals of assigning `argv`, `prose`, and `messages`, each
+/// The caught refusals of assigning `args`, `prose`, and `messages`, each
 /// reduced to its first line.
 #[track_caller]
 fn assignment_refusals(vm: &BuiltVm) -> [String; 3] {
     let refusals: [String; 3] = vm
         .eval::<(String, String, String)>(
-            "local _, argv_err = pcall(function() argv = 'hijacked' end)\n\
+            "local _, args_err = pcall(function() args = 'hijacked' end)\n\
              local _, prose_err = pcall(function() prose = 'overwritten' end)\n\
              local _, messages_err = pcall(function() messages = {} end)\n\
-             return tostring(argv_err), tostring(prose_err), tostring(messages_err)",
+             return tostring(args_err), tostring(prose_err), tostring(messages_err)",
         )
         .into();
     refusals.map(|refusal| refusal_line(&refusal).unwrap_or(&refusal).to_owned())
 }
 
-/// Asserts `argv`, `prose`, and `messages` still read as the Engine set
+/// Asserts `args`, `prose`, and `messages` still read as the Engine set
 /// them and still refuse assignment with their unchanged refusals.
 #[track_caller]
 fn assert_guards_hold(vm: &BuiltVm, after: &str) {
     let (query, prose, kept): (String, String, String) =
-        vm.eval("return argv.query, prose, messages[1].content");
+        vm.eval("return args.query, prose, messages[1].content");
     assert_eq!(
         (query.as_str(), prose.as_str(), kept.as_str()),
         ("papers", PROSE, "kept"),
-        "argv, prose, and messages read as the Engine set them after {after}"
+        "args, prose, and messages read as the Engine set them after {after}"
     );
-    let [argv_refusal, prose_refusal, messages_refusal] = assignment_refusals(vm);
+    let [args_refusal, prose_refusal, messages_refusal] = assignment_refusals(vm);
     assert_eq!(
-        argv_refusal, ARGV_REFUSAL,
-        "argv stays read-only after {after}"
+        args_refusal, ARGS_REFUSAL,
+        "args stays read-only after {after}"
     );
     assert_eq!(
         prose_refusal, PROSE_REFUSAL,
@@ -104,7 +104,7 @@ fn the_globals_chunk_name_resolves_to_the_guard_file() {
 }
 
 #[test]
-fn no_setmetatable_call_on_g_frees_argv_prose_or_messages() {
+fn no_setmetatable_call_on_g_frees_args_prose_or_messages() {
     for attempt in [
         "setmetatable(_G, nil)",
         "setmetatable(_G, {})",
@@ -117,40 +117,18 @@ fn no_setmetatable_call_on_g_frees_argv_prose_or_messages() {
         vm.eval::<()>(attempt);
         assert_guards_hold(&vm, attempt);
         let captured: bool = vm.eval(
-            "return captured == nil or (captured.argv == nil and captured.prose == nil \
+            "return captured == nil or (captured.args == nil and captured.prose == nil \
              and captured.messages == nil)",
         );
         assert!(
             captured,
-            "the author's __newindex never sees argv, prose, or messages after {attempt}"
+            "the author's __newindex never sees args, prose, or messages after {attempt}"
         );
     }
 }
 
 #[test]
-fn a_nil_argv_reads_nil_under_a_strict_index_and_no_write_hook_sees_it() {
-    let vm = TestVm::new().shims().build();
-    let (absent, refusal, hooked, still_absent): (bool, String, bool, bool) = vm.eval(
-        "seen = {}\n\
-         setmetatable(_G, {\n\
-           __index = function(_, key) error('undefined global ' .. key, 2) end,\n\
-           __newindex = function(_, key, value) seen[key] = value end,\n\
-         })\n\
-         local absent = argv == nil\n\
-         local _, err = pcall(function() argv = { query = 'hijacked' } end)\n\
-         return absent, tostring(err), seen.argv ~= nil, argv == nil",
-    );
-    assert!(
-        absent,
-        "a nil argv reads nil, not the strict handler's error"
-    );
-    assert_eq!(refusal_line(&refusal), Some(ARGV_REFUSAL));
-    assert!(!hooked, "the author's write hook never sees argv");
-    assert!(still_absent, "the refused assignment wrote nothing");
-}
-
-#[test]
-fn editing_the_table_getmetatable_returns_cannot_free_argv_prose_or_messages() {
+fn editing_the_table_getmetatable_returns_cannot_free_args_prose_or_messages() {
     let vm = guarded_vm();
     let before: bool = vm.eval("return getmetatable(_G) == nil");
     assert!(before, "with no author metatable, getmetatable(_G) is nil");
@@ -356,14 +334,14 @@ return table.concat(out, '\\n')";
 #[test]
 fn sealed_engine_values_keep_their_metatable_protection() {
     let vm = guarded_vm();
-    let (sys_label, argv_label, sys_refusal, var_refusal): (String, String, String, String) = vm
+    let (sys_label, args_label, sys_refusal, var_refusal): (String, String, String, String) = vm
         .eval(
             "local _, sys_err = pcall(function() setmetatable(sys, {}) end)\n\
          local _, var_err = pcall(function() setmetatable(var, {}) end)\n\
-         return getmetatable(sys), getmetatable(argv), tostring(sys_err), tostring(var_err)",
+         return getmetatable(sys), getmetatable(args), tostring(sys_err), tostring(var_err)",
         );
     assert_eq!(sys_label, "sys is sealed");
-    assert_eq!(argv_label, "argv is read-only");
+    assert_eq!(args_label, "args is read-only");
     assert_eq!(
         sys_refusal,
         "[string \"probe\"]:1: cannot change a protected metatable"

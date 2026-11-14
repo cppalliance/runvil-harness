@@ -193,7 +193,7 @@ fn forward_task(event: Event, observer: &dyn Observer) {
             section,
             task,
             target,
-            input,
+            args,
             item,
             index,
             var,
@@ -203,7 +203,7 @@ fn forward_task(event: Event, observer: &dyn Observer) {
             Observation::TaskStarted {
                 task,
                 target,
-                input,
+                args,
                 item,
                 index,
                 var,

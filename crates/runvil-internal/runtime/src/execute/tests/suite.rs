@@ -1,7 +1,7 @@
 //! Offline prompt-fixture suite: parses fixtures written the way a prompt
 //! author writes them and drives their execution on the serial test driver
 //! without a live gateway. Split by domain - parsing contracts, section
-//! execution, fanout, control flow, the args/argv and lazy-prose surfaces,
+//! execution, fanout, control flow, the `args` and lazy-prose surfaces,
 //! an author's own `_G` metatable, `require`, the `markdown` global, and
 //! the role map and start checks - over the run-level
 //! [`Scenario`](crate::test_support::scenario::Scenario). Its

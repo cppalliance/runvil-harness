@@ -512,9 +512,9 @@ fn a_suspending_library_call_yields_from_the_callers_coroutine() {
         panic!("the library's call must suspend the caller's block");
     };
     match vm.request_from_yield(&values) {
-        YieldParse::Request(Request::Call { target, input, .. }) => {
+        YieldParse::Request(Request::Call { target, args, .. }) => {
             assert_eq!(target, "../worker");
-            assert_eq!(input.as_deref(), Some("job"));
+            assert_eq!(args, Some(json!("job")));
         }
         other => panic!("expected a call request, got {other:?}"),
     }

@@ -62,7 +62,7 @@ fn steered_run(front: &str, sections: &[(&str, &str)], cancel: &CancelHandle) ->
         .with_tools(catalog)
         .with_models(BTreeMap::from([(ModelRole::Default, model)]))
         .with_cancel(cancel.clone());
-    Run::new(Arc::new(parsed), "", params)
+    Run::new(Arc::new(parsed), "{}", params)
 }
 
 /// A run of one section, `Only`, whose Lua is `body` on the `default`

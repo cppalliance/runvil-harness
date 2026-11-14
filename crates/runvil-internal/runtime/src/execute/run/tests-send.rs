@@ -108,7 +108,7 @@ fn a_non_owner_sending_by_id_string_raises_task_not_owned() {
         (
             "Main",
             "local a = tasks.spawn('../A')\n\
-             local b = tasks.spawn('../B', { input = a.task })\n\
+             local b = tasks.spawn('../B', { args = { sibling = a.task } })\n\
              local _, _, from_b = tasks.join_any({ b })\n\
              local _, own = pcall(tasks.send, sys.taskid, 'x')\n\
              local _, unknown = pcall(tasks.send, '0.9', 'x')\n\
@@ -118,7 +118,7 @@ fn a_non_owner_sending_by_id_string_raises_task_not_owned() {
         ("A", "return tasks.receive()"),
         (
             "B",
-            "local ok, err = pcall(tasks.send, args, 'x')\n\
+            "local ok, err = pcall(tasks.send, args.sibling, 'x')\n\
              return tostring(ok) .. ' ' .. err.kind",
         ),
     ]);

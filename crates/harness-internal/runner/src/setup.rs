@@ -31,7 +31,8 @@ pub struct RunSetup {
     /// The workspace roots granted; the first is the `ui()` snapshot's
     /// `workspace_root`.
     pub workspace_roots: Vec<PathBuf>,
-    /// The run's argument text.
+    /// The run's arguments: the text of one JSON object, which the run's
+    /// first step checks against the prompt's `args` declaration.
     pub args: String,
     /// The run's resource limits.
     pub limits: RunLimits,
@@ -47,8 +48,8 @@ pub struct RunSetup {
 impl RunSetup {
     /// A setup over `recorder` and `broker`. Every other field starts
     /// empty or at its default: a fresh memory store, no selection, no
-    /// roots, no args, `RunLimits::default()`, at most 10 tool calls in
-    /// flight, and no user.
+    /// roots, the empty object `{}` as its args, `RunLimits::default()`,
+    /// at most 10 tool calls in flight, and no user.
     #[must_use]
     pub fn new(recorder: Arc<dyn RunRecorder>, broker: Arc<dyn InferenceBroker>) -> RunSetup {
         RunSetup {
@@ -57,7 +58,7 @@ impl RunSetup {
             vfs: VfsRef::default(),
             selected_model: None,
             workspace_roots: Vec::new(),
-            args: String::new(),
+            args: "{}".to_owned(),
             limits: RunLimits::default(),
             max_tool_calls_in_flight: DEFAULT_MAX_TOOL_CALLS_IN_FLIGHT,
             has_user: false,

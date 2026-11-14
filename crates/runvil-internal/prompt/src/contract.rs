@@ -3,15 +3,16 @@
 //! The YAML is the whole contract: Packs install, models declare, args
 //! type. Parsing validates the static shape - each `uses:` entry a bare
 //! Pack id or vendor/name, no Pack id declared twice, no reserved Pack id,
-//! the alias grammar on arg names, the five model role names, and each arg
-//! default against its declared type - and exposes the FULL declaration on
-//! the parsed [`Prompt`](crate::Prompt); checking the declaration against
-//! the caller's environment is the job of the run's first step, never the
-//! parser's.
+//! the alias grammar on argument names, the five model role names, and the
+//! keywords of the `args` declaration against each other - and exposes
+//! the FULL declaration on the parsed [`Prompt`](crate::Prompt); checking
+//! the declaration against the caller's environment and arguments is the
+//! job of the run's first step, never the parser's.
 //!
-//! `args` and `models` are defined in submodules; this root owns the `uses:`
-//! checks, the arg-name check, and the map deserializer the two map keys
-//! share.
+//! `args` and `models` are defined in submodules, and `args_check` checks
+//! a caller's arguments against the `args` declaration; this root owns
+//! the `uses:` checks, the argument-name check, and the map deserializer
+//! the two map keys share.
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,12 +28,15 @@ use serde::{Deserialize, Deserializer};
 use crate::error;
 
 mod args;
+mod args_check;
 mod models;
 
 #[cfg(test)]
 mod tests;
 
-pub use args::{ArgDecl, ArgType, ArgsDecl, ArgsDeclIter};
+pub use args::ArgsSchema;
+pub(crate) use args::TEXT_FIELD;
+pub(crate) use args_check::accept as accept_args;
 pub(crate) use models::RoleMap;
 pub use models::RoleRequirements;
 
@@ -93,7 +97,7 @@ where
 /// The visitor behind [`deserialize_contract_map`]: a streaming map walk so
 /// rejections keep their source position.
 struct MapVisitor<K, T> {
-    /// The key kind (`model role` or `arg name`), for error messages.
+    /// The key kind (`model role` or `argument name`), for error messages.
     what: &'static str,
     /// The key and value types, without ownership or variance claims.
     _marker: PhantomData<fn() -> (K, T)>,

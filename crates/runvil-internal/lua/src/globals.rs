@@ -1,9 +1,10 @@
 //! The `_G` guard: the one metatable on a section VM's globals table.
 //!
 //! The guard owns the three Engine-owned globals, and no metatable author
-//! code sets on `_G` ever sees any of their keys. `argv`
-//! ([`crate::argv`]) is never a raw global: reads return the value
-//! injection installed and writes raise the read-only refusal. `prose`, each block's
+//! code sets on `_G` ever sees any of their keys. `args`, the read-only
+//! table of the chain's arguments ([`crate::args`]), is never a raw
+//! global: reads return the table injection installed and writes raise
+//! the read-only refusal. `prose`, each block's
 //! lazily rendered text ([`crate::prose`]), is never a raw global either:
 //! reads render through the Engine and writes raise the read-only refusal.
 //! `messages`, the section's one conversation ([`crate::messages`]), is
@@ -22,7 +23,7 @@
 //! guard. For every other value both behave as the base functions,
 //! argument errors and `__metatable` protection included. With no debug
 //! library, `rawset`, or code loading in the sandbox, author code has no
-//! route to the guard or to a raw `argv`, `prose`, or `messages` global.
+//! route to the guard or to a raw `args`, `prose`, or `messages` global.
 //!
 //! The Lua side lives in `__impl_globals.lua`; the Rust side is the slot
 //! table the chunk reads, held in the registry.
@@ -46,7 +47,7 @@ const GLOBALS_CHUNK_NAME: &str = "@crates/runvil-internal/lua/src/__impl_globals
 /// The guard source.
 const GLOBALS_SOURCE: &str = include_str!("__impl_globals.lua");
 
-/// The registry key of the slot table the guard chunk reads: `argv`,
+/// The registry key of the slot table the guard chunk reads: `args`,
 /// `prose`, `messages`, and `author`.
 const STATE_REGISTRY: &str = "runvil.globals.state";
 
@@ -67,7 +68,7 @@ static GLOBALS_PROGRAM: LazyLock<Result<LuaProgram>> =
 pub(crate) fn install(lua: &Lua) -> Result<()> {
     let globals = lua.globals();
     let state = lua.create_table().map_err(error::make_lua_error)?;
-    let refuse_argv = refusal(lua, crate::argv::ASSIGNMENT_REFUSAL)?;
+    let refuse_args = refusal(lua, crate::args::ASSIGNMENT_REFUSAL)?;
     let refuse_prose = refusal(lua, crate::prose::ASSIGNMENT_REFUSAL)?;
     let refuse_messages = refusal(lua, crate::messages::ASSIGNMENT_REFUSAL)?;
     let (guard, replace_metatable, read_metatable): (Table, Function, Function) = GLOBALS_PROGRAM
@@ -77,7 +78,7 @@ pub(crate) fn install(lua: &Lua) -> Result<()> {
         .call((
             globals.clone(),
             state.clone(),
-            refuse_argv,
+            refuse_args,
             refuse_prose,
             refuse_messages,
         ))
@@ -95,16 +96,17 @@ pub(crate) fn install(lua: &Lua) -> Result<()> {
         .map_err(error::make_lua_error)
 }
 
-/// Puts `value` in the `argv` slot, which every later read of the global
-/// returns. Every assignment of the global raises the read-only refusal,
-/// with or without a value in the slot.
+/// Puts `value`, the read-only table of the chain's arguments, in the
+/// `args` slot, which every later read of the global returns. Every
+/// assignment of the global raises the read-only refusal, with or without
+/// a value in the slot.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure if the guard's slot table is missing or cannot
 /// be written.
-pub(crate) fn set_argv(lua: &Lua, value: Value) -> Result<()> {
+pub(crate) fn set_args(lua: &Lua, value: Value) -> Result<()> {
     state(lua)?
-        .raw_set("argv", value)
+        .raw_set("args", value)
         .map_err(error::make_lua_error)
 }
 
@@ -194,9 +196,8 @@ impl fmt::Display for Reserved {
 /// A global section setup installs must be listed here: the Engine's
 /// section setup tests compare this list against a set-up VM's globals in
 /// both directions.
-pub const RESERVED_NAMES: [(&str, Reserved); 63] = [
+pub const RESERVED_NAMES: [(&str, Reserved); 62] = [
     ("args", Reserved::EngineGlobal),
-    ("argv", Reserved::EngineGlobal),
     ("call", Reserved::EngineGlobal),
     ("compactors", Reserved::EngineGlobal),
     ("item", Reserved::EngineGlobal),

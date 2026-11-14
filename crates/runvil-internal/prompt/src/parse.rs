@@ -21,11 +21,29 @@ impl Prompt {
     ///
     /// - `FrontmatterInvalid` when the `---` delimiters are missing, the
     ///   frontmatter fails to decode, a `uses:` entry is neither a Pack id
-    ///   nor vendor/name, two entries share a Pack id, or an entry names a
-    ///   Pack id the Engine reserves. A refused `uses:` list has the
-    ///   `Reason` fact `pack_duplicate` or `pack_reserved` and the Pack id
-    ///   as its `Name` fact, and is located on the `uses:` line when one
-    ///   line declares the key.
+    ///   nor vendor/name, two entries share a Pack id, an entry names a
+    ///   Pack id the Engine reserves, or the `args:` declaration is outside
+    ///   its subset of JSON Schema. A refused `uses:` list has the `Reason`
+    ///   fact `pack_duplicate` or `pack_reserved` and the Pack id as its
+    ///   `Name` fact, and is located on the `uses:` line when one line
+    ///   declares the key. An `args:` declaration is refused when a node
+    ///   holds a keyword other than `type`, `properties`, `required`,
+    ///   `additionalProperties`, `items`, `enum`, `description`, and
+    ///   `default`, or holds one twice; a node has no `type`, or one other
+    ///   than `string`, `boolean`, `integer`, `number`, `array`, and
+    ///   `object`; the root is not an `object`; an `array` has no `items`;
+    ///   `items` is on a node that is not an `array`, `enum` on one that is
+    ///   neither a `string` nor an `integer`, or `properties`, `required`,
+    ///   or `additionalProperties` on one that is not an `object`; the root
+    ///   or a list item has a `default`; a `default` has no JSON form or
+    ///   does not match its node; an `enum` is empty, repeats a value, or
+    ///   lists a value of another kind than its node; `required` names a
+    ///   field that `properties` does not declare, or names one twice; or
+    ///   an argument name is not `[A-Za-z][A-Za-z0-9_-]{0,63}` or is
+    ///   declared twice. The message of a refused declaration names the
+    ///   YAML path of the node or keyword, such as `args.properties.query`,
+    ///   and the failure is located at the line and column the YAML parser
+    ///   reports for it.
     /// - `StructureInvalid` when a heading skips a level (such as an H4
     ///   directly under an H2, or a first heading deeper than a later
     ///   one), a heading is empty, or two sibling sections have the same

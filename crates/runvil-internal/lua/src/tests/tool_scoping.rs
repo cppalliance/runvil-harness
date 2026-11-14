@@ -159,7 +159,8 @@ fn tool_objects_install_without_payload_reports() {
 
 #[test]
 fn offer_over_an_empty_catalog_fails_in_a_chunk() {
-    let error = run("tools.offer('web/search')", "").expect_err("an unknown id must fail loudly");
+    let error =
+        run("tools.offer('web/search')", &json!({})).expect_err("an unknown id must fail loudly");
     assert!(
         error
             .to_string()

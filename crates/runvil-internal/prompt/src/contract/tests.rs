@@ -5,21 +5,48 @@ use std::num::NonZeroU32;
 
 use runvil_types::error::{ErrorCode, ErrorFact};
 use runvil_types::models::ModelRole;
+use serde_json::json;
 
-use super::{ArgType, ArgsDeclIter};
 use crate::test_support::{assert_parse_error, parse_err, parse_ok, prompt};
 use crate::tests::location;
 
+#[path = "tests-args.rs"]
+mod args;
+#[path = "tests-args-check.rs"]
+mod args_check;
 #[path = "tests-packs.rs"]
 mod packs;
+
+/// Writes the prompt `t` whose frontmatter ends with the YAML block
+/// `front`, minus the indentation every line of it shares, so a nested
+/// declaration keeps its own indentation.
+///
+/// The block's first line is file line 5, which the YAML parser counts as
+/// line 4, and a column counts from the block's left edge.
+fn block_prompt(front: &str) -> String {
+    let lines: Vec<&str> = front
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let shared = lines
+        .iter()
+        .map(|line| line.len() - line.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    let block: String = lines
+        .iter()
+        .flat_map(|line| [&line[shared..], "\n"])
+        .collect();
+    format!("---\nname: t\ndescription: d\nrunvil: 0\n{block}---\n\n## S\n\np\n")
+}
 
 #[test]
 fn the_full_contract_declaration_parses_and_round_trips() {
     let prompt = parse_ok(&prompt(
         "
         uses: [web, mcp]
-        args: { use_mcp: { type: boolean, default: true, \
-                description: Search MCP-connected private sources } }
+        args: { type: object, properties: { use_mcp: { type: boolean, default: true, \
+                description: Search MCP-connected private sources } } }
         models: { strong: { min_context: 200000, thinking: true }, \
                   fast: { thinking: false } }
         ",
@@ -33,13 +60,13 @@ fn the_full_contract_declaration_parses_and_round_trips() {
     assert_eq!(packs[0].id().to_string(), "web");
     assert_eq!(packs[1].id().to_string(), "mcp");
 
-    let arg = fm.args().get("use_mcp").expect("the arg is declared");
-    assert_eq!(arg.kind(), ArgType::Boolean);
-    assert!(!arg.is_optional());
-    assert_eq!(arg.default(), Some(&serde_yaml_ng::Value::Bool(true)));
     assert_eq!(
-        arg.description(),
-        Some("Search MCP-connected private sources")
+        fm.args().as_json()["properties"]["use_mcp"],
+        json!({
+            "type": "boolean",
+            "default": true,
+            "description": "Search MCP-connected private sources",
+        })
     );
 
     let strong = fm
@@ -68,132 +95,16 @@ fn a_prompt_without_contract_keys_behaves_exactly_as_today() {
 }
 
 #[test]
-fn an_omitted_args_key_yields_the_default_prose_declaration() {
-    // There are no freeform prompts: an absent `args:` key is the default
-    // declaration of one optional string field named `prose`.
-    let prompt = parse_ok(&prompt("", &[]));
-    let args = prompt.frontmatter().args();
-    assert_eq!(args.len(), 1);
-    let prose = args
-        .get("prose")
-        .expect("the default declaration names `prose`");
-    assert_eq!(prose.kind(), ArgType::String);
-    assert!(prose.is_optional());
-    assert_eq!(prose.default(), None);
-    assert_eq!(prose.description(), Some("Freeform input for this prompt"));
-}
-
-#[test]
 fn an_unknown_key_inside_a_contract_entry_is_rejected() {
-    // `deny_unknown_fields` must hold inside each new key's entries too: a
-    // typo'd field is an authoring error, not silently ignored.
+    // A misspelled key inside a contract key's entry is an authoring
+    // error, never a key the parse ignores.
     for front in [
-        "args: { flag: { tipe: boolean } }",
+        "args: { type: object, properties: { flag: { tipe: boolean } } }",
         "models: { strong: { tier: 1 } }",
     ] {
         let error = parse_err(&prompt(front, &[]));
         assert_eq!(error.code, ErrorCode::FrontmatterInvalid, "{error}");
     }
-}
-
-#[test]
-fn an_arg_name_may_be_a_reserved_name_because_args_are_argv_fields() {
-    let front =
-        "args: { prose: { type: string }, store: { type: string }, end: { type: boolean } }";
-    let prompt = parse_ok(&prompt(front, &[]));
-    let args = prompt.frontmatter().args();
-    assert_eq!(args.len(), 3);
-    assert!(args.get("store").is_some() && args.get("end").is_some());
-}
-
-#[test]
-fn args_declarations_round_trip() {
-    let prompt = parse_ok(&prompt(
-        "args: { use_mcp: { type: boolean, default: true, description: Search private sources }, \
-         limit: { type: integer, optional: true }, query: { type: string } }",
-        &[],
-    ));
-    let args = prompt.frontmatter().args();
-    assert_eq!(args.len(), 3);
-    let limit = args.get("limit").expect("declared");
-    assert_eq!(limit.kind(), ArgType::Integer);
-    assert!(limit.is_optional());
-    assert_eq!(limit.description(), None);
-    assert_eq!(args.get("query").expect("declared").kind(), ArgType::String);
-}
-
-#[test]
-fn an_arg_default_must_match_the_declared_type() {
-    for (kind, default, actual) in [
-        ("boolean", "'true'", "string"),
-        ("integer", "1.5", "number"),
-        ("string", "42", "integer"),
-        ("number", "[1]", "sequence"),
-    ] {
-        let front = format!("args: {{ flag: {{ type: {kind}, default: {default} }} }}");
-        assert_parse_error(
-            &prompt(&front, &[]),
-            ErrorCode::FrontmatterInvalid,
-            &format!(
-                "the default has type `{actual}`, which does not match the declared type `{kind}`"
-            ),
-        );
-    }
-    // A matching default passes.
-    let prompt = parse_ok(&prompt(
-        "args: { limit: { type: integer, default: 3 } }",
-        &[],
-    ));
-    assert_eq!(
-        prompt
-            .frontmatter()
-            .args()
-            .get("limit")
-            .and_then(|a| a.default().cloned()),
-        Some(serde_yaml_ng::Value::Number(3.into()))
-    );
-}
-
-#[test]
-fn an_arg_name_must_match_the_alias_grammar() {
-    let error = parse_err(&prompt("args: { '1bad': { type: string } }", &[]));
-    assert_eq!(error.code, ErrorCode::FrontmatterInvalid);
-}
-
-#[test]
-fn an_absent_args_key_marks_the_default_declaration() {
-    // No `args:` key: the implicit default declaration, whose interface
-    // prose wraps into `argv.prose`.
-    assert!(
-        parse_ok(&prompt("", &[])).frontmatter().args().is_default(),
-        "an absent args key yields the default declaration"
-    );
-
-    // An explicit `args:` key is a structured declaration, which never
-    // wraps.
-    let explicit = parse_ok(&prompt("args: { query: { type: string } }", &[]));
-    assert!(!explicit.frontmatter().args().is_default());
-
-    // Even an explicit declaration identical to the default shape is
-    // structured: declared is not defaulted.
-    let shaped = parse_ok(&prompt(
-        "args: { prose: { type: string, optional: true, \
-         description: Freeform input for this prompt } }",
-        &[],
-    ));
-    let args = shaped.frontmatter().args();
-    assert!(!args.is_default());
-    assert_ne!(
-        *args,
-        super::ArgsDecl::default(),
-        "an explicit declaration never equals the implicit default"
-    );
-}
-
-#[test]
-fn an_unknown_arg_type_is_rejected() {
-    let error = parse_err(&prompt("args: { flag: { type: text } }", &[]));
-    assert_eq!(error.code, ErrorCode::FrontmatterInvalid);
 }
 
 #[test]
@@ -229,25 +140,6 @@ fn an_empty_role_declares_neither_requirement() {
             .is_none(),
         "a role the prompt does not name has no entry"
     );
-}
-
-#[test]
-fn args_iterate_in_name_order_through_a_named_iterator() {
-    let prompt = parse_ok(&prompt(
-        "args: { query: { type: string }, limit: { type: integer } }",
-        &[],
-    ));
-    let fm = prompt.frontmatter();
-
-    let args: ArgsDeclIter<'_> = fm.args().iter();
-    assert_eq!(args.len(), 2);
-    let names: Vec<&str> = args.map(|(name, _)| name).collect();
-    assert_eq!(names, ["limit", "query"]);
-    let mut kinds = Vec::new();
-    for (_, decl) in fm.args() {
-        kinds.push(decl.kind());
-    }
-    assert_eq!(kinds, [ArgType::Integer, ArgType::String]);
 }
 
 #[test]

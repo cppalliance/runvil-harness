@@ -60,7 +60,7 @@ fn call_runs_named_section_as_subroutine() {
         .prose(
             "Research",
             "
-            Research {{ args }}.
+            Research {{ args.text }}.
 
             ```lua
             local answer = models.infer(prose)
@@ -69,18 +69,23 @@ fn call_runs_named_section_as_subroutine() {
             ```",
         );
     let trace = Scenario::new(source.build())
-        .args("topic")
+        .args(r#"{"text":"topic"}"#)
         .bound()
         .chat(&gateway)
         .run();
     assert_eq!(trace.text(), "research-reply");
+    assert_eq!(
+        gateway.requests()[0].messages[0].content(),
+        "Research topic.",
+        "a call that passes no args reads the run's"
+    );
 }
 
-/// The `with_args` fork scopes a call's input over its whole chain:
-/// a no-input `call` nested inside the chain defaults to the chain's
+/// The `with_args` fork scopes a call's args over its whole chain: a
+/// `call` that passes none, nested inside the chain, reads the chain's
 /// args, not the run's.
 #[test]
-fn nested_call_without_input_inherits_the_chains_args() {
+fn nested_call_without_args_reads_the_chains_args() {
     let gateway = ScriptedChat::new(vec![text("inner-reply")]);
     let source = PromptSource::new()
         .section(
@@ -94,14 +99,14 @@ fn nested_call_without_input_inherits_the_chains_args() {
         .prose(
             "Inner",
             "
-            Args: {{ args }}
+            Args: {{ args.text }}
 
             ```lua
             return models.infer(prose)
             ```",
         );
     let trace = Scenario::new(source.build())
-        .args("run-args")
+        .args(r#"{"text":"run-args"}"#)
         .bound()
         .chat(&gateway)
         .run();
@@ -112,7 +117,7 @@ fn nested_call_without_input_inherits_the_chains_args() {
     let text = body.messages_json().to_string();
     assert!(
         text.contains("chain-args"),
-        "the nested no-input call substitutes the chain's args: {text}"
+        "the nested call that passes no args substitutes the chain's args: {text}"
     );
     assert!(
         !text.contains("run-args"),

@@ -7,7 +7,6 @@
 #[non_exhaustive] pub enum runvil_engine::model::ModelRole
 #[non_exhaustive] pub enum runvil_engine::model::Role
 #[non_exhaustive] pub enum runvil_engine::model::ThinkingMode
-#[non_exhaustive] pub enum runvil_engine::prompt::ArgType
 #[non_exhaustive] pub enum runvil_engine::vfs::FileType
 #[non_exhaustive] pub enum runvil_engine::vfs::Mode
 #[non_exhaustive] pub enum runvil_engine::vfs::Op
@@ -111,10 +110,7 @@ auto runvil_engine::packs::PackId: Freeze, RefUnwindSafe, Send, Sync, Unpin, Unw
 auto runvil_engine::packs::PackRef: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::packs::Prelude: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::packs::RosterEntry: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil_engine::prompt::ArgDecl: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil_engine::prompt::ArgType: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil_engine::prompt::ArgsDecl: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil_engine::prompt::ArgsDeclIter: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil_engine::prompt::ArgsSchema: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::prompt::FileDecl: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::prompt::Frontmatter: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::prompt::RoleRequirements: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
@@ -205,10 +201,7 @@ derives runvil_engine::packs::PackId: Clone, Debug, Deserialize, Eq, Hash, Ord, 
 derives runvil_engine::packs::PackRef: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil_engine::packs::Prelude: Clone, Debug, Eq, PartialEq
 derives runvil_engine::packs::RosterEntry: Clone, Debug, Eq, PartialEq
-derives runvil_engine::prompt::ArgDecl: Clone, Debug, Deserialize, Eq, PartialEq
-derives runvil_engine::prompt::ArgType: Clone, Copy, Debug, Deserialize, Eq, PartialEq
-derives runvil_engine::prompt::ArgsDecl: Clone, Debug, Default, Deserialize, Eq, PartialEq
-derives runvil_engine::prompt::ArgsDeclIter: Clone, Debug
+derives runvil_engine::prompt::ArgsSchema: Clone, Debug, Default, Deserialize, Eq, PartialEq
 derives runvil_engine::prompt::FileDecl: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil_engine::prompt::Frontmatter: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil_engine::prompt::RoleRequirements: Clone, Copy, Debug, Deserialize, Eq, PartialEq
@@ -252,14 +245,12 @@ impl core::fmt::Display for runvil_engine::ids::TaskId
 impl core::fmt::Display for runvil_engine::model::Role
 impl core::fmt::Display for runvil_engine::packs::GlobalName
 impl core::fmt::Display for runvil_engine::packs::PackId
-impl core::fmt::Display for runvil_engine::prompt::ArgType
 impl core::fmt::Display for runvil_engine::vfs::PathReason
 impl core::fmt::Display for runvil_engine::vfs::VfsError
 impl core::fmt::Display for runvil_engine::vfs::VfsPath
 impl core::fmt::Display for runvil_engine::vfs::VfsPathBuf
 impl core::future::future::Future for runvil_engine::cancel::Canceled
 impl core::future::future::Future for runvil_engine::cancel::Canceled { type Output = () }
-impl core::iter::traits::exact_size::ExactSizeIterator for runvil_engine::prompt::ArgsDeclIter<'_>
 impl core::ops::drop::Drop for runvil_engine::vfs::Access
 impl core::str::traits::FromStr for runvil_engine::ToolId
 impl core::str::traits::FromStr for runvil_engine::ToolId { type Err = runvil_engine::Error }
@@ -278,13 +269,8 @@ impl runvil_engine::vfs::Policy for runvil_engine::vfs::ModePolicy
 impl runvil_engine::vfs::Vfs for runvil_engine::vfs::MemoryBackend
 impl runvil_engine::vfs::Vfs for runvil_engine::vfs::RealBackend
 impl runvil_engine::vfs::Vfs for runvil_engine::vfs::VfsRef
-impl<'a> core::iter::traits::collect::IntoIterator for &'a runvil_engine::prompt::ArgsDecl
-impl<'a> core::iter::traits::collect::IntoIterator for &'a runvil_engine::prompt::ArgsDecl { type IntoIter = runvil_engine::prompt::ArgsDeclIter<'a> }
-impl<'a> core::iter::traits::collect::IntoIterator for &'a runvil_engine::prompt::ArgsDecl { type Item = (&'a str, &'a runvil_engine::prompt::ArgDecl) }
 impl<'a> core::iter::traits::iterator::Iterator for runvil_engine::model::ArgumentNames<'a>
 impl<'a> core::iter::traits::iterator::Iterator for runvil_engine::model::ArgumentNames<'a> { type Item = &'a str }
-impl<'a> core::iter::traits::iterator::Iterator for runvil_engine::prompt::ArgsDeclIter<'a>
-impl<'a> core::iter::traits::iterator::Iterator for runvil_engine::prompt::ArgsDeclIter<'a> { type Item = (&'a str, &'a runvil_engine::prompt::ArgDecl) }
 impl<'a> runvil_engine::vfs::OpEvent<'a>
 impl<'de, T> serde_core::de::Deserialize<'de> for runvil_engine::effect::PackToolSets<T> where T: serde_core::de::Deserialize<'de>
 impl<Func> runvil_engine::PromptFinder for Func where Func: core::ops::function::Fn(&str) -> core::result::Result<alloc::string::String, runvil_engine::Error> + core::marker::Send + core::marker::Sync
@@ -499,18 +485,10 @@ pub fn runvil_engine::packs::PackRef::vendor(&self) -> &str
 pub fn runvil_engine::packs::Prelude::new(pack: runvil_engine::packs::PackId, source: impl core::convert::Into<alloc::string::String>) -> runvil_engine::packs::Prelude
 pub fn runvil_engine::packs::Prelude::pack(&self) -> &runvil_engine::packs::PackId
 pub fn runvil_engine::packs::Prelude::source(&self) -> &str
-pub fn runvil_engine::prompt::ArgDecl::default(&self) -> core::option::Option<&serde_yaml_ng::value::Value>
-pub fn runvil_engine::prompt::ArgDecl::description(&self) -> core::option::Option<&str>
-pub fn runvil_engine::prompt::ArgDecl::is_optional(&self) -> bool
-pub fn runvil_engine::prompt::ArgDecl::kind(&self) -> runvil_engine::prompt::ArgType
-pub fn runvil_engine::prompt::ArgsDecl::get(&self, name: &str) -> core::option::Option<&runvil_engine::prompt::ArgDecl>
-pub fn runvil_engine::prompt::ArgsDecl::is_default(&self) -> bool
-pub fn runvil_engine::prompt::ArgsDecl::is_empty(&self) -> bool
-pub fn runvil_engine::prompt::ArgsDecl::iter(&self) -> runvil_engine::prompt::ArgsDeclIter<'_>
-pub fn runvil_engine::prompt::ArgsDecl::len(&self) -> usize
+pub fn runvil_engine::prompt::ArgsSchema::as_json(&self) -> &serde_json::value::Value
 pub fn runvil_engine::prompt::FileDecl::description(&self) -> &str
 pub fn runvil_engine::prompt::FileDecl::path(&self) -> &str
-pub fn runvil_engine::prompt::Frontmatter::args(&self) -> &runvil_engine::prompt::ArgsDecl
+pub fn runvil_engine::prompt::Frontmatter::args(&self) -> &runvil_engine::prompt::ArgsSchema
 pub fn runvil_engine::prompt::Frontmatter::description(&self) -> &str
 pub fn runvil_engine::prompt::Frontmatter::max_tool_iterations(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
 pub fn runvil_engine::prompt::Frontmatter::name(&self) -> &str
@@ -617,6 +595,7 @@ pub runvil_engine::Error::prose: alloc::string::String
 pub runvil_engine::ErrorCode::AlreadyExists = 602
 pub runvil_engine::ErrorCode::Anchor = 609
 pub runvil_engine::ErrorCode::ApprovalRequired = 611
+pub runvil_engine::ErrorCode::ArgsInvalid = 705
 pub runvil_engine::ErrorCode::Backend = 621
 pub runvil_engine::ErrorCode::CallDepthExceeded = 204
 pub runvil_engine::ErrorCode::Canceled = 702
@@ -882,8 +861,8 @@ pub runvil_engine::event::Event::TaskFailed::provenance: runvil_engine::ids::Pro
 pub runvil_engine::event::Event::TaskFailed::section: alloc::string::String
 pub runvil_engine::event::Event::TaskFailed::task: runvil_engine::ids::TaskId
 pub runvil_engine::event::Event::TaskStarted { .. }
+pub runvil_engine::event::Event::TaskStarted::args: core::option::Option<serde_json::value::Value>
 pub runvil_engine::event::Event::TaskStarted::index: core::option::Option<u64>
-pub runvil_engine::event::Event::TaskStarted::input: core::option::Option<alloc::string::String>
 pub runvil_engine::event::Event::TaskStarted::item: core::option::Option<serde_json::value::Value>
 pub runvil_engine::event::Event::TaskStarted::provenance: runvil_engine::ids::Provenance
 pub runvil_engine::event::Event::TaskStarted::section: alloc::string::String
@@ -1036,10 +1015,6 @@ pub runvil_engine::packs::RosterEntry::Unavailable { .. }
 pub runvil_engine::packs::RosterEntry::Unavailable::reason: alloc::string::String
 pub runvil_engine::packs::RosterEntry::Usable { .. }
 pub runvil_engine::packs::RosterEntry::Usable::vendor: alloc::string::String
-pub runvil_engine::prompt::ArgType::Boolean
-pub runvil_engine::prompt::ArgType::Integer
-pub runvil_engine::prompt::ArgType::Number
-pub runvil_engine::prompt::ArgType::String
 pub runvil_engine::vfs::Entry::description: core::option::Option<alloc::string::String>
 pub runvil_engine::vfs::Entry::name: alloc::string::String
 pub runvil_engine::vfs::Entry::stat: runvil_engine::vfs::Stat
@@ -1198,9 +1173,7 @@ pub struct runvil_engine::model::Temperature(/* private fields */)
 pub struct runvil_engine::packs::GlobalName { /* private fields */ }
 pub struct runvil_engine::packs::PackRef { /* private fields */ }
 pub struct runvil_engine::packs::Prelude { /* private fields */ }
-pub struct runvil_engine::prompt::ArgDecl { /* private fields */ }
-pub struct runvil_engine::prompt::ArgsDecl { /* private fields */ }
-pub struct runvil_engine::prompt::ArgsDeclIter<'a> { /* private fields */ }
+pub struct runvil_engine::prompt::ArgsSchema { /* private fields */ }
 pub struct runvil_engine::prompt::FileDecl { /* private fields */ }
 pub struct runvil_engine::prompt::Frontmatter { /* private fields */ }
 pub struct runvil_engine::prompt::RoleRequirements { /* private fields */ }

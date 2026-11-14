@@ -22,7 +22,7 @@ fn a_run_that_cannot_start_reports_its_failure_on_the_first_step() {
     let source = "---\nname: t\ndescription: d\nrunvil: 7\n---\n\n## Only\n\ndone\n";
     let prompt = Prompt::parse(&|_: &str| Ok(source.to_owned()), "prompt")
         .expect("the prompt parses whatever version it declares");
-    let mut run = Run::new(Arc::new(prompt), "", run_params());
+    let mut run = Run::new(Arc::new(prompt), "{}", run_params());
     let Step::Done { result, events, .. } = run.step() else {
         panic!("a run that cannot start is done at once");
     };
@@ -46,6 +46,30 @@ fn a_run_that_cannot_start_reports_its_failure_on_the_first_step() {
         panic!("a finished run stays done");
     };
     assert_eq!(again.code, ErrorCode::Internal, "{again:?}");
+}
+
+#[test]
+fn a_run_whose_arguments_are_refused_reports_its_failure_on_the_first_step() {
+    // The empty string is no JSON object: a caller with nothing to pass
+    // sends `{}`.
+    let mut run = Run::new(prompt_of("return 'never runs'"), "", run_params());
+    let Step::Done { result, events, .. } = run.step() else {
+        panic!("a run whose arguments are refused is done at once");
+    };
+    assert!(events.is_empty(), "nothing ran, nothing reported");
+    let error = result.expect_err("text that is no JSON object fails the run");
+    assert_eq!(
+        (error.code, error.located_message()),
+        (
+            ErrorCode::ArgsInvalid,
+            "the arguments are not valid JSON: EOF while parsing a value at line 1 column 0"
+                .to_owned()
+        )
+    );
+    assert!(
+        run.decided_for_test(),
+        "a run that never started is decided"
+    );
 }
 
 #[test]

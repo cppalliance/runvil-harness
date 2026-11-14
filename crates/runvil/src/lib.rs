@@ -185,10 +185,7 @@ pub mod prompt {
     //! What a prompt's frontmatter declares: its files, Packs,
     //! arguments, and model roles.
 
-    pub use runvil_engine::prompt::ArgDecl;
-    pub use runvil_engine::prompt::ArgType;
-    pub use runvil_engine::prompt::ArgsDecl;
-    pub use runvil_engine::prompt::ArgsDeclIter;
+    pub use runvil_engine::prompt::ArgsSchema;
     pub use runvil_engine::prompt::FileDecl;
     pub use runvil_engine::prompt::Frontmatter;
     pub use runvil_engine::prompt::RoleRequirements;

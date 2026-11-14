@@ -14,7 +14,7 @@ fn a_section_uses_the_table_of_functions_a_sibling_library_returns() {
                 "Main",
                 "
                 local shared = require '/shared_stuff'
-                return shared.search_all(argv.prose)",
+                return shared.search_all(args.text)",
             ),
             (
                 "shared_stuff",
@@ -27,7 +27,7 @@ fn a_section_uses_the_table_of_functions_a_sibling_library_returns() {
             ),
         ],
     );
-    let trace = require_case(source).args("rust").run();
+    let trace = require_case(source).args(r#"{"text":"rust"}"#).run();
     assert_eq!(trace.text(), "searched rust everywhere");
 }
 

@@ -90,7 +90,7 @@ fn run_of(sections: &str, cancel: &CancelHandle) -> Run {
         .with_tools(catalog)
         .with_models(BTreeMap::from([(ModelRole::Default, model)]))
         .with_cancel(cancel.clone());
-    Run::new(prompt, "", ctx)
+    Run::new(prompt, "{}", ctx)
 }
 
 /// Parks every call until the test adds a permit to `gate`, then answers

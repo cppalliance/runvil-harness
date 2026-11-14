@@ -5,6 +5,11 @@ runvil: 0
 max_tool_iterations: 20
 uses:
   - web
+args:
+  type: object
+  properties:
+    text: { type: string, description: A request about a person }
+  required: [text]
 ---
 
 ## Research
@@ -17,7 +22,7 @@ You research people using live web tools and return a compact, factual summary.
 
 Your input is a request about a person:
 
-{{ args }}
+{{ args.text }}
 
 Do this:
 

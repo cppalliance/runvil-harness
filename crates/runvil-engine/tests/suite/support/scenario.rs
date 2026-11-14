@@ -33,9 +33,9 @@ type Edit = Box<dyn Fn(RunParams) -> RunParams>;
 /// The seed every scenario's run takes.
 const TEST_SEED: RunSeed = RunSeed::from_bytes([7; 32]);
 
-/// One test's setup. Every scenario gives the `default` role [`canned`]
-/// unless it names a model or a role map.
-#[derive(Default)]
+/// One test's setup. Every scenario passes its run the empty object `{}`
+/// as its arguments unless it sets them, and gives the `default` role
+/// [`canned`] unless it names a model or a role map.
 pub(crate) struct Scenario {
     args: String,
     started_at: Timestamp,
@@ -46,6 +46,22 @@ pub(crate) struct Scenario {
     hold: Option<fn(&Effect) -> bool>,
     reverse: bool,
     params: Option<Edit>,
+}
+
+impl Default for Scenario {
+    fn default() -> Self {
+        Self {
+            args: "{}".to_owned(),
+            started_at: Timestamp::default(),
+            model: None,
+            roles: None,
+            tool: None,
+            replies: Vec::new(),
+            hold: None,
+            reverse: false,
+            params: None,
+        }
+    }
 }
 
 impl Scenario {
@@ -74,7 +90,9 @@ impl Scenario {
         self
     }
 
-    /// Runs the prompt with `args` as its argument text.
+    /// Runs the prompt with `args` as its arguments: the text of one JSON
+    /// object, which the run's first step checks against the prompt's
+    /// `args` declaration.
     pub(crate) fn args(mut self, args: &str) -> Self {
         args.clone_into(&mut self.args);
         self

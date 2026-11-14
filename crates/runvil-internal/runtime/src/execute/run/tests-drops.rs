@@ -55,7 +55,7 @@ fn bound_sections(sections: &str, cancel: &CancelHandle) -> Run {
         .with_tools(catalog)
         .with_models(BTreeMap::from([(ModelRole::Default, model)]))
         .with_cancel(cancel.clone());
-    Run::new(Arc::new(prompt), "", ctx)
+    Run::new(Arc::new(prompt), "{}", ctx)
 }
 
 /// Steps `run` to its next effect and answers it `Dropped`, returning the

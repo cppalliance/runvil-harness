@@ -1,5 +1,6 @@
-//! The read-only proxy every seal builds on - `sys`, an `argv` table,
-//! a sealed prelude global, and a prelude's `var` view - the key
+//! The read-only proxy every seal builds on - `sys`, the `args` table of
+//! the chain's arguments and each table inside it, a sealed prelude
+//! global, and a prelude's `var` view - the key
 //! formatter their refusals and field paths share, and [`unseal`], which
 //! reads a table through such views without calling into Lua.
 //! [`view_len`] and [`view_data`] make a view measure and walk as the

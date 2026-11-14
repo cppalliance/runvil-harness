@@ -180,7 +180,7 @@ fn defined_globals(pack: &PackId, env: &Table) -> Result<BTreeMap<String, Value>
 ///
 /// The reserved check covers the Engine globals that a raw `_G` read does
 /// not find on every VM (`ui` and `item` bind only on some, and the `_G`
-/// guard serves `argv`, `prose`, and `messages`), so whether a
+/// guard serves `args`, `prose`, and `messages`), so whether a
 /// prelude installs does not depend on the run's `ui()` snapshot or the
 /// section.
 fn check_collision(

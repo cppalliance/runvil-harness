@@ -441,7 +441,7 @@ mod tests {
             provenance,
             task: task.clone(),
             target: "Worker".to_owned(),
-            input: Some("in".to_owned()),
+            args: Some(serde_json::json!({ "text": "in" })),
             item: Some(serde_json::json!("x")),
             index: Some(2),
             var: serde_json::json!({ "k": 1 }),
@@ -456,8 +456,8 @@ mod tests {
         let events = sink.take();
         assert!(matches!(
             &events[0],
-            Event::TaskStarted { task: started, target, input: Some(input), item: Some(_), index: Some(2), var, .. }
-                if *started == task && target == "Worker" && input == "in" && var["k"] == 1
+            Event::TaskStarted { task: started, target, args: Some(args), item: Some(_), index: Some(2), var, .. }
+                if *started == task && target == "Worker" && args["text"] == "in" && var["k"] == 1
         ));
         assert!(matches!(
             &events[1],

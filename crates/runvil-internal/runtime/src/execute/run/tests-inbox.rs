@@ -21,7 +21,7 @@ pub(super) fn main_task() -> TaskId {
 fn run_of_source(source: &str) -> Run {
     let parsed = Prompt::parse(&|_: &str| Ok(source.to_owned()), "prompt")
         .expect("the inbox test prompt parses");
-    Run::new(Arc::new(parsed), "", run_params())
+    Run::new(Arc::new(parsed), "{}", run_params())
 }
 
 /// A run of the Pack-free prompt whose sections are `sections`, the first

@@ -20,13 +20,13 @@ use runvil::{BoxFuture, Error, ErrorCode, Harness, Host, RunSetup};
 /// The name the Host finds the greeting prompt by.
 const GREET_NAME: &str = "greet.md";
 
-/// Greets the name its argument text holds and writes the greeting to
+/// Greets the name its `text` argument holds and writes the greeting to
 /// `reply.txt`.
 const GREET: &str = concat!(
     "---\nname: greet\ndescription: Greets the operator by name\nrunvil: 0\n",
     "output: { path: reply.txt, description: The greeting }\n",
     "---\n\n## Answer\n\n```lua\n",
-    "store.write('reply.txt', 'Hello, ' .. args .. '.')\n",
+    "store.write('reply.txt', 'Hello, ' .. args.text .. '.')\n",
     "```\n",
 );
 
@@ -90,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    every other field keeps its default, such as a fresh store.
     let recorder = Arc::new(MemoryRecorder::new());
     let setup = RunSetup {
-        args: "desk".to_owned(),
+        args: r#"{"text":"desk"}"#.to_owned(),
         ..RunSetup::new(recorder.clone(), Arc::new(Offline))
     };
 

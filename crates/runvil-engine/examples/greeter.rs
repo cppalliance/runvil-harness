@@ -94,7 +94,7 @@ pub fn greet() -> Result<String, Box<dyn Error>> {
     // 4. Give the params a cancel flag, keep a clone for anything that may
     //    need to stop the run, and create the run.
     let cancel = CancelHandle::new();
-    let mut run = Run::new(Arc::new(prompt), "", ctx.with_cancel(cancel.clone()));
+    let mut run = Run::new(Arc::new(prompt), "{}", ctx.with_cancel(cancel.clone()));
 
     // 5. Step until Done, logging each step's events and answering each
     //    effect exactly once: an effect the step withdraws is dropped

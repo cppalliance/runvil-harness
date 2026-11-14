@@ -80,7 +80,7 @@ fn verify_require_library(prompt: &Prompt) {
     assert!(prepare.prologue().is_none());
     assert_eq!(
         prepare.epilog().map(LuaProgram::source),
-        Some("require '/helpers'\nvar.subject = normalize(args)")
+        Some("require '/helpers'\nvar.subject = normalize(args.text)")
     );
     assert_eq!(prepare.children().len(), 1);
     assert_eq!(prepare.children()[0].name(), "Author note");
@@ -130,7 +130,7 @@ fn verify_prologue_prose_epilog(prompt: &Prompt) {
     assert_eq!(transform.name(), "Transform");
     assert_eq!(
         transform.prologue().map(LuaProgram::source),
-        Some("var.subject = args")
+        Some("var.subject = args.text")
     );
     assert_eq!(transform.prose(), "Write about {{ var.subject }}.");
     assert_eq!(

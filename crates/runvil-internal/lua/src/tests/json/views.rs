@@ -1,4 +1,4 @@
-//! `json.encode` reading through sealed views: `var`, `argv`, and
+//! `json.encode` reading through sealed views: `var`, `args`, and
 //! the views it refuses, `sys` and message-record views.
 
 use super::*;
@@ -26,13 +26,13 @@ fn var_and_its_tables_encode_their_stored_data() {
 }
 
 #[test]
-fn argv_encodes_its_stored_data() {
-    let argv = json!({ "query": "papers", "tags": [], "nested": { "hits": [1, 2] } });
-    let vm = TestVm::new().argv(Some(&argv)).shims().build();
+fn args_encodes_its_stored_data() {
+    let args = json!({ "query": "papers", "tags": [], "nested": { "hits": [1, 2] } });
+    let vm = TestVm::new().args(&args).shims().build();
     for (call, text) in [
-        ("json.encode(argv.tags)", "[]"),
+        ("json.encode(args.tags)", "[]"),
         (
-            "json.encode(argv)",
+            "json.encode(args)",
             r#"{"nested":{"hits":[1,2]},"query":"papers","tags":[]}"#,
         ),
     ] {
@@ -41,11 +41,11 @@ fn argv_encodes_its_stored_data() {
 }
 
 #[test]
-fn argv_encodes_its_nested_nulls() {
-    let argv = json!({ "ids": [1, null, 3], "tail": [1, null], "a": null });
-    let vm = TestVm::new().argv(Some(&argv)).shims().build();
+fn args_encodes_its_nested_nulls() {
+    let args = json!({ "ids": [1, null, 3], "tail": [1, null], "a": null });
+    let vm = TestVm::new().args(&args).shims().build();
     assert_eq!(
-        encoded(&vm, "json.encode(argv)"),
+        encoded(&vm, "json.encode(args)"),
         r#"{"a":null,"ids":[1,null,3],"tail":[1,null]}"#
     );
 }

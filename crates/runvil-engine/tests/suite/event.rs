@@ -9,22 +9,25 @@ use serde_json::Value;
 use super::support::{Scenario, TestResult, note, prompt, shout, text};
 
 const SHOUT: &str = "
-    store.write('note.md', 'hello ' .. args)
+    store.write('note.md', 'hello ' .. args.text)
     return tools.call('example/text/shout', { text = models.infer(store.read('note.md')) })
 ";
+
+/// The arguments every run here takes: the one field `text`.
+const WORLD: &str = r#"{"text":"world"}"#;
 
 fn shouting() -> (String, Scenario) {
     let source = prompt("", &[("Greet", SHOUT)]);
     (
         source,
-        Scenario::tool(shout(), [text("hi there")]).args("world"),
+        Scenario::tool(shout(), [text("hi there")]).args(WORLD),
     )
 }
 
 #[test]
 fn every_event_round_trips_as_a_json_line_and_no_two_share_a_provenance() -> TestResult {
-    let source = note("'hello ' .. args");
-    let trace = Scenario::default().args("world").run(&source)?;
+    let source = note("'hello ' .. args.text");
+    let trace = Scenario::default().args(WORLD).run(&source)?;
     assert_eq!(trace.text()?, "hello world");
 
     for event in &trace.events {

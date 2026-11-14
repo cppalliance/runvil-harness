@@ -1,4 +1,4 @@
-//! Sealed views as the tables they stand for: a `var` table and an `argv`
+//! Sealed views as the tables they stand for: a `var` table and an `args`
 //! table measure, iterate, and convert as their data, a write through a
 //! view still crosses its guard, and a value with no view inside converts
 //! as it does with no walk before it.
@@ -9,7 +9,7 @@ use super::*;
 use crate::proxy::plain;
 use crate::test_vm::raised;
 
-/// A VM whose `var` and `argv` each hold a list, an object, and an empty
+/// A VM whose `var` and `args` each hold a list, an object, and an empty
 /// list.
 fn views_vm() -> BuiltVm {
     let data = json!({
@@ -17,13 +17,13 @@ fn views_vm() -> BuiltVm {
         "cfg": { "mode": "fast", "depth": 2 },
         "empty": [],
     });
-    TestVm::new().var(&data).argv(Some(&data)).shims().build()
+    TestVm::new().var(&data).args(&data).shims().build()
 }
 
 #[test]
 fn the_length_of_a_view_is_the_length_of_its_table() {
     let vm = views_vm();
-    for root in ["var", "argv"] {
+    for root in ["var", "args"] {
         let lengths: (i64, i64, i64, i64) = vm.eval(&format!(
             "return #{root}.items, #{root}.cfg, #{root}.empty, #{root}"
         ));
@@ -34,7 +34,7 @@ fn the_length_of_a_view_is_the_length_of_its_table() {
 #[test]
 fn pairs_walks_a_view_as_its_table_in_key_order() {
     let vm = views_vm();
-    for root in ["var", "argv"] {
+    for root in ["var", "args"] {
         let walked: String = vm.eval(&format!(
             "local seen = {{}}\n\
              for key, value in pairs({root}) do seen[#seen + 1] = key .. ':' .. type(value) end\n\
@@ -52,7 +52,7 @@ fn pairs_walks_a_view_as_its_table_in_key_order() {
 #[test]
 fn next_reads_a_view_as_its_table() {
     let vm = views_vm();
-    for root in ["var", "argv"] {
+    for root in ["var", "args"] {
         let (first, value, second, ended, empty): (String, i64, String, bool, bool) =
             vm.eval(&format!(
                 "local first, value = next({root}.cfg)\n\
@@ -73,7 +73,7 @@ fn next_reads_a_view_as_its_table() {
 #[test]
 fn table_concat_and_table_unpack_read_a_view_as_its_table() {
     let vm = views_vm();
-    for root in ["var", "argv"] {
+    for root in ["var", "args"] {
         let (joined, first, last, count): (String, String, String, i64) = vm.eval(&format!(
             "local first, _, last = table.unpack({root}.items)\n\
              return table.concat({root}.items, ','), first, last, \
@@ -106,18 +106,18 @@ fn a_var_list_grows_and_shrinks_by_its_length() {
 #[test]
 fn a_write_through_a_value_pairs_hands_back_crosses_the_views_guard() {
     let vm = views_vm();
-    let refusal = raised(&vm, "for _, value in pairs(argv) do value.extra = 1 end");
+    let refusal = raised(&vm, "for _, value in pairs(args) do value.extra = 1 end");
     assert_eq!(
         refusal_line(&refusal),
-        Some("argv is read-only: cannot set field 'extra'"),
-        "a table inside argv is handed back as its read-only view"
+        Some("args is read-only: cannot set field 'extra'"),
+        "a table inside args is handed back as its read-only view"
     );
-    let refusal = raised(&vm, "table.insert(argv.items, 'd')");
+    let refusal = raised(&vm, "table.insert(args.items, 'd')");
     assert_eq!(
         refusal_line(&refusal),
-        Some("argv is read-only: cannot set field 4")
+        Some("args is read-only: cannot set field 4")
     );
-    let state_is_the_view: bool = vm.eval("local _, state = pairs(argv)\nreturn state == argv");
+    let state_is_the_view: bool = vm.eval("local _, state = pairs(args)\nreturn state == args");
     assert!(state_is_the_view, "pairs hands back the view, not its data");
 
     vm.exec("for key, value in pairs(var) do if key == 'cfg' then value.seen = true end end");
@@ -144,13 +144,13 @@ fn a_view_assigned_to_var_is_stored_as_its_data() {
     let vm = views_vm();
     vm.exec(
         "var.copy = var.cfg\n\
-         var.from_argv = argv.items\n\
-         var.none = argv.empty\n\
-         var.mixed = { list = argv.items, cfg = var.cfg, n = 1 }",
+         var.from_args = args.items\n\
+         var.none = args.empty\n\
+         var.mixed = { list = args.items, cfg = var.cfg, n = 1 }",
     );
     for (call, text) in [
         ("json.encode(var.copy)", r#"{"depth":2,"mode":"fast"}"#),
-        ("json.encode(var.from_argv)", r#"["a","b","c"]"#),
+        ("json.encode(var.from_args)", r#"["a","b","c"]"#),
         ("json.encode(var.none)", "[]"),
         (
             "json.encode(var.mixed)",
@@ -166,7 +166,7 @@ fn a_view_assigned_to_var_is_stored_as_its_data() {
         "the stored copy is its own data"
     );
     assert_eq!(
-        vm.var().expect("var reads back")["from_argv"],
+        vm.var().expect("var reads back")["from_args"],
         json!(["a", "b", "c"]),
         "the run's var holds the data"
     );
@@ -197,14 +197,14 @@ fn a_view_inside_a_value_becomes_a_plain_copy_of_its_data() {
     let items = json!(["a", "b", "c"]);
     for (source, json) in [
         (
-            "return argv",
+            "return args",
             json!({ "items": items.clone(), "cfg": cfg.clone(), "empty": [] }),
         ),
         ("return var.items", items.clone()),
-        ("return argv.empty", json!([])),
+        ("return args.empty", json!([])),
         ("return { 'first', var.cfg }", json!(["first", cfg])),
         (
-            "return { n = 1, deep = { list = { argv.items } }, plain = { 1, 2 } }",
+            "return { n = 1, deep = { list = { args.items } }, plain = { 1, 2 } }",
             json!({ "n": 1, "deep": { "list": [items] }, "plain": [1, 2] }),
         ),
     ] {
@@ -221,7 +221,7 @@ fn a_table_beside_a_view_is_shared_with_the_copy_not_copied() {
     let vm = views_vm();
     let lua = vm.lua();
     let (value, beside): (Table, Table) = lua
-        .load("local beside = { 1, 2 }\nreturn { view = argv.items, beside = beside }, beside")
+        .load("local beside = { 1, 2 }\nreturn { view = args.items, beside = beside }, beside")
         .eval()
         .expect("the value builds");
     let Value::Table(handed) = plain(lua, Value::Table(value)).expect("the walk ends") else {
@@ -237,7 +237,7 @@ fn a_table_that_contains_itself_converts_as_it_does_with_no_walk_before_it() {
     let lua = vm.lua();
     for source in [
         "local t = { n = 1 }\nt.me = t\nreturn t",
-        "local t = { list = argv.items }\nt.me = t\nreturn t",
+        "local t = { list = args.items }\nt.me = t\nreturn t",
     ] {
         let value: Value = lua.load(source).eval().expect("the value builds");
         let direct = lua

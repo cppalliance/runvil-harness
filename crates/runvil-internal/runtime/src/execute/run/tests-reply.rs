@@ -37,7 +37,7 @@ fn run_with_idle_cap(sections: &[(&str, &str)], cap: usize) -> Run {
         max_idle_tasks: NonZeroUsize::new(cap).expect("the cap is non-zero"),
         ..RunLimits::default()
     };
-    Run::new(Arc::new(parsed), "", run_params().with_limits(limits))
+    Run::new(Arc::new(parsed), "{}", run_params().with_limits(limits))
 }
 
 /// Steps `run` to its end and returns its result and the last step's

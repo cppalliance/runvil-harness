@@ -75,9 +75,9 @@ fn unread_preamble_prose_stays_inert_and_explicit_infer_requires_a_model() {
 fn a_library_function_resolves_engine_globals_when_called() {
     let source = PromptSource::new()
         .section("Result", "require '/helpers'\nreturn read_args()")
-        .section("helpers", "function read_args() return args end");
+        .section("helpers", "function read_args() return args.text end");
     let trace = Scenario::new(source.build())
-        .args("later canned value")
+        .args(r#"{"text":"later canned value"}"#)
         .bound()
         .run();
 
@@ -97,11 +97,14 @@ fn a_library_calls_engine_globals_at_load_time() {
         .section(
             "loader",
             "
-            store.write('loaded.txt', args)
+            store.write('loaded.txt', args.text)
             log('library loaded')",
         )
         .build();
-    let trace = Scenario::new(source).args("load-time args").bound().run();
+    let trace = Scenario::new(source)
+        .args(r#"{"text":"load-time args"}"#)
+        .bound()
+        .run();
 
     assert_eq!(trace.text(), "load-time args");
     assert_eq!(

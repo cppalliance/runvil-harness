@@ -137,7 +137,7 @@ fn one_of_every_event_variant() -> Vec<(Event, Seam)> {
                 provenance: provenance(),
                 task: task.clone(),
                 target: "Child".to_owned(),
-                input: None,
+                args: None,
                 item: None,
                 index: None,
                 var: serde_json::json!({}),

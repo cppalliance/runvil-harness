@@ -57,7 +57,7 @@ fn compatibility_chunk_logs_interleave_with_engine_operations() {
         "log('before write')\n\
              store.write('state.txt', 'value')\n\
              log('after write')",
-        "",
+        &json!({}),
         &json!({}),
         &fresh_access(),
         &observer,
@@ -112,7 +112,7 @@ fn log_accepts_exactly_one_bounded_control_free_utf8_string() {
         let observer = recorder.emitter().clone();
         let error = run_chunk(
             source,
-            "",
+            &json!({}),
             &json!({}),
             &fresh_access(),
             &observer,
@@ -134,7 +134,7 @@ fn log_accepts_exactly_one_bounded_control_free_utf8_string() {
         "log({})",
         serde_json::to_string(&too_long).expect("test string must serialize")
     );
-    let error = run(&source, "").expect_err("257 characters must fail");
+    let error = run(&source, &json!({})).expect_err("257 characters must fail");
     assert!(error.to_string().contains(&format!(
         "log message must be at most {LUA_LOG_CHARACTER_LIMIT} characters"
     )));
@@ -148,7 +148,7 @@ fn log_accepts_exactly_one_bounded_control_free_utf8_string() {
     let observer = recorder.emitter().clone();
     run_chunk(
         &source,
-        "",
+        &json!({}),
         &json!({}),
         &fresh_access(),
         &observer,
@@ -203,16 +203,17 @@ fn log_cumulative_byte_budget_is_enforced_before_the_event_budget() {
 #[test]
 fn logging_does_not_change_results_or_store_effects_with_null_observer() {
     let source = "log('checkpoint')\n\
-                      var.answer = args\n\
-                      store.write('answer.txt', args)\n\
+                      var.answer = args.text\n\
+                      store.write('answer.txt', args.text)\n\
                       return var.answer";
+    let args = json!({ "text": "same" });
     let recorded_access = fresh_access();
     let recorded_store = store_view(&recorded_access);
     let recorder = Recorder::default();
     let observer = recorder.emitter().clone();
     let observed_outcome = run_chunk(
         source,
-        "same",
+        &args,
         &json!({}),
         &recorded_access,
         &observer,
@@ -223,7 +224,7 @@ fn logging_does_not_change_results_or_store_effects_with_null_observer() {
     let null_store = store_view(&null_access);
     let silent = run_chunk(
         source,
-        "same",
+        &args,
         &json!({}),
         &null_access,
         &null_emitter(),
@@ -284,7 +285,7 @@ fn concurrent_logs_keep_their_sections_and_local_order() {
             let observer = recorder.emitter().clone();
             run_chunk(
                 "log('first'); log('second')",
-                "",
+                &json!({}),
                 &json!({}),
                 &fresh_access(),
                 &observer,

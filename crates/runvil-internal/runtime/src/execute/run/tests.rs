@@ -226,7 +226,7 @@ fn prompt_of(body: &str) -> Arc<Prompt> {
 
 /// A run of [`prompt_of`]`(body)`.
 fn run_of(body: &str, params: RunParams) -> Run {
-    Run::new(prompt_of(body), "", params)
+    Run::new(prompt_of(body), "{}", params)
 }
 
 /// Whether `events` include the run's end boundary.
@@ -373,7 +373,7 @@ fn a_child_cancel_handles_cancel_is_observed_by_the_instruction_hook() {
         prompt_of(
             "local n = 0\nwhile true do\n  n = n + 1\n  if n == 1 then log('looping') end\nend",
         ),
-        "",
+        "{}",
         run_params().with_cancel(child),
         |fresh| {
             state = Some(fresh.clone());

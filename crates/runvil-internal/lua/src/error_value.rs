@@ -302,6 +302,7 @@ fn kind_of(code: ErrorCode) -> ErrorKind {
         | ErrorCode::RequirementsUnmet
         | ErrorCode::Internal
         | ErrorCode::Stalled
+        | ErrorCode::ArgsInvalid
         | ErrorCode::RecorderFailed
         | ErrorCode::PluginLoadFailed
         | ErrorCode::NoOutput => ErrorKind::Internal,

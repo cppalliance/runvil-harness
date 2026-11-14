@@ -41,7 +41,7 @@ fn store_exists_returns_boolean() {
 fn store_write_then_read_numbered_returns_numbered_content() {
     let out = run(
         "store.write('a.txt', 'first\\nsecond')\nreturn store.read_numbered('a.txt')",
-        "",
+        &json!({}),
     )
     .unwrap();
     assert_eq!(out.returned.as_deref(), Some("1| first\n2| second"));
@@ -51,7 +51,7 @@ fn store_write_then_read_numbered_returns_numbered_content() {
 fn store_append_extends_the_file() {
     let out = run(
             "store.append('log.txt', 'one\\n')\nstore.append('log.txt', 'two')\nreturn store.read_numbered('log.txt')",
-            "",
+            &json!({}),
         )
         .unwrap();
     assert_eq!(out.returned.as_deref(), Some("1| one\n2| two"));
@@ -61,7 +61,7 @@ fn store_append_extends_the_file() {
 fn store_str_replace_edits_in_place() {
     let out = run(
             "store.write('a.txt', 'the quick brown fox')\nstore.str_replace('a.txt', 'quick', 'slow')\nreturn store.read_numbered('a.txt')",
-            "",
+            &json!({}),
         )
         .unwrap();
     assert_eq!(out.returned.as_deref(), Some("1| the slow brown fox"));
@@ -71,7 +71,7 @@ fn store_str_replace_edits_in_place() {
 fn store_delete_then_read_raises() {
     let err = run(
         "store.write('a.txt', 'gone soon')\nstore.delete('a.txt')\nreturn store.read('a.txt')",
-        "",
+        &json!({}),
     )
     .expect_err("reading a deleted file must raise");
     let msg = lua_error_message(&err);
@@ -85,7 +85,7 @@ fn store_delete_then_read_raises() {
 fn store_read_with_start_only_reads_to_eof() {
     let out = run(
         "store.write('a.txt', 'one\\ntwo\\nthree')\nreturn store.read('a.txt', 2)",
-        "",
+        &json!({}),
     )
     .unwrap();
     assert_eq!(out.returned.as_deref(), Some("two\nthree"));
@@ -95,7 +95,7 @@ fn store_read_with_start_only_reads_to_eof() {
 fn store_read_with_start_and_end_slices_inclusively() {
     let out = run(
         "store.write('a.txt', 'one\\ntwo\\nthree')\nreturn store.read('a.txt', 2, 2)",
-        "",
+        &json!({}),
     )
     .unwrap();
     assert_eq!(out.returned.as_deref(), Some("two"));
@@ -105,7 +105,7 @@ fn store_read_with_start_and_end_slices_inclusively() {
 fn store_read_clamps_end_to_the_last_line() {
     let out = run(
         "store.write('a.txt', 'one\\ntwo\\nthree')\nreturn store.read('a.txt', 2, 99)",
-        "",
+        &json!({}),
     )
     .unwrap();
     assert_eq!(out.returned.as_deref(), Some("two\nthree"));
@@ -115,7 +115,7 @@ fn store_read_clamps_end_to_the_last_line() {
 fn store_read_beyond_eof_returns_empty() {
     let out = run(
         "store.write('a.txt', 'one\\ntwo\\nthree')\nreturn store.read('a.txt', 99)",
-        "",
+        &json!({}),
     )
     .unwrap();
     assert_eq!(out.returned.as_deref(), Some(""));
@@ -127,7 +127,7 @@ fn store_read_start_below_one_raises() {
         "store.write('a.txt', 'one')\nreturn store.read('a.txt', 0)",
         "store.write('a.txt', 'one')\nreturn store.read('a.txt', -1)",
     ] {
-        let err = run(source, "").expect_err("a start below 1 must raise");
+        let err = run(source, &json!({})).expect_err("a start below 1 must raise");
         let msg = lua_error_message(&err);
         assert!(
             msg.contains("invalid line range"),
@@ -140,7 +140,7 @@ fn store_read_start_below_one_raises() {
 fn store_read_end_before_start_raises() {
     let err = run(
         "store.write('a.txt', 'one\\ntwo\\nthree')\nreturn store.read('a.txt', 3, 2)",
-        "",
+        &json!({}),
     )
     .expect_err("an end before start must raise");
     let msg = lua_error_message(&err);
@@ -154,7 +154,7 @@ fn store_read_end_before_start_raises() {
 fn store_read_end_without_start_raises() {
     let err = run(
         "store.write('a.txt', 'one')\nreturn store.read('a.txt', nil, 1)",
-        "",
+        &json!({}),
     )
     .expect_err("an end without a start must raise");
     let msg = lua_error_message(&err);
@@ -211,7 +211,7 @@ fn store_read_numbered_pads_across_the_hundred_boundary() {
 fn store_read_numbered_clamps_end_to_the_last_line() {
     let out = run(
         "store.write('a.txt', 'one\\ntwo\\nthree')\nreturn store.read_numbered('a.txt', 2, 99)",
-        "",
+        &json!({}),
     )
     .unwrap();
     assert_eq!(out.returned.as_deref(), Some("2| two\n3| three"));
@@ -221,7 +221,7 @@ fn store_read_numbered_clamps_end_to_the_last_line() {
 fn store_read_numbered_beyond_eof_returns_empty() {
     let out = run(
         "store.write('a.txt', 'one\\ntwo\\nthree')\nreturn store.read_numbered('a.txt', 99)",
-        "",
+        &json!({}),
     )
     .unwrap();
     assert_eq!(out.returned.as_deref(), Some(""));
@@ -233,7 +233,7 @@ fn store_read_numbered_start_below_one_raises() {
         "store.write('a.txt', 'one')\nreturn store.read_numbered('a.txt', 0)",
         "store.write('a.txt', 'one')\nreturn store.read_numbered('a.txt', -1)",
     ] {
-        let err = run(source, "").expect_err("a start below 1 must raise");
+        let err = run(source, &json!({})).expect_err("a start below 1 must raise");
         let msg = lua_error_message(&err);
         assert!(
             msg.contains("invalid line range"),
@@ -246,7 +246,7 @@ fn store_read_numbered_start_below_one_raises() {
 fn store_read_numbered_end_before_start_raises() {
     let err = run(
         "store.write('a.txt', 'one\\ntwo\\nthree')\nreturn store.read_numbered('a.txt', 3, 2)",
-        "",
+        &json!({}),
     )
     .expect_err("an end before start must raise");
     let msg = lua_error_message(&err);
@@ -260,7 +260,7 @@ fn store_read_numbered_end_before_start_raises() {
 fn store_read_numbered_end_without_start_raises() {
     let err = run(
         "store.write('a.txt', 'one')\nreturn store.read_numbered('a.txt', nil, 1)",
-        "",
+        &json!({}),
     )
     .expect_err("an end without a start must raise");
     let msg = lua_error_message(&err);
@@ -341,7 +341,7 @@ fn installed_store_read_numbered_honors_line_bounds() {
 fn store_glob_returns_a_sorted_array() {
     let out = run(
             "store.write('src/b.rs', '')\nstore.write('src/a.rs', '')\nlocal g = store.glob('src/*.rs')\nreturn g[1] .. ',' .. g[2]",
-            "",
+            &json!({}),
         )
         .unwrap();
     assert_eq!(out.returned.as_deref(), Some("src/a.rs,src/b.rs"));
@@ -353,7 +353,7 @@ fn store_error_surfaces_as_lua_error() {
     // its store failure (through `mlua::Error::external`).
     let err = run(
         "store.write('a.txt', 'na na na')\nstore.str_replace('a.txt', 'na', 'la')",
-        "",
+        &json!({}),
     )
     .expect_err("an ambiguous anchor must raise");
     let msg = lua_error_message(&err);

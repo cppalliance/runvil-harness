@@ -8,7 +8,7 @@ runvil: 0
 
 ```lua
 log("returning early")
-return args
+return args.text
 ```
 
 This prose must not reach a model.

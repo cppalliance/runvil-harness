@@ -10,7 +10,7 @@ fn a_prelude_sees_only_its_restricted_environment() {
     install_ui(vm.lua(), Arc::new(json!({}))).expect("the ui global installs");
     let probe = "\
 function probe_hidden()
-  return type(ui) .. ',' .. type(argv) .. ',' .. type(sys) .. ',' .. type(models)
+  return type(ui) .. ',' .. type(args) .. ',' .. type(sys) .. ',' .. type(models)
     .. ',' .. type(first_global)
 end
 function probe_visible()
@@ -34,7 +34,7 @@ end";
     .expect("the preludes install");
 
     let author_view: String = vm.eval(
-        "return type(ui) .. ',' .. type(argv) .. ',' .. type(sys) .. ',' .. type(models) \
+        "return type(ui) .. ',' .. type(args) .. ',' .. type(sys) .. ',' .. type(models) \
          .. ',' .. type(first_global)",
     );
     assert!(

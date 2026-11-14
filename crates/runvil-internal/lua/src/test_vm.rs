@@ -76,23 +76,24 @@ pub(crate) struct LuaOutcome {
     pub(crate) var: Json,
 }
 
-/// Runs a section's Lua chunk with `args` and `sys` exposed, a writable `var`
-/// table available, and a `store` table backed by `access`, returning the
-/// chunk's return value and the final `var`. Store operations and `log`
-/// report through `emitter` under `section`; direct `print` is unavailable.
+/// Runs a section's Lua chunk with `args` (a JSON object) and `sys`
+/// exposed, a writable `var` table available, and a `store` table backed
+/// by `access`, returning the chunk's return value and the final `var`.
+/// Store operations and `log` report through `emitter` under `section`;
+/// direct `print` is unavailable.
 ///
 /// The `tools` table is the same validating one every section VM installs,
 /// over an empty shared set: a chunk that calls `tools.offer(...)` fails
 /// loudly because the run offers no tool.
 ///
 /// # Errors
-/// Returns the failure if the sandbox cannot be built, `sys`, `var`, or
-/// `store` cannot be bridged, the chunk fails to run (including a failing
+/// Returns the failure if the sandbox cannot be built, `args`, `sys`, `var`,
+/// or `store` cannot be bridged, the chunk fails to run (including a failing
 /// `store` op, which raises a Lua error), or it returns a value that cannot
 /// be rendered as a result string.
 pub(crate) fn run_chunk(
     source: &str,
-    args: &str,
+    args: &Json,
     sys: &Json,
     access: &ScopedAccess,
     emitter: &Emitter,
@@ -266,16 +267,15 @@ type Selection = Arc<Mutex<Option<ModelBinding>>>;
 
 /// A section VM's setup as data. Unset, the VM shares an empty tool and
 /// model set, reports nowhere under [`TEST_SECTION`], gets a fresh store,
-/// empty `args` and `sys`, a nil `argv`, and an empty `var`.
+/// and an empty `args`, `sys`, and `var`.
 pub(crate) struct TestVm<'a> {
     tools: ToolSet,
     models: ModelSet,
     access: Option<ScopedAccess>,
     emitter: Emitter,
     section: &'a str,
-    args: &'a str,
+    args: Option<&'a Json>,
     sys: Option<&'a Json>,
-    argv: Option<&'a Json>,
     var: Option<&'a Json>,
     limits: Option<(usize, u32)>,
     raw_model_ids: bool,
@@ -297,9 +297,8 @@ impl<'a> TestVm<'a> {
             access: None,
             emitter: null_emitter(),
             section: TEST_SECTION,
-            args: "",
+            args: None,
             sys: None,
-            argv: None,
             var: None,
             limits: None,
             raw_model_ids: false,
@@ -343,10 +342,11 @@ impl<'a> TestVm<'a> {
         self
     }
 
-    /// The `args` string Engine injection installs.
+    /// The chain's arguments, a JSON object, which Engine injection
+    /// installs as the read-only `args` table; unset, an empty object.
     #[track_caller]
-    pub(crate) fn args(mut self, args: &'a str) -> Self {
-        self.args = args;
+    pub(crate) fn args(mut self, args: &'a Json) -> Self {
+        self.args = Some(args);
         self
     }
 
@@ -354,14 +354,6 @@ impl<'a> TestVm<'a> {
     #[track_caller]
     pub(crate) fn sys(mut self, sys: &'a Json) -> Self {
         self.sys = Some(sys);
-        self
-    }
-
-    /// The `argv` value Engine injection installs read-only; `None`
-    /// installs nil.
-    #[track_caller]
-    pub(crate) fn argv(mut self, argv: Option<&'a Json>) -> Self {
-        self.argv = argv;
         self
     }
 
@@ -467,11 +459,10 @@ impl<'a> TestVm<'a> {
         let empty = json!({});
         let vm = fresh
             .inject_values(
-                self.args,
+                self.args.unwrap_or(&empty),
                 self.sys.unwrap_or(&empty),
                 &access.access,
                 self.var,
-                self.argv,
                 &selection,
             )
             .expect("the Engine values inject");
