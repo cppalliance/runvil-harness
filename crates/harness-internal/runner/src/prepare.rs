@@ -5,27 +5,20 @@
 //! recorder with the start time the caller read, so the record holds both
 //! verbatim. `Harness::run_to_end` begins the run before anything else, so
 //! every run has a record. Then [`prepare`] takes the steps that build the
-//! run: put the prompt's declared `input:` file in place in the store
-//! (`files::stage_input`); hand the run's whole filesystem, real
-//! directories and the declared store, to the params as given; make the
-//! run's instance of each of its Packs, and take the run's snapshot of
-//! them once each is ready, or the run's cancel fires, which yields the
-//! catalog, the roster, the preludes, and the tool performer; set the
-//! first three, the setup's limits, and the run's model on the params;
-//! and build the `Run` beside that snapshot.
+//! run: hand the run's whole filesystem, real directories and the
+//! declared store, to the params as given; make the run's instance of
+//! each of its Packs, and take the run's snapshot of them once each is
+//! ready, or the run's cancel fires, which yields the catalog, the
+//! roster, the preludes, and the tool performer; set the first three, the
+//! setup's limits, and the run's model on the params; and build the `Run`
+//! beside that snapshot.
 //!
-//! An input file that cannot be put in place is a run that ended before
-//! it began: the recorder ends it with that failure as its result, the
-//! same error `prepare` returns, so the record answers "why did this run
-//! fail" for a run the loop never saw. An environment that cannot satisfy
-//! the prompt fails no preparation: the run is built, and its first step
-//! ends it with the Engine's model-readable notice, or canceled when the
-//! run's cancel fired first, as when a cancel cuts the wait short while a
+//! Preparation never fails. An environment that cannot satisfy the prompt
+//! is prepared all the same: the run is built, and its first step ends it
+//! with the Engine's model-readable notice, or canceled when the run's
+//! cancel fired first, as when a cancel cuts the wait short while a
 //! needed Pack is still starting. The effect loop records that end like
 //! any other.
-//!
-//! The input staging is store work and runs inline, like every other VFS
-//! operation of the run.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,13 +26,11 @@ use std::sync::Arc;
 use runvil_engine::Error;
 use runvil_engine::cancel::CancelHandle;
 use runvil_engine::model::{ModelInfo, ModelRole};
-use runvil_engine::prompt::FileDecl;
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Timestamp};
 
-use crate::files::stage_input;
 use crate::host::Host;
 use crate::packs::RunPacks;
-use crate::recorder::{RunId, RunMeta, of_run, refused};
+use crate::recorder::{RunId, RunMeta};
 use crate::setup::RunSetup;
 
 /// Begins the run at `setup.recorder`: draws its seed from the OS random
@@ -64,10 +55,9 @@ pub(crate) async fn begin(
     Ok((run_id, RunParams::new(seed, started_at)))
 }
 
-/// Stages `prompt`'s input in `setup.vfs`, makes the run's Packs from
-/// `host.packs` and snapshots them once each is ready or `cancel` fires,
-/// and builds the `Run` over `params` under `setup.limits`. Ends the run
-/// at the recorder with an input failure as its result and returns it.
+/// Makes the run's Packs from `host.packs` and snapshots them once each
+/// is ready or `cancel` fires, and builds the `Run` over `params` under
+/// `setup.limits`.
 ///
 /// The run's `ui()` snapshot is `setup`'s selection and first workspace
 /// root, and `model` fills all five roles, so the run's first step checks
@@ -78,35 +68,14 @@ pub(crate) async fn begin(
 /// stands. A prompt the environment cannot satisfy is prepared all the
 /// same: the run's first step ends it with the Engine's notice, or as
 /// canceled when the run's cancel fired first.
-///
-/// # Errors
-/// Returns the input failure from `stage_input` when the declared input
-/// file cannot be put in place. The failure keeps its own code and gains
-/// the run's `Run` fact, and the run is ended with it as its result.
-/// Returns `RecorderFailed` with the `Run` fact when the recorder refuses
-/// that end, and the input failure never has that code.
 pub(crate) async fn prepare(
     host: &Host,
     prompt: Prompt,
     setup: &RunSetup,
-    run_id: RunId,
     params: RunParams,
     model: Option<ModelInfo>,
     cancel: &CancelHandle,
-) -> Result<(Run, RunPacks), Error> {
-    // The declared input is in place before anything else sees the
-    // store: the run's first section may read it.
-    let declared = prompt.frontmatter().input().map(FileDecl::path);
-    if let Err(source) = stage_input(&setup.vfs, declared, setup.input_text.clone()) {
-        let error = of_run(run_id, source);
-        setup
-            .recorder
-            .end_run(run_id, Err(error.clone()))
-            .await
-            .map_err(|source| refused(run_id, source))?;
-        return Err(error);
-    }
-
+) -> (Run, RunPacks) {
     // The run's whole filesystem, the real directories and the declared
     // store, goes to the params as given. The run makes its instance of
     // each of its Packs, and the snapshot of them is taken once each is
@@ -132,7 +101,7 @@ pub(crate) async fn prepare(
         );
 
     let run = Run::new(Arc::new(prompt), &setup.args, params);
-    Ok((run, packs))
+    (run, packs)
 }
 
 /// The `ui()` snapshot as a JSON object: `selected_model`, and the first

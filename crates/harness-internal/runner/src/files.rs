@@ -1,77 +1,17 @@
-//! The Harness's half of a prompt's declared store files: the launch's input
-//! text staged at the frontmatter's `input:` path before a run, and the
-//! `output:` path read after it.
+//! The Harness's half of a prompt's declared output file: the `output:`
+//! path read after a run.
 //!
-//! Both go through the handle's store view ([`VfsRef::acquire_store`]),
-//! so the store's strict path rules apply to the declared paths, which
-//! the parser takes as written, and the handle's policy and op sink see
-//! each operation like any other. Both are synchronous, like the VFS, and
-//! the Harness runs them inline in the run's future.
+//! The read goes through the handle's store view
+//! ([`VfsRef::acquire_store`]), so the store's strict path rules apply to
+//! the declared path, which the parser takes as written, and the handle's
+//! policy and op sink see the read like any other operation. It is
+//! synchronous, like the VFS, and the Harness runs it inline in the run's
+//! future.
 
 use runvil_engine::vfs::{
     Origin, VfsError, VfsOp, VfsOutcome, VfsRef, make_store_error, perform_vfs_op,
 };
 use runvil_engine::{Error, ErrorCode, ErrorFact};
-
-/// Puts the prompt's declared input in place in `vfs`'s store: writes
-/// `text` at `declared`, overwriting any file there, or, when the launch
-/// supplied no text, checks that the store already holds the file.
-///
-/// # Errors
-/// Returns `RequirementsUnmet` with the `Reason` fact `input_undeclared`
-/// for text the prompt declares no file for, `RequirementsUnmet` with the
-/// `Reason` fact `input_missing` for a declared file that is neither
-/// supplied nor present, and the store failure's code when the store
-/// refuses the write or the check. The last two carry the declared path
-/// as the `Path` fact. The prose is the code's default.
-pub fn stage_input(
-    vfs: &VfsRef,
-    declared: Option<&str>,
-    text: Option<String>,
-) -> Result<(), Error> {
-    let path = match (declared, &text) {
-        (None, None) => return Ok(()),
-        (None, Some(_)) => {
-            return Err(make_reasoned_error(
-                ErrorCode::RequirementsUnmet,
-                "input_undeclared",
-                "the launch supplied input text, but the prompt declares no `input:` file",
-            ));
-        }
-        (Some(path), _) => path,
-    };
-    let store = |source: VfsError| {
-        let mut error = make_store_error(&source);
-        error.message = format!("the input file `{path}` could not be staged: {source}");
-        error.facts.insert(ErrorFact::Path, path.into());
-        error
-    };
-    let view = vfs
-        .acquire_store(Origin::new(format!("input: {path}")))
-        .map_err(store)?;
-    let path = path.to_owned();
-    match text {
-        Some(contents) => perform_vfs_op(&view, VfsOp::Write { path, contents })
-            .map(drop)
-            .map_err(store),
-        None => match perform_vfs_op(&view, VfsOp::Exists { path: path.clone() }) {
-            Ok(VfsOutcome::Bool(true)) => Ok(()),
-            Ok(_) => {
-                let mut error = make_reasoned_error(
-                    ErrorCode::RequirementsUnmet,
-                    "input_missing",
-                    format!(
-                        "the prompt declares the input file `{path}`, but the launch supplied no \
-                         input text and the store has no such file"
-                    ),
-                );
-                error.facts.insert(ErrorFact::Path, path.into());
-                Err(error)
-            }
-            Err(source) => Err(store(source)),
-        },
-    }
-}
 
 /// Reads the prompt's declared output file at `path` from `vfs`'s store.
 ///

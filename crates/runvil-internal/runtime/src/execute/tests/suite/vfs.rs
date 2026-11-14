@@ -1,8 +1,8 @@
 //! The executor's `VfsRef` contract with its caller: an end-to-end run
 //! over the caller's handle, and the seed-run-extract round trip a caller
-//! drives with no real files - seed the declared input through the run's
-//! handle, run, extract the declared output, and charge a
-//! missing output to the prompt's promise as an explicit contract error.
+//! drives with no real files - seed a file through the run's handle, run,
+//! extract the declared output, and charge a missing output to the
+//! prompt's promise as an explicit contract error.
 //! Then the run-bounded scope: a run's `Done`, or its drop before `Done`,
 //! ends its scope however long the caller holds the store views it was
 //! handed.
@@ -24,9 +24,6 @@ const ROUND_TRIP_PROMPT: &str = concat!(
     "name: round-trip\n",
     "description: Seed, run, extract\n",
     "runvil: 0\n",
-    "input:\n",
-    "  path: paper.md\n",
-    "  description: The input paper\n",
     "output:\n",
     "  path: report.md\n",
     "  description: The output report\n",
@@ -44,9 +41,6 @@ const MISSING_OUTPUT: &str = concat!(
     "name: missing-output\n",
     "description: Never writes its promised report\n",
     "runvil: 0\n",
-    "input:\n",
-    "  path: paper.md\n",
-    "  description: The input paper\n",
     "output:\n",
     "  path: report.md\n",
     "  description: The output report\n",
@@ -85,28 +79,23 @@ fn extract_declared_output(store: &Access, prompt: &Prompt) -> Result<String, St
         })
 }
 
-/// Seeds the prompt's declared input through the handle the run will take.
-/// The seeding access drops here - its scope ends - so the run's own
-/// scope never meets the caller's.
-fn seed_declared_input(vfs: &VfsRef, prompt: &Prompt, contents: &str) {
-    let input = prompt
-        .frontmatter()
-        .input()
-        .expect("the fixture declares an input");
-    fresh_store_view(vfs, "seed_declared_input")
-        .write(input.path(), contents.as_bytes())
-        .expect("the declared input seeds");
+/// Seeds `paper.md`, the file both fixtures read, through the handle the
+/// run will take. The seeding access drops here - its scope ends - so the
+/// run's own scope never meets the caller's.
+fn seed_paper(vfs: &VfsRef, contents: &str) {
+    fresh_store_view(vfs, "seed_paper")
+        .write("paper.md", contents.as_bytes())
+        .expect("the paper seeds");
 }
 
-/// Seeds `source`'s declared input with `contents` and runs it over the
-/// seeded handle, which the run keeps as given: the test's
-/// seed-run-extract sequence is seed through the handle, run, extract
-/// through the handle. Returns the run's text
-/// and the handle.
+/// Seeds `paper.md` with `contents` and runs `source` over the seeded
+/// handle, which the run keeps as given: the test's seed-run-extract
+/// sequence is seed through the handle, run, extract through the handle.
+/// Returns the run's text and the handle.
 #[track_caller]
 fn seeded_run(source: &str, contents: &str) -> (String, VfsRef) {
     let vfs = VfsRef::default();
-    seed_declared_input(&vfs, &parse_ok(source), contents);
+    seed_paper(&vfs, contents);
     let trace = Scenario::new(source).vfs(vfs.clone()).run();
     (trace.text().to_owned(), vfs)
 }

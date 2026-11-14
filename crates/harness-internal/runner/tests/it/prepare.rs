@@ -9,7 +9,7 @@
 //! nothing but the Pack id; and the run's tool performer sends a
 //! `ToolCall` effect to the Pack its id names. A Pack's prelude reaching
 //! the prepared run sits in the `prelude` child module, the prompt's
-//! declared input and output files sit in the `files` child module, the
+//! declared output file sits in the `files` child module, the
 //! wait for each Pack to be ready sits in the `ready` child module, and
 //! the built-in `runvil/user`, which only a run with a user holds, sits
 //! in the `user` child module.
@@ -87,7 +87,7 @@ pub(crate) fn building(pack: (PackInfo, Make)) -> Packs {
 
 /// The setup of a run recorded through `recorder` and served by the
 /// scripted broker. It selects no model, so the run binds the broker's
-/// one model, and it holds no input and a fresh memory store.
+/// one model, and it holds a fresh memory store.
 pub(crate) fn setup_over(recorder: &Arc<MemoryRecorder>) -> RunSetup {
     RunSetup::new(recorder.clone(), Arc::new(ScriptedBroker::replying()))
 }

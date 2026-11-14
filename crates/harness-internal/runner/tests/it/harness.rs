@@ -26,7 +26,7 @@ use std::time::Duration;
 use harness_runner::performers::{InferenceBroker, Timer};
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunRecorder};
 use harness_runner::{Harness, Packs, RunControl, RunReport, RunSetup};
-use runvil_engine::vfs::VfsRef;
+use runvil_engine::vfs::{Origin, VfsRef};
 use runvil_engine::{Error, ErrorCode};
 use runvil_plugin::PackRegistry;
 use serde_json::{Value, json};
@@ -49,8 +49,7 @@ mod stop_timing;
 const PATIENCE: Duration = Duration::from_secs(10);
 
 /// The setup of a run recorded through `recorder` and served by `broker`,
-/// with [`MODEL`] selected, no arguments, no input text, and a fresh
-/// memory store.
+/// with [`MODEL`] selected, no arguments, and a fresh memory store.
 pub(crate) fn setup(
     recorder: Arc<dyn RunRecorder>,
     broker: impl InferenceBroker + 'static,
@@ -174,10 +173,9 @@ fn main_waits(records: &[Record]) -> usize {
     inbox_waits(records, "0")
 }
 
-/// A prompt declaring `paper.md` as its input and `report.md` as its
-/// output, whose one section writes the output from the input.
+/// A prompt declaring `report.md` as its output, whose one section writes
+/// it from the `paper.md` it finds in the store.
 const FILES: &str = "---\nname: files\ndescription: d\nrunvil: 0\n\
-    input:\n  path: paper.md\n  description: The paper\n\
     output:\n  path: report.md\n  description: The report\n---\n\n\
     ## Only\n\n```lua\n\
     store.write('report.md', 'seen: ' .. store.read('paper.md'))\nreturn 'done'\n```\n";
@@ -206,14 +204,19 @@ const READS_UI: &str = "---\nname: reads-ui\ndescription: d\nrunvil: 0\n---\n\n\
     return tostring(ui().selected_model) .. '|' .. tostring(ui().workspace_root)\n```\n";
 
 #[tokio::test]
-async fn a_staged_input_and_a_declared_output_round_trip_beside_the_recorded_result() {
+async fn a_seeded_file_and_a_declared_output_round_trip_beside_the_recorded_result() {
     let recorder = Arc::new(MemoryRecorder::new());
+    let vfs = VfsRef::default();
+    vfs.acquire_store(Origin::new("harness test"))
+        .expect("the default handle declares a store")
+        .write("paper.md", b"# Paper")
+        .expect("the seed is written");
     let harness = launch(
         no_packs(),
         PendingTimer::default(),
         FILES,
         RunSetup {
-            input_text: Some("# Paper".to_owned()),
+            vfs,
             ..setup(recorder.clone(), ScriptedBroker::replying())
         },
     );

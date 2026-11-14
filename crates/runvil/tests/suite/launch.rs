@@ -10,21 +10,21 @@ use runvil::{ErrorCode, ErrorFact, Harness, RunSetup};
 
 use crate::support::{Offline, launch, no_packs};
 
-/// A prompt that reads its declared input and writes its declared output.
+/// A prompt that shouts its argument text into its declared output.
 const SHOUTS: &str = concat!(
-    "---\nname: shouts\ndescription: Shouts its input\nrunvil: 0\n",
-    "input: { path: line.txt, description: The line to shout }\n",
+    "---\nname: shouts\ndescription: Shouts its argument text\nrunvil: 0\n",
     "output: { path: shout.txt, description: The shouted line }\n",
     "---\n\n## Only\n\n```lua\n",
-    "store.write('shout.txt', string.upper(store.read('line.txt')))\n",
+    "store.write('shout.txt', string.upper(args))\n",
     "```\n",
 );
 
-/// A Harness running `source` over `vfs` with `hello` as its input.
+/// A Harness running `source` over `vfs` with `hello` as its argument
+/// text.
 fn harness(source: &str, vfs: VfsRef) -> Harness {
     let setup = RunSetup {
         vfs,
-        input_text: Some("hello".to_owned()),
+        args: "hello".to_owned(),
         ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(Offline))
     };
     launch(no_packs(), source, setup)

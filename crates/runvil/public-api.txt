@@ -551,7 +551,6 @@ pub fn runvil::prompt::FileDecl::description(&self) -> &str
 pub fn runvil::prompt::FileDecl::path(&self) -> &str
 pub fn runvil::prompt::Frontmatter::args(&self) -> &runvil::prompt::ArgsDecl
 pub fn runvil::prompt::Frontmatter::description(&self) -> &str
-pub fn runvil::prompt::Frontmatter::input(&self) -> core::option::Option<&runvil::prompt::FileDecl>
 pub fn runvil::prompt::Frontmatter::max_tool_iterations(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
 pub fn runvil::prompt::Frontmatter::name(&self) -> &str
 pub fn runvil::prompt::Frontmatter::output(&self) -> core::option::Option<&runvil::prompt::FileDecl>
@@ -753,7 +752,6 @@ pub runvil::RunReport::unread: alloc::vec::Vec<alloc::string::String>
 pub runvil::RunSetup::args: alloc::string::String
 pub runvil::RunSetup::broker: alloc::sync::Arc<dyn runvil::harness::InferenceBroker>
 pub runvil::RunSetup::has_user: bool
-pub runvil::RunSetup::input_text: core::option::Option<alloc::string::String>
 pub runvil::RunSetup::limits: runvil::RunLimits
 pub runvil::RunSetup::max_tool_calls_in_flight: core::num::nonzero::NonZeroUsize
 pub runvil::RunSetup::recorder: alloc::sync::Arc<dyn runvil::harness::RunRecorder>

@@ -6,17 +6,16 @@
 //! run gets on top of the Host. A [`Harness`] over the Host, the parsed
 //! prompt, and the setup begins the run at the setup's recorder with the
 //! inputs the Engine refuses to draw itself, resolves the run's model
-//! through the setup's broker, prepares an Engine `Run` (putting the
-//! declared input file in place, making the run's instance of each of its
-//! Packs and taking the run's snapshot of them), steps it, performs each
-//! chat, render, tool-call, and timer effect through its performer and
-//! answers each Vfs effect inline, feeds the answers back, delivers each
-//! message the launcher sends through the run's [`RunControl`] to the
-//! main chain, hands every event, effect, and answer to the run's
-//! recorder, ends the run there with its result, the final text or the
-//! error that ended it, and reads the declared output file, all inside the
-//! one future [`Harness::run`] returns. A cancel is the error whose code
-//! is `canceled`. A recorder
+//! through the setup's broker, prepares an Engine `Run` (making the run's
+//! instance of each of its Packs and taking the run's snapshot of them),
+//! steps it, performs each chat, render, tool-call, and timer effect
+//! through its performer and answers each Vfs effect inline, feeds the
+//! answers back, delivers each message the launcher sends through the
+//! run's [`RunControl`] to the main chain, hands every event, effect, and
+//! answer to the run's recorder, ends the run there with its result, the
+//! final text or the error that ended it, and reads the declared output
+//! file, all inside the one future [`Harness::run`] returns. A cancel is
+//! the error whose code is `canceled`. A recorder
 //! that refuses a write is the only way a run ends without a recorded
 //! result, and that refusal, a `RecorderFailed` error, is the only error
 //! [`Harness::run`] returns. A prompt that fails to parse is its caller's
@@ -31,9 +30,9 @@
 //!   Host's own runtime. The crate's async needs come from `futures-util`,
 //!   and `tokio` and `tokio-util` appear only under `[dev-dependencies]`
 //!   (enforced by the Harness tokio ban in `cargo test -p build-xtask`).
-//! - The Harness reads each [`RunSetup`] field once per run: the input is
-//!   staged in, the run works in, and the declared output is read from
-//!   the one filesystem the setup holds.
+//! - The Harness reads each [`RunSetup`] field once per run: the run works
+//!   in, and the declared output is read from, the one filesystem the
+//!   setup holds.
 //! - The recorder is written in loop order: a step's events before the
 //!   step's effects are issued, each effect before its performer starts,
 //!   each answer before the run resumes with it, and each sent message's

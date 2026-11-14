@@ -1,5 +1,5 @@
 //! Frontmatter tests: required keys and delimiters, the tool-loop cap,
-//! the `runvil:` key, declared files, and the line of each key.
+//! the `runvil:` key, the declared output file, and the line of each key.
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -96,27 +96,19 @@ fn frontmatter_exposes_runvil_field() {
 }
 
 #[test]
-fn frontmatter_parses_input_and_output() {
+fn frontmatter_parses_output() {
     let prompt = parse_ok(&prompt(
-        "
-        input: { path: paper.md, description: The input paper }
-        output: { path: report.md, description: The output report }
-        ",
+        "output: { path: report.md, description: The output report }",
         &[],
     ));
-    let fm = prompt.frontmatter();
-    let input = fm.input().expect("input declared");
-    assert_eq!(input.path(), "paper.md");
-    assert_eq!(input.description(), "The input paper");
-    let output = fm.output().expect("output declared");
+    let output = prompt.frontmatter().output().expect("output declared");
     assert_eq!(output.path(), "report.md");
     assert_eq!(output.description(), "The output report");
 }
 
 #[test]
-fn frontmatter_without_input_output_still_parses() {
+fn frontmatter_without_output_still_parses() {
     let prompt = parse_ok(&prompt("", &[]));
-    assert!(prompt.frontmatter().input().is_none());
     assert!(prompt.frontmatter().output().is_none());
 }
 
@@ -140,7 +132,7 @@ fn a_key_line_is_the_one_column_0_line_that_declares_the_key() {
         "'runvil' \t: 0\n",          // 6: single-quoted, spaces and a tab
         "# output: x\n",             // 7: a comment
         "args:\n",                   // 8: the colon ends the line
-        "input:x\n",                 // 9: no space after the colon
+        "output:x\n",                // 9: no space after the colon
         "x-team.owner: a: b\n",      // 10: any key, up to the first such colon
         "models: {}\n",              // 11: declared twice
         "models: {}\n",              // 12: declared twice

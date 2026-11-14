@@ -15,8 +15,8 @@
 //! [`Host::parse`] finds a prompt by its name and parses it. For each run
 //! the launcher builds a [`RunSetup`] with the run's recorder, inference
 //! broker, filesystem, model selection, workspace roots, [`RunLimits`],
-//! tool-call cap, arguments, input text, and whether a user answers it,
-//! and [`Harness::new`] takes the Host, the parsed prompt, and that setup.
+//! tool-call cap, arguments, and whether a user answers it, and
+//! [`Harness::new`] takes the Host, the parsed prompt, and that setup.
 //! [`Harness::run`] runs the prompt to its end and returns its
 //! [`RunReport`]. The run makes its own instance of each Pack it holds
 //! and drops the instances when it ends. While the run goes on, the

@@ -512,7 +512,6 @@ pub fn runvil_engine::prompt::FileDecl::description(&self) -> &str
 pub fn runvil_engine::prompt::FileDecl::path(&self) -> &str
 pub fn runvil_engine::prompt::Frontmatter::args(&self) -> &runvil_engine::prompt::ArgsDecl
 pub fn runvil_engine::prompt::Frontmatter::description(&self) -> &str
-pub fn runvil_engine::prompt::Frontmatter::input(&self) -> core::option::Option<&runvil_engine::prompt::FileDecl>
 pub fn runvil_engine::prompt::Frontmatter::max_tool_iterations(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
 pub fn runvil_engine::prompt::Frontmatter::name(&self) -> &str
 pub fn runvil_engine::prompt::Frontmatter::output(&self) -> core::option::Option<&runvil_engine::prompt::FileDecl>

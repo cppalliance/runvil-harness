@@ -23,8 +23,8 @@ pub struct RunSetup {
     pub recorder: Arc<dyn RunRecorder>,
     /// Lists the models and performs model rounds.
     pub broker: Arc<dyn InferenceBroker>,
-    /// The run's whole filesystem: the input is staged in it, the run
-    /// works in it, and the declared output is read from it.
+    /// The run's whole filesystem: the run works in it, and the declared
+    /// output is read from it.
     pub vfs: VfsRef,
     /// The model id the user selected, if any.
     pub selected_model: Option<String>,
@@ -33,8 +33,6 @@ pub struct RunSetup {
     pub workspace_roots: Vec<PathBuf>,
     /// The run's argument text.
     pub args: String,
-    /// Text written to the prompt's `input:` file before the run starts.
-    pub input_text: Option<String>,
     /// The run's resource limits.
     pub limits: RunLimits,
     /// The most tool calls in flight at once; the
@@ -49,8 +47,8 @@ pub struct RunSetup {
 impl RunSetup {
     /// A setup over `recorder` and `broker`. Every other field starts
     /// empty or at its default: a fresh memory store, no selection, no
-    /// roots, no args, no input, `RunLimits::default()`, at most 10 tool
-    /// calls in flight, and no user.
+    /// roots, no args, `RunLimits::default()`, at most 10 tool calls in
+    /// flight, and no user.
     #[must_use]
     pub fn new(recorder: Arc<dyn RunRecorder>, broker: Arc<dyn InferenceBroker>) -> RunSetup {
         RunSetup {
@@ -60,7 +58,6 @@ impl RunSetup {
             selected_model: None,
             workspace_roots: Vec::new(),
             args: String::new(),
-            input_text: None,
             limits: RunLimits::default(),
             max_tool_calls_in_flight: DEFAULT_MAX_TOOL_CALLS_IN_FLIGHT,
             has_user: false,
@@ -76,7 +73,6 @@ impl fmt::Debug for RunSetup {
             .field("selected_model", &self.selected_model)
             .field("workspace_roots", &self.workspace_roots)
             .field("args", &self.args)
-            .field("input_text", &self.input_text)
             .field("limits", &self.limits)
             .field("max_tool_calls_in_flight", &self.max_tool_calls_in_flight)
             .field("has_user", &self.has_user)

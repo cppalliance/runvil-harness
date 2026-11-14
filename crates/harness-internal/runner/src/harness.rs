@@ -142,12 +142,11 @@ impl Harness {
     /// is `RecorderFailed`.
     ///
     /// It begins the run's record, resolves the run's model through the
-    /// setup's broker, puts the prompt's declared input in place, makes
-    /// the run's Packs and waits for them to be ready, drives the run, and
-    /// reads the declared output file if the run completed. The run's
-    /// Pack instances drop before it returns. The returned future is
-    /// `Send`. Its only runtime needs are those of the Host's performers
-    /// and Packs.
+    /// setup's broker, makes the run's Packs and waits for them to be
+    /// ready, drives the run, and reads the declared output file if the
+    /// run completed. The run's Pack instances drop before it returns.
+    /// The returned future is `Send`. Its only runtime needs are those of
+    /// the Host's performers and Packs.
     ///
     /// Every run gets a record and ends with its result, which the report
     /// carries beside the run's id: the final text, or the error that
@@ -157,13 +156,12 @@ impl Harness {
     /// calling `run`, or while the broker lists its models, ends the run
     /// canceled. A model list the broker fails to fetch ends it with the
     /// broker's failure, and a list that omits the selected model with a
-    /// `RequirementsUnmet` failure. A declared input file the Harness
-    /// fails to put in place ends it with the input's failure, and an
-    /// environment that falls short of the prompt's requirements, which
-    /// the run's first step finds, with a `RequirementsUnmet` failure. An
-    /// environment that falls short after a cancel is raised, as when the
-    /// cancel cuts short the wait for a Pack that is still starting, ends
-    /// the run canceled instead. A run that is pending with nothing to
+    /// `RequirementsUnmet` failure. An environment that falls short of
+    /// the prompt's requirements, which the run's first step finds, ends
+    /// it with a `RequirementsUnmet` failure too. An environment that
+    /// falls short after a cancel is raised, as when the cancel cuts
+    /// short the wait for a Pack that is still starting, ends the run
+    /// canceled instead. A run that is pending with nothing to
     /// await, which means the Harness lost track of an effect, ends with
     /// an `Internal` error. A run whose main chain waits on its inbox with
     /// nothing else to run is not stalled: it waits for a
@@ -222,19 +220,7 @@ impl Harness {
             .frontmatter()
             .output()
             .map(|decl| decl.path().to_owned());
-        let prepared = prepare(&host, prompt, &setup, run_id, params, model, cancel).await;
-        let (run, packs) = match prepared {
-            Ok(prepared) => prepared,
-            Err(refusal) if is_refusal(&refusal) => return Err(recorded(refusal)),
-            Err(error) => {
-                return Ok(RunReport {
-                    run_id,
-                    result: Err(error),
-                    output: Err(make_not_completed_error()),
-                    unread: control.send_queue().end(),
-                });
-            }
-        };
+        let (run, packs) = prepare(&host, prompt, &setup, params, model, cancel).await;
 
         let (result, unread) = drive(
             run,

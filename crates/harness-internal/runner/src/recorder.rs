@@ -19,9 +19,8 @@
 //! Engine runs ends with the result its last step returned. A run that
 //! ends before the Engine runs it ends with an error of its own: the
 //! cancel, when a cancel comes before or during the model lookup, or the
-//! failure itself, when the model lookup fails or the prompt's input
-//! cannot be put in place. A run the effect loop loses track of ends with
-//! an `Internal` error.
+//! lookup's failure. A run the effect loop loses track of ends with an
+//! `Internal` error.
 
 use std::fmt;
 
@@ -46,11 +45,10 @@ pub fn make_recorder_error(cause: impl Into<Box<dyn std::error::Error + Send + S
 /// Whether `error` is a recorder's refusal, which ends no run, rather than
 /// the result a run ended with: its code is `RecorderFailed`.
 ///
-/// It tells the two apart in what `prepare` and the effect loop return.
-/// Both pass every recorder error through [`refused`], and no result of
-/// theirs has that code: the Engine turns a caller code into `Internal`,
-/// and the failures they make themselves are input and `Internal`
-/// failures.
+/// It tells the two apart in what the effect loop returns. The loop
+/// passes every recorder error through [`refused`], and no result of its
+/// own has that code: the Engine turns a caller code into `Internal`, and
+/// the one failure the loop makes itself is an `Internal` failure.
 pub(crate) fn is_refusal(error: &Error) -> bool {
     error.code == ErrorCode::RecorderFailed
 }
@@ -59,16 +57,11 @@ pub(crate) fn is_refusal(error: &Error) -> bool {
 /// the run's `Run` fact, the refusal built with [`make_recorder_error`] when
 /// the recorder returned another code.
 pub(crate) fn refused(run: RunId, error: Error) -> Error {
-    let error = if is_refusal(&error) {
+    let mut error = if is_refusal(&error) {
         error
     } else {
         make_recorder_error(error)
     };
-    of_run(run, error)
-}
-
-/// `error` with run `run`'s id as its `Run` fact.
-pub(crate) fn of_run(run: RunId, mut error: Error) -> Error {
     error.facts.insert(ErrorFact::Run, run.get().into());
     error
 }

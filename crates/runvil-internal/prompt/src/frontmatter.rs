@@ -10,10 +10,10 @@ use runvil_types::packs::PackRef;
 use crate::contract::RoleMap;
 use crate::{ArgsDecl, Result, RoleRequirements, error};
 
-/// A declared input or output file in a prompt's frontmatter.
+/// The file a prompt's frontmatter declares under `output:`.
 ///
-/// The `path` is the file's name in the store, which the prompt reads or
-/// writes. The `description` documents the file's purpose for the caller.
+/// The `path` is the file's name in the store, which the prompt writes.
+/// The `description` documents the file's purpose for the caller.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileDecl {
@@ -62,9 +62,6 @@ pub struct Frontmatter {
     /// cap can reach execution.
     #[serde(default, deserialize_with = "max_tool_iterations")]
     max_tool_iterations: Option<NonZeroU32>,
-    /// A file the prompt expects to find in the store when it starts.
-    #[serde(default)]
-    input: Option<FileDecl>,
     /// A file the prompt will leave in the store when it finishes.
     #[serde(default)]
     output: Option<FileDecl>,
@@ -143,14 +140,6 @@ impl Frontmatter {
     #[must_use]
     pub fn max_tool_iterations(&self) -> Option<NonZeroU32> {
         self.max_tool_iterations
-    }
-
-    /// Returns the declared input file, when present.
-    ///
-    /// The prompt expects to find this file in the store when it starts.
-    #[must_use]
-    pub fn input(&self) -> Option<&FileDecl> {
-        self.input.as_ref()
     }
 
     /// Returns the declared output file, when present.

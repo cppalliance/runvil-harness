@@ -1,7 +1,7 @@
-//! Guarding and watching the files a Host hands a run: a policy refuses an
-//! undeclared path before the operation watcher sees it, and while the run
-//! waits on its inbox, the Host's edit of a file the run read conflicts
-//! and leaves the run's view intact.
+//! Guarding and watching the files a Host hands a run: a policy refuses a
+//! path off the desk before the operation watcher sees it, and while the
+//! run waits on its inbox, the Host's edit of a file the run read
+//! conflicts and leaves the run's view intact.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -16,7 +16,6 @@ use crate::support::{Offline, launch, no_packs};
 const REVIEW: &str = concat!(
     "---\nname: review\ndescription: Reads the notes, then waits for the operator\nrunvil: 0\n",
     "uses:\n  - user\n",
-    "input: { path: notes.md, description: The operator's notes }\n",
     "output: { path: summary.md, description: The approved notes }\n",
     "---\n\n## Approve\n\n```lua\n",
     "local notes = store.read('notes.md')\n",
@@ -28,7 +27,8 @@ const REVIEW: &str = concat!(
 /// Each watched operation's origin label and file.
 type Seen = Arc<Mutex<Vec<(String, String)>>>;
 
-/// Refuses every path except the two files the review prompt declares.
+/// Refuses every path except the two files the review prompt reads and
+/// writes.
 struct DeskFiles;
 
 impl Policy for DeskFiles {
@@ -93,12 +93,12 @@ async fn until_the_run_waits_on_its_inbox(recorder: &MemoryRecorder) {
 }
 
 #[test]
-fn a_policy_refuses_an_undeclared_path_before_the_watcher_sees_it() {
+fn a_policy_refuses_a_path_off_the_desk_before_the_watcher_sees_it() {
     let (vfs, seen) = desk_vfs();
     vfs.acquire_store(Origin::new("desk seed"))
         .expect("the handle declares a store")
         .write("notes.md", b"Ship on Friday.")
-        .expect("the policy allows a declared file");
+        .expect("the policy allows a desk file");
     let stray = vfs
         .acquire_store(Origin::new("desk stray"))
         .expect("the handle declares a store")
@@ -116,7 +116,7 @@ async fn a_hosts_edit_of_a_file_the_run_read_conflicts_while_the_run_waits_on_it
     vfs.acquire_store(Origin::new("desk seed"))
         .expect("the handle declares a store")
         .write("notes.md", b"Ship on Friday.")
-        .expect("the policy allows a declared file");
+        .expect("the policy allows a desk file");
 
     let recorder = Arc::new(MemoryRecorder::new());
     let setup = RunSetup {
