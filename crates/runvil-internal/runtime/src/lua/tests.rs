@@ -33,7 +33,6 @@ use serde_json::json;
 use crate::execute::section_vm::{SectionVmSetup, VmSeed, setup_section_vm};
 use crate::lua::{Answer, Library, Request, SectionRead, SectionVm, ToolSet, YieldParse};
 use crate::model::ModelSet;
-use crate::test_support::fresh_access;
 use crate::test_support::recording::null_emitter;
 use crate::test_support::scenario::{TEST_SEED, test_binding};
 
@@ -68,8 +67,8 @@ fn test_tools() -> ToolSet {
 }
 
 /// Builds a section VM through the real setup path: construction, Engine
-/// injection, the control surface with the yield shims, `require`, and the
-/// store yield shims.
+/// injection, the control surface with the yield shims, the `store`
+/// functions among them, and `require`.
 #[track_caller]
 fn scheduler_vm(models: &ModelSet, var: Option<&serde_json::Value>) -> SectionVm {
     scheduler_vm_with_tools(models, &ToolSet::default(), var)
@@ -122,14 +121,11 @@ fn set_up_vm(binds: &VmBinds<'_>) -> SectionVm {
     .expect("the section VM builds");
     let args = json!({});
     let sys = json!({});
-    let (access, scope) = fresh_access();
     let set = binds.models;
     let selection = Arc::new(Mutex::new(set.binding("default").cloned()));
     let setup = SectionVmSetup {
         args: &args,
         sys: &sys,
-        access: &access,
-        scope: &scope,
         selection: &selection,
         seed: binds.seed,
         emitter: &emitter,

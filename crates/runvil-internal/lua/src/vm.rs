@@ -18,7 +18,6 @@ use runvil_model_client::model::{ModelBinding, ModelSet};
 use runvil_types::emitter::Emitter;
 use runvil_types::event_lifecycle;
 use runvil_types::untrusted::GuardNonce;
-use runvil_vfs::Access;
 use serde_json::Value as Json;
 
 use crate::adhoc::AdhocTools;
@@ -62,14 +61,11 @@ const JUMP_SLOT_POISONED: &str = "jump slot poisoned";
 #[derive(Debug)]
 pub struct Uninjected;
 
-/// A section VM's stage once Engine injection ran, holding the chain
-/// step's VFS access capability, which the `store` table's closures share,
-/// so every store op is attributed to the identity the executor installed,
-/// the live `sys` mirror injection builds from the sealed `sys`, and the
-/// selection that holds the chain's current model.
+/// A section VM's stage once Engine injection ran, holding the live `sys`
+/// mirror injection builds from the sealed `sys`, and the selection that
+/// holds the chain's current model.
 #[derive(Debug)]
 pub struct Injected {
-    access: Arc<Access>,
     /// Live sealed `sys` JSON, mirrored for prose snapshots.
     sys_live: Arc<Mutex<Json>>,
     /// The current model: what `models.use` stored, starting on the chain's
@@ -123,11 +119,6 @@ pub struct SectionVm<S = Injected> {
     /// failure maps through them as well as through the started block, so
     /// library code reports its own location and prompt line.
     library_programs: Arc<Mutex<Vec<LuaProgram>>>,
-    /// The slot the direct store closures record a claims-model conflict
-    /// into while the Pack preludes install, for the executor to read
-    /// once they return via
-    /// [`take_store_conflict`](Self::take_store_conflict).
-    store_conflict: Arc<Mutex<Option<String>>>,
     /// Remaining `log()` events this VM may emit before the budget is exhausted.
     log_budget: Arc<AtomicU32>,
     /// Remaining cumulative `log()` message bytes this VM may emit. Bounds total
@@ -193,7 +184,6 @@ impl SectionVm<Uninjected> {
             loop_running: Arc::new(AtomicBool::new(false)),
             library_load_depth: Arc::new(AtomicU32::new(0)),
             library_programs: Arc::new(Mutex::new(Vec::new())),
-            store_conflict: Arc::new(Mutex::new(None)),
             log_budget: Arc::new(AtomicU32::new(DEFAULT_LUA_LOG_EVENTS)),
             log_byte_budget: Arc::new(AtomicUsize::new(log_byte_budget(DEFAULT_LUA_LOG_EVENTS))),
             adhoc_tools: AdhocTools::default(),
@@ -334,8 +324,8 @@ impl<S> SectionVm<S> {
 
 impl SectionVm {
     /// Borrows the inner Lua state, for the section setup's installers
-    /// (the `ui` global, the loop and store shims, the Pack preludes) and
-    /// the driver's yield parsing and answer rendering.
+    /// (the `ui` global and the Pack preludes) and the driver's yield
+    /// parsing and answer rendering.
     #[must_use]
     pub fn lua(&self) -> &Lua {
         &self.lua

@@ -1,4 +1,5 @@
 //! Tests for the observation event sequence a run reports across its lifecycle.
+//! The events of its store operations sit in `store`.
 
 use runvil_prompt::test_support::{one_section, prompt};
 use runvil_types::event::Event;
@@ -363,3 +364,6 @@ fn the_tool_loop_reports_each_turn_and_each_tool_call() {
         "every loop event is reported under the section that ran the loop"
     );
 }
+
+#[path = "observations-store.rs"]
+mod store;

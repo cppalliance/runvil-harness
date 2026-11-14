@@ -71,15 +71,6 @@ const ALLOWED: &[Allowed] = &[
     },
     Allowed {
         krate: "crates/runvil-internal/runtime",
-        name: "SectionVmSetup",
-        limit: Limit::Fields,
-        recorded: 14,
-        reason: "A parameter object: the borrowed inputs every section VM setup shares, \
-                 bundled so each frame constructor passes one set of borrows instead of a \
-                 dozen parameters.",
-    },
-    Allowed {
-        krate: "crates/runvil-internal/runtime",
         name: "SharedState",
         limit: Limit::Fields,
         recorded: 14,

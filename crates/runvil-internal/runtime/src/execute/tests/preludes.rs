@@ -2,10 +2,11 @@
 //! handed to `RunParams::with_preludes`, fanout arms and spawned task chains
 //! included, and the libraries a section requires see them; a prelude
 //! that fails to load or whose global collides fails the run as a Lua
-//! failure before it issues any effect; a store conflict a prelude's
-//! install-time write meets ends the run with a make_determinism_error violation,
-//! caught or not; and a prelude's functions, called from a block, reach
-//! the yielding store and tool shims.
+//! failure before it issues any effect; a prelude that calls a tool or
+//! the store while it installs fails to load, and one that catches that
+//! failure installs with the store untouched; and a prelude's functions,
+//! called from a block, reach the yielding store and tool shims, through
+//! a store function the prelude captured too.
 
 use runvil_types::packs::{PackId, Prelude};
 
@@ -90,8 +91,44 @@ fn a_prelude_that_calls_a_tool_while_loading_fails_the_run_as_lua_before_its_fir
         )],
         &[
             "Pack `eager`: its prelude failed to load",
-            "it must not call tools while loading",
+            "it must not call tools or the store while loading",
         ],
+    );
+}
+
+#[test]
+fn a_prelude_that_calls_the_store_while_loading_fails_the_run_as_lua_before_its_first_effect() {
+    assert_fails_before_any_effect(
+        EFFECT_FIRST,
+        vec![prelude("seeder", "store.write('seeded.txt', 'seed')")],
+        &[
+            "Pack `seeder`: its prelude failed to load",
+            "it must not call tools or the store while loading",
+        ],
+    );
+}
+
+#[test]
+fn a_prelude_that_catches_its_store_call_installs_and_leaves_the_store_untouched() {
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        ## Only\n\n\
+        ```lua\nreturn tostring(seeded) .. '|' .. tostring(store.exists('seeded.txt'))\n```\n";
+    let seeder = "local ok = pcall(function() store.write('seeded.txt', 'seed') end)\n\
+        seeded = ok";
+    let trace = prelude_run(md, vec![prelude("seeder", seeder)]);
+    assert_eq!(
+        trace.text(),
+        "false|false",
+        "the call failed inside the prelude, and no write reached the store"
+    );
+    assert_eq!(
+        records(&trace),
+        vec![EffectRecord::Vfs {
+            op: VfsOp::Exists {
+                path: "seeded.txt".to_owned(),
+            },
+        }],
+        "the block's own check is the run's one store effect"
     );
 }
 
@@ -176,29 +213,44 @@ fn a_library_a_fanout_arm_and_a_spawned_task_all_see_a_prelude_global() {
     );
 }
 
+/// The two store effects of a prelude function that writes `text` to
+/// `path` and reads it back.
+fn write_then_read(path: &str, text: &str) -> Vec<EffectRecord> {
+    vec![
+        EffectRecord::Vfs {
+            op: VfsOp::Write {
+                path: path.to_owned(),
+                contents: text.to_owned(),
+            },
+        },
+        EffectRecord::Vfs {
+            op: VfsOp::Read {
+                path: path.to_owned(),
+                start: None,
+                end: None,
+            },
+        },
+    ]
+}
+
 #[test]
-fn a_prelude_write_across_two_arms_ends_the_run_with_determinism_caught_or_not() {
+fn a_store_function_a_prelude_captured_while_it_installed_works_from_a_block() {
     let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
-        ## Parent\n\n\
-        ```lua\n\
-        local r = tasks.fanout('Worker', { 'alpha', 'beta' })\n\
-        return r[1].text\n\
-        ```\n\n\
-        ### Worker\n\n\
-        ```lua\nreturn item\n```\n";
-    for source in [
-        "store.write('seeded.txt', 'seed')",
-        "pcall(function() store.write('seeded.txt', 'seed') end)",
-    ] {
-        let trace = prelude_run(md, vec![prelude("seeder", source)]);
-        let error = trace.error();
-        let message = error.located_message();
-        assert_eq!(error.code, ErrorCode::Determinism, "`{source}`: {message}");
-        assert!(
-            message.starts_with("store determinism violation: "),
-            "the conflict wins over the prelude's own result: `{source}`: {message}"
-        );
-    }
+        ## Only\n\n\
+        ```lua\nreturn keeper.keep('kept')\n```\n";
+    let keeper = "local write, read = store.write, store.read\n\
+        keeper = {}\n\
+        function keeper.keep(text)\n\
+          write('kept.md', text)\n\
+          return read('kept.md')\n\
+        end";
+    let trace = prelude_run(md, vec![prelude("keeper", keeper)]);
+    assert_eq!(trace.text(), "kept");
+    assert_eq!(
+        records(&trace),
+        write_then_read("kept.md", "kept"),
+        "each call through a captured store function is a store effect"
+    );
 }
 
 #[test]
@@ -215,21 +267,7 @@ fn a_prelude_function_called_from_a_block_reaches_the_yielding_store_shims() {
     assert_eq!(trace.text(), "kept");
     assert_eq!(
         records(&trace),
-        vec![
-            EffectRecord::Vfs {
-                op: VfsOp::Write {
-                    path: "notes.md".to_owned(),
-                    contents: "kept".to_owned(),
-                },
-            },
-            EffectRecord::Vfs {
-                op: VfsOp::Read {
-                    path: "notes.md".to_owned(),
-                    start: None,
-                    end: None,
-                },
-            },
-        ],
+        write_then_read("notes.md", "kept"),
         "each store call inside the prelude function is a store effect"
     );
 }

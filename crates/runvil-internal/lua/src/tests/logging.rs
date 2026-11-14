@@ -50,37 +50,54 @@ fn logs_are_correlated_and_ordered_across_chunks() {
 }
 
 #[test]
-fn compatibility_chunk_logs_interleave_with_engine_operations() {
+fn a_blocks_logs_are_reported_on_each_side_of_the_store_call_that_suspends_it() {
+    // `log` reports when it is called: the log ahead of a store call is out
+    // by the time the block suspends on the call, and the log behind it
+    // follows the answer. The executor reports the store operation itself,
+    // when it applies the answer, so that report lands between the two.
+    let logged = |message: &str| ("Store".to_owned(), Observation::Lua(message.to_owned()));
     let recorder = Recorder::default();
-    let observer = recorder.emitter().clone();
-    run_chunk(
+    let vm = TestVm::new()
+        .emitter(recorder.emitter())
+        .section("Store")
+        .shims()
+        .build();
+    let program = block(
         "log('before write')\n\
-             store.write('state.txt', 'value')\n\
-             log('after write')",
-        &json!({}),
-        &json!({}),
-        &fresh_access(),
-        &observer,
-        "Compatibility",
-    )
-    .expect("compatibility logging must succeed");
-
+         store.write('state.txt', 'value')\n\
+         log('after write')",
+    );
+    let CoroStep::Yielded(thread, values) =
+        vm.start_block_coro(&program).expect("the block starts")
+    else {
+        panic!("the block must suspend on its store call");
+    };
+    assert!(
+        matches!(
+            vm.request_from_yield(&values),
+            YieldParse::Request(Request::Store {
+                op: VfsOp::Write { .. }
+            })
+        ),
+        "the block suspends on the store write"
+    );
     assert_eq!(
         recorder.observations(),
-        [
-            (
-                "Compatibility".to_owned(),
-                Observation::Lua("before write".to_owned()),
-            ),
-            (
-                "Compatibility".to_owned(),
-                boundary::VFS_WRITE_SUCCEEDED.clone(),
-            ),
-            (
-                "Compatibility".to_owned(),
-                Observation::Lua("after write".to_owned()),
-            ),
-        ]
+        [logged("before write")],
+        "the log ahead of the store call is reported before the call is answered"
+    );
+
+    let step = vm
+        .resume_block_coro_answer(&program, &thread, Ok(Answer::Store(VfsOutcome::Unit)))
+        .expect("the answered block runs to its end");
+    assert!(
+        matches!(step, CoroStep::Done(LuaBlockResult::RanOff)),
+        "the block runs off its end: {step:?}"
+    );
+    assert_eq!(
+        recorder.observations(),
+        [logged("before write"), logged("after write")],
+        "the block's own reports are its two logs, in order"
     );
 }
 

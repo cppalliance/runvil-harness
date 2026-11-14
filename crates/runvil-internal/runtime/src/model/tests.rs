@@ -6,7 +6,6 @@ use std::sync::Arc;
 use super::*;
 use crate::Result;
 use crate::lua::{SectionVm, ToolSet};
-use crate::test_support::fresh_access;
 use crate::test_support::recording::null_emitter;
 use crate::test_support::scenario::TEST_SEED;
 use runvil_model_client::model::ModelInvocation;
@@ -79,7 +78,7 @@ fn section_vm_with_models(
         emitter,
         section,
     )?
-    .inject_test_values(&json!({}), &json!({}), &fresh_access().0)
+    .inject_test_values(&json!({}), &json!({}))
     .map_err(|failure| failure.teardown(emitter, section))
 }
 

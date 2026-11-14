@@ -1,6 +1,7 @@
-//! The always-on `store` table: each operation's result, the line bounds
-//! of `read` and `read_numbered`, the absent `inject` and `read_lines`
-//! operations, and writes seen through the shared handle.
+//! The `store` table as a block calls it: each operation's result, the
+//! line bounds of `read` and `read_numbered`, the store failure an
+//! operation the block does not catch ends it with, and writes seen
+//! through the access the block driver answers through.
 
 use super::*;
 
@@ -74,10 +75,9 @@ fn store_delete_then_read_raises() {
         &json!({}),
     )
     .expect_err("reading a deleted file must raise");
-    let msg = lua_error_message(&err);
-    assert!(
-        msg.contains("file not found"),
-        "the Lua error must include the store message, got: {msg}"
+    assert_eq!(
+        store_failure_message(&err, ErrorCode::NotFound),
+        "file not found in store: a.txt"
     );
 }
 
@@ -128,10 +128,10 @@ fn store_read_start_below_one_raises() {
         "store.write('a.txt', 'one')\nreturn store.read('a.txt', -1)",
     ] {
         let err = run(source, &json!({})).expect_err("a start below 1 must raise");
-        let msg = lua_error_message(&err);
-        assert!(
-            msg.contains("invalid line range"),
-            "the Lua error must include the range message, got: {msg}"
+        assert_eq!(
+            store_failure_message(&err, ErrorCode::InvalidRange),
+            "invalid line range for a.txt: start must be at least 1",
+            "{source}"
         );
     }
 }
@@ -143,10 +143,9 @@ fn store_read_end_before_start_raises() {
         &json!({}),
     )
     .expect_err("an end before start must raise");
-    let msg = lua_error_message(&err);
-    assert!(
-        msg.contains("invalid line range"),
-        "the Lua error must include the range message, got: {msg}"
+    assert_eq!(
+        store_failure_message(&err, ErrorCode::InvalidRange),
+        "invalid line range for a.txt: end must not be before start"
     );
 }
 
@@ -157,10 +156,9 @@ fn store_read_end_without_start_raises() {
         &json!({}),
     )
     .expect_err("an end without a start must raise");
-    let msg = lua_error_message(&err);
-    assert!(
-        msg.contains("invalid line range"),
-        "the Lua error must include the range message, got: {msg}"
+    assert_eq!(
+        store_failure_message(&err, ErrorCode::InvalidRange),
+        "invalid line range for a.txt: start is required when end is given"
     );
 }
 
@@ -234,10 +232,10 @@ fn store_read_numbered_start_below_one_raises() {
         "store.write('a.txt', 'one')\nreturn store.read_numbered('a.txt', -1)",
     ] {
         let err = run(source, &json!({})).expect_err("a start below 1 must raise");
-        let msg = lua_error_message(&err);
-        assert!(
-            msg.contains("invalid line range"),
-            "the Lua error must include the range message, got: {msg}"
+        assert_eq!(
+            store_failure_message(&err, ErrorCode::InvalidRange),
+            "invalid line range for a.txt: start must be at least 1",
+            "{source}"
         );
     }
 }
@@ -249,10 +247,9 @@ fn store_read_numbered_end_before_start_raises() {
         &json!({}),
     )
     .expect_err("an end before start must raise");
-    let msg = lua_error_message(&err);
-    assert!(
-        msg.contains("invalid line range"),
-        "the Lua error must include the range message, got: {msg}"
+    assert_eq!(
+        store_failure_message(&err, ErrorCode::InvalidRange),
+        "invalid line range for a.txt: end must not be before start"
     );
 }
 
@@ -263,77 +260,51 @@ fn store_read_numbered_end_without_start_raises() {
         &json!({}),
     )
     .expect_err("an end without a start must raise");
-    let msg = lua_error_message(&err);
-    assert!(
-        msg.contains("invalid line range"),
-        "the Lua error must include the range message, got: {msg}"
+    assert_eq!(
+        store_failure_message(&err, ErrorCode::InvalidRange),
+        "invalid line range for a.txt: start is required when end is given"
     );
 }
 
 #[test]
 fn installed_store_read_honors_line_bounds() {
-    let vm = TestVm::new().build();
+    let vm = TestVm::new().shims().build();
     store_view(&vm.access)
         .write("a.txt", b"one\ntwo\nthree\n")
         .expect("the memory store can prepare a file");
 
-    let sliced = run_scalar(
-        &vm,
-        &program("return store.read('a.txt', 2, 2)"),
-        &null_emitter(),
-        "Test",
-    )
-    .expect("a bounded read must run");
+    let sliced =
+        drive_scalar(&vm, "return store.read('a.txt', 2, 2)").expect("a bounded read must run");
     assert_eq!(sliced.as_deref(), Some("two"));
 
-    let err = run_scalar(
-        &vm,
-        &program("return store.read('a.txt', 0)"),
-        &null_emitter(),
-        "Test",
-    )
-    .expect_err("a start below 1 must raise");
-    assert!(
-        err.to_string().contains("invalid line range"),
-        "the error must include the range message, got: {err}"
+    let err =
+        drive_scalar(&vm, "return store.read('a.txt', 0)").expect_err("a start below 1 must raise");
+    assert_eq!(
+        store_failure_message(&err, ErrorCode::InvalidRange),
+        "invalid line range for a.txt: start must be at least 1"
     );
 }
 
 #[test]
 fn installed_store_read_numbered_honors_line_bounds() {
-    let vm = TestVm::new().build();
+    let vm = TestVm::new().shims().build();
     store_view(&vm.access)
         .write("a.txt", b"one\ntwo\nthree\n")
         .expect("the memory store can prepare a file");
 
-    let numbered = run_scalar(
-        &vm,
-        &program("return store.read_numbered('a.txt', 2, 3)"),
-        &null_emitter(),
-        "Test",
-    )
-    .expect("a bounded numbered read must run");
+    let numbered = drive_scalar(&vm, "return store.read_numbered('a.txt', 2, 3)")
+        .expect("a bounded numbered read must run");
     assert_eq!(numbered.as_deref(), Some("2| two\n3| three"));
 
-    let whole = run_scalar(
-        &vm,
-        &program("return store.read_numbered('a.txt')"),
-        &null_emitter(),
-        "Test",
-    )
-    .expect("an unbounded numbered read must run");
+    let whole = drive_scalar(&vm, "return store.read_numbered('a.txt')")
+        .expect("an unbounded numbered read must run");
     assert_eq!(whole.as_deref(), Some("1| one\n2| two\n3| three"));
 
-    let err = run_scalar(
-        &vm,
-        &program("return store.read_numbered('a.txt', 0)"),
-        &null_emitter(),
-        "Test",
-    )
-    .expect_err("a start below 1 must raise");
-    assert!(
-        err.to_string().contains("invalid line range"),
-        "the error must include the range message, got: {err}"
+    let err = drive_scalar(&vm, "return store.read_numbered('a.txt', 0)")
+        .expect_err("a start below 1 must raise");
+    assert_eq!(
+        store_failure_message(&err, ErrorCode::InvalidRange),
+        "invalid line range for a.txt: start must be at least 1"
     );
 }
 
@@ -348,25 +319,33 @@ fn store_glob_returns_a_sorted_array() {
 }
 
 #[test]
-fn store_error_surfaces_as_lua_error() {
-    // An ambiguous `str_replace` anchor is a `VfsError::Anchor`, raised as
-    // its store failure (through `mlua::Error::external`).
+fn an_uncaught_store_failure_ends_the_block_as_that_store_failure() {
+    // An ambiguous `str_replace` anchor is a `VfsError::Anchor`: the block
+    // that does not catch it ends with the store failure itself, under its
+    // own code and the model-facing message, on the line of the call.
     let err = run(
         "store.write('a.txt', 'na na na')\nstore.str_replace('a.txt', 'na', 'la')",
         &json!({}),
     )
     .expect_err("an ambiguous anchor must raise");
-    let msg = lua_error_message(&err);
-    assert!(
-        msg.contains("expected exactly one"),
-        "the Lua error must include the ambiguity message, got: {msg}"
+    assert_eq!(
+        store_failure_message(&err, ErrorCode::Anchor),
+        "anchor \"na\" occurs 3 times in a.txt, expected exactly one; \
+         include more surrounding text so it matches once"
+    );
+    let call_line = NonZeroU32::new(2).expect("2 is non-zero");
+    assert_eq!(
+        err.at,
+        Some(runvil_types::error::SourceLoc::line("prompt", call_line)),
+        "the failure is placed on the line of the store call"
     );
 }
 
 #[test]
 fn store_writes_are_visible_on_the_shared_handle() {
-    // The table is backed by the caller's handle, so a write from Lua is
-    // observable through a clone of that same handle after the chunk ends.
+    // The block driver performs the write through the test's access, so a
+    // write from Lua reads back through that access's store view once the
+    // block ends.
     let access = fresh_access();
     let store = store_view(&access);
     run_with("store.write('shared.txt', 'from lua')", &access).unwrap();

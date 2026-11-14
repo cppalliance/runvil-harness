@@ -146,10 +146,8 @@ impl Scheduler {
         // section's frame already dropped at the fall-through. A chain
         // that ended at a `return` still holds the frame it returned in.
         let mut entered = chain.entered.take();
-        // Taken now, dropped last: the VM's store closures hold their own
-        // Arc clones of the capability, so the identity's last reference
-        // drops only when both are gone. The chain-end joins run while
-        // this clone is still held.
+        // Taken now, dropped last: the chain-end joins run while the
+        // capability is still held.
         let access = chain.access.take();
         let outcome = outcome.and_then(|returned| {
             // A chain ending mid-section (a `return`, with a value or

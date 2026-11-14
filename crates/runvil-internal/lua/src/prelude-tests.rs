@@ -19,7 +19,7 @@ mod environment;
 /// Builds a section VM through section setup up to where preludes install:
 /// Engine injection with one field in `args`, the Engine globals, the
 /// control globals, and every coroutine yield shim, whose install puts
-/// `models.loop` on `models` too.
+/// `models.loop` on `models` and the `store` table in `_G` too.
 #[track_caller]
 fn prelude_vm(setup: TestVm<'_>) -> BuiltVm {
     let args = json!({ "mode": "args" });
@@ -410,7 +410,8 @@ fn a_prelude_that_raises_while_loading_fails_naming_its_pack() {
         message.starts_with("Pack `boom`: its prelude failed to load: ")
             && message.contains("boom.")
             && message.contains(
-                "A prelude only defines functions; it must not call tools while loading."
+                "A prelude only defines functions; it must not call tools or the store while \
+                 loading."
             ),
         "the failure names the Pack and gives the rule: {message}"
     );
@@ -427,11 +428,33 @@ fn a_prelude_that_calls_a_tool_while_loading_fails_naming_its_pack() {
     assert!(
         message.starts_with("Pack `eager`: its prelude failed to load: ")
             && message.contains("yield")
-            && message.contains("it must not call tools while loading."),
+            && message.contains("it must not call tools or the store while loading."),
         "the failure names the Pack and gives the rule: {message}"
     );
     assert!(
         traceback(&message).contains("pack:eager:1:"),
+        "the traceback names the prelude chunk and line: {message}"
+    );
+}
+
+#[test]
+fn a_prelude_that_calls_the_store_while_loading_fails_naming_its_pack() {
+    let vm = section_vm();
+    let message = install_failure(
+        &vm,
+        &[prelude(
+            "seeder",
+            "local seed = 'seed'\nstore.write('seeded.txt', seed)",
+        )],
+    );
+    assert!(
+        message.starts_with("Pack `seeder`: its prelude failed to load: ")
+            && message.contains("yield")
+            && message.contains("it must not call tools or the store while loading."),
+        "the failure names the Pack and gives the rule: {message}"
+    );
+    assert!(
+        traceback(&message).contains("pack:seeder:2:"),
         "the traceback names the prelude chunk and line: {message}"
     );
 }

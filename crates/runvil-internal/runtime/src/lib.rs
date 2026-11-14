@@ -3,7 +3,7 @@
 //!
 //! A run walks the prompt's top-level sections top to bottom, the preamble
 //! first when the prompt has one. It issues each model round, Pack render, Pack tool call,
-//! `store` call outside a prelude's install, and timer as an [`Effect`] the
+//! `store` call, and timer as an [`Effect`] the
 //! Harness performs and answers, and reports every boundary as an event
 //! returned from `step`. Other crates reach these items through the
 //! `runvil-engine` facade.

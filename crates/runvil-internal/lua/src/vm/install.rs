@@ -3,18 +3,16 @@
 //! `prose` globals.
 
 use std::num::NonZeroU32;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, PoisonError};
 
 use mlua::Value;
 use runvil_types::emitter::Emitter;
-use runvil_vfs::ScopeHandle;
 use serde_json::Value as Json;
 
 use super::{JUMP_SLOT_POISONED, SectionVm};
 use crate::coro::install_shims;
 use crate::engine_globals::install_log;
-use crate::engine_globals_store::install_store_table;
 #[cfg(test)]
 use crate::error::Error;
 use crate::error::{self, Result};
@@ -25,32 +23,17 @@ use crate::sys::{SYS_LIVE_POISONED, seal_sys};
 use crate::var::var_to_json;
 
 impl SectionVm {
-    /// Installs `log`, `store`, `json`, and `markdown` as persistent
-    /// globals for the section's whole lifecycle.
+    /// Installs `log`, `json`, and `markdown` as persistent globals for the
+    /// section's whole lifecycle.
     ///
     /// Called once after Engine injection.
-    /// The closures capture owned strings, a clone of the emitter, and Arc
-    /// clones of the log budget counters and the store view, so they stay
-    /// valid across every chunk this VM runs. `scope` is the handle on the
-    /// scope of the access Engine injection received: it derives the store
-    /// view, and the VM keeps none of it.
-    /// The direct store closures record a claims-model conflict into the
-    /// VM's slot for the executor to read with
-    /// [`take_store_conflict`](Self::take_store_conflict).
+    /// The `log` closure captures an owned section name, a clone of the
+    /// emitter, and Arc clones of the log budget counters, so it stays
+    /// valid across every chunk this VM runs.
     ///
     /// # Errors
-    /// Returns a `LuaRuntime` failure if the globals cannot be installed, or
-    /// the store's failure if the handle declares no store.
-    ///
-    /// # Panics
-    /// Panics when the injected access belongs to another scope than
-    /// `scope`'s.
-    pub fn install_engine_globals(
-        &self,
-        emitter: &Emitter,
-        section: &str,
-        scope: &ScopeHandle,
-    ) -> Result<()> {
+    /// Returns a `LuaRuntime` failure if the globals cannot be installed.
+    pub fn install_engine_globals(&self, emitter: &Emitter, section: &str) -> Result<()> {
         install_log(
             &self.lua,
             emitter,
@@ -58,37 +41,8 @@ impl SectionVm {
             &self.log_budget,
             &self.log_byte_budget,
         )?;
-        install_store_table(
-            &self.lua,
-            &self.lua.globals(),
-            &self.state.access,
-            scope,
-            emitter,
-            section,
-            &self.store_conflict,
-        )?;
         crate::json::install(&self.lua)?;
         crate::markdown::install(&self.lua)
-    }
-
-    /// Takes the claims-model conflict the direct store closures recorded
-    /// while the Pack preludes installed, clearing the slot. The executor
-    /// reads it once the preludes return, so a conflict a prelude caught
-    /// with `pcall` still ends the run with a make_determinism_error violation.
-    #[must_use]
-    pub fn take_store_conflict(&self) -> Option<String> {
-        // A panic elsewhere cannot leave the slot half-written, so a
-        // poisoned lock still holds the conflict to hand over.
-        self.store_conflict
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take()
-    }
-
-    /// Shared store-conflict slot, for the poisoned-slot test.
-    #[cfg(test)]
-    pub(crate) fn store_conflict_handle(&self) -> Arc<std::sync::Mutex<Option<String>>> {
-        Arc::clone(&self.store_conflict)
     }
 
     /// Installs `call`, `jump`, and the `prompt` reads (`prompt.section`
@@ -141,10 +95,8 @@ impl SectionVm {
     /// its error, raised at the call.
     ///
     /// The suspending calls are the yield shims
-    /// [`install_coro_shims`](Self::install_coro_shims) installs, and the
-    /// `store` calls, which suspend once
-    /// [`install_store_shims`](crate::install_store_shims) runs after the
-    /// Pack preludes.
+    /// [`install_coro_shims`](Self::install_coro_shims) installs, the
+    /// `store` calls among them.
     ///
     /// # Errors
     /// Returns a `LuaRuntime` failure if any global cannot be installed.
@@ -163,8 +115,8 @@ impl SectionVm {
 
     /// Installs the coroutine yield shims (`models.infer`, `models.loop`,
     /// `models.compact`, `call`, `tasks.fanout`, `tools.call`, the `tasks`
-    /// namespace) through `install_shims`, which also puts
-    /// `models.loop` and `models.compact` on the `models` table.
+    /// namespace, and the `store` table) through `install_shims`, which
+    /// also puts `models.loop` and `models.compact` on the `models` table.
     /// `max_tool_iterations` is the run's resolved round cap, which every
     /// `models.loop` call on this VM spends. The `tasks.fanout` shim reads
     /// and writes the chain's current model through captures over the

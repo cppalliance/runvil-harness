@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 
 use runvil_model_client::model::ModelBinding;
 use runvil_types::emitter::Emitter;
-use runvil_vfs::Access;
 use serde_json::Value as Json;
 
 use super::{Injected, SectionVm, Uninjected};
@@ -52,10 +51,7 @@ impl SectionVm<Uninjected> {
     /// The `var` global is a guarded proxy (see `guarded_var`): writes are
     /// validated for JSON-representability at the assigning line, and the
     /// hidden data table behind it is what [`var`](SectionVm::var) reads
-    /// back. `access` is the chain step's VFS capability: the `store`
-    /// table's closures share it, so a fanout arm's store ops are attributed
-    /// to the arm's spawned identity, and a conflicting access from an
-    /// identity not ordered after the arm's surfaces as a write race.
+    /// back.
     ///
     /// `args` is the chain's arguments, one JSON object, which the `args`
     /// global holds as a read-only table.
@@ -71,7 +67,6 @@ impl SectionVm<Uninjected> {
         self,
         args: &Json,
         sys: &Json,
-        access: &Arc<Access>,
         initial_var: Option<&Json>,
         selection: &Arc<Mutex<Option<ModelBinding>>>,
     ) -> std::result::Result<SectionVm, InjectFailure> {
@@ -82,7 +77,6 @@ impl SectionVm<Uninjected> {
             });
         }
         Ok(self.injected(Injected {
-            access: Arc::clone(access),
             sys_live: Arc::new(Mutex::new(sys.clone())),
             selection: Arc::clone(selection),
         }))
@@ -134,7 +128,6 @@ impl SectionVm<Uninjected> {
             loop_running,
             library_load_depth,
             library_programs,
-            store_conflict,
             log_budget,
             log_byte_budget,
             adhoc_tools,
@@ -153,7 +146,6 @@ impl SectionVm<Uninjected> {
             loop_running,
             library_load_depth,
             library_programs,
-            store_conflict,
             log_budget,
             log_byte_budget,
             adhoc_tools,

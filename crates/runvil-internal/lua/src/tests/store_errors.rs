@@ -1,61 +1,52 @@
 //! The store error value: each failure's reason tag, fields, and message,
-//! as rendered through the Lua boundary, as caught from a direct store
-//! closure, and as the store table's install reports it.
+//! as rendered through the Lua boundary and as a block catches it from a
+//! store call.
 
 use super::*;
 
+/// A store failure a block catches with `pcall` is an error table of kind
+/// `store`: its `code` and `reason` tags and the failure's own fields read
+/// from Lua, an anchor's `count` as an integer, and `tostring` gives the
+/// code's prose after the `file:line` of the store call, not of the
+/// `pcall` that caught it.
 #[test]
-fn a_store_install_without_a_store_names_why_in_its_message() {
-    let access = ScopedAccess::acquire(
-        &VfsRef::new(runvil_vfs::MemoryBackend::new()),
-        Origin::new("no store test"),
-    );
-    let vm = TestVm::new().access(access.clone()).inject();
-    let error = vm
-        .install_engine_globals(&null_emitter(), "Test", &access.scope)
-        .expect_err("a handle without a store cannot install the store table");
-    assert_eq!(
-        error.code,
-        ErrorCode::NoStore,
-        "required a store error over NoStore, actual {error:?}"
-    );
-    assert_eq!(
-        error.to_string(),
-        "this run declares no store, so no store operation can run"
-    );
-    vm.teardown(&null_emitter(), "Test");
-}
-
-#[test]
-fn direct_store_failure_caught_by_pcall_carries_the_reason_tag() {
-    // Before the store yield shims install, a store call runs its direct
-    // closure. A non-conflict failure caught by the shim's `pcall` must
-    // render the same shape the effect path renders: kind `store`, the
-    // `reason` tag, and the variant's fields.
-    let catch = program(
-        "local ok, err = pcall(function() return store.read('missing.txt') end)\n\
-             direct_store_error = err",
-    );
+fn a_store_failure_caught_by_pcall_carries_the_reason_tag() {
     let vm = TestVm::new().shims().build();
-    run_scalar(&vm, &catch, &null_emitter(), "Test").expect("the catching chunk must run");
-    let out = run_scalar(
+    let missing = drive_scalar(
         &vm,
-        &program(
-            "return direct_store_error.kind .. '|' .. direct_store_error.reason .. '|' \
-                 .. direct_store_error.path .. '|' .. tostring(direct_store_error)",
-        ),
-        &null_emitter(),
-        "Test",
+        "local ok, err = pcall(function()\n\
+           local text = store.read('missing.txt')\n\
+           return text\n\
+         end)\n\
+         return tostring(ok) .. '|' .. err.kind .. '|' .. err.code .. '|' .. err.reason\n\
+           .. '|' .. err.path .. '|' .. tostring(err)",
     )
-    .expect("the section chunk must run");
+    .expect("the catching block must run");
     assert_eq!(
-        out,
+        missing,
         Some(format!(
-            "store|not_found|missing.txt|prompt:1: file not found in store: missing.txt. {}",
+            "false|store|not_found|not_found|missing.txt|prompt:2: {}",
             ErrorCode::NotFound.prose()
         )),
-        "the direct store failure must carry the documented shape, its call's line, and its \
-         author prose"
+        "a caught missing read must carry the documented shape and its call's line"
+    );
+
+    let ambiguous = drive_scalar(
+        &vm,
+        "store.write('a.txt', 'na na na')\n\
+         local ok, err = pcall(store.str_replace, 'a.txt', 'na', 'la')\n\
+         return tostring(ok) .. '|' .. err.kind .. '|' .. err.reason .. '|' .. err.path\n\
+           .. '|' .. err.anchor .. '|' .. math.type(err.count) .. '|' .. err.count\n\
+           .. '|' .. tostring(err)",
+    )
+    .expect("the catching block must run");
+    assert_eq!(
+        ambiguous,
+        Some(format!(
+            "false|store|anchor|a.txt|na|integer|3|prompt:2: {}",
+            ErrorCode::Anchor.prose()
+        )),
+        "a caught ambiguous anchor must carry its fields, the count as an integer"
     );
 }
 

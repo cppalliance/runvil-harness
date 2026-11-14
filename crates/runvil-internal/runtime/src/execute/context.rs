@@ -21,7 +21,7 @@ use runvil_types::ids::{ChainId, TaskId};
 use runvil_types::packs::{PackId, Prelude};
 use runvil_types::tools::ToolCatalog;
 use runvil_types::untrusted::GuardNonce;
-use runvil_vfs::{Access, ScopeHandle, VfsRef};
+use runvil_vfs::VfsRef;
 
 use crate::Error;
 use crate::lua::{RosterEntry, ToolSet};
@@ -377,24 +377,18 @@ impl ChainState {
 
     /// The borrowed VM-setup inputs of one section entry, sourcing
     /// the run-wide inputs from this context; the frame constructor supplies
-    /// the entry's own: the `sys` JSON, the seed, the chain step's access
-    /// capability (the walk's own, a call chain's borrowed parent
-    /// capability, a task chain's spawned one) and the handle on the run's
-    /// scope, the section's current-model selection, and the section name.
+    /// the entry's own: the `sys` JSON, the seed, the section's
+    /// current-model selection, and the section name.
     pub(super) fn vm_setup<'a>(
         &'a self,
         sys: &'a serde_json::Value,
         seed: VmSeed<'a>,
-        access: &'a Arc<Access>,
-        scope: &'a ScopeHandle,
         selection: &'a Arc<Mutex<Option<ModelBinding>>>,
         section_name: &'a str,
     ) -> SectionVmSetup<'a> {
         SectionVmSetup {
             args: &self.args,
             sys,
-            access,
-            scope,
             selection,
             seed,
             emitter: &self.reporting.emitter,
@@ -500,7 +494,6 @@ mod tests {
     use crate::execute::section_vm::VmSeed;
     use crate::lua::RosterEntry;
     use crate::model::{ModelRole, ThinkingMode};
-    use crate::test_support::fresh_access;
     use crate::test_support::scenario::{TEST_SEED, test_model_with};
 
     fn test_prompt() -> Prompt {
@@ -593,9 +586,8 @@ mod tests {
         let prompt = test_prompt();
         let ctx = test_state(&prompt).with_args(json!({ "query": "papers" }));
         let sys = json!({});
-        let (access, scope) = fresh_access();
         let selection = Arc::new(Mutex::new(None));
-        let setup = ctx.vm_setup(&sys, VmSeed::default(), &access, &scope, &selection, "Only");
+        let setup = ctx.vm_setup(&sys, VmSeed::default(), &selection, "Only");
         assert_eq!(
             setup.args,
             &json!({ "query": "papers" }),

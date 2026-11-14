@@ -2,26 +2,32 @@
 //! section setup builds one, through construction, the run's limits,
 //! Engine injection, and the persistent Engine globals, with the control
 //! globals and coroutine shims on request, handed back with named handles
-//! to what the VM shares; the access fixture; the one-shot [`run_chunk`];
-//! the tool fixtures as data; and the scope a VM's offers resolve to.
+//! to what the VM shares; the access fixture; the block driver, which
+//! runs a block as a coroutine and answers its store requests; the
+//! one-shot [`run_chunk`] over it; the tool fixtures as data; and the
+//! scope a VM's offers resolve to.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
-use mlua::{FromLuaMulti, MultiValue};
+use mlua::FromLuaMulti;
 use runvil_model_client::model::{ModelBinding, ModelSet};
 use runvil_types::emitter::Emitter;
+use runvil_types::error::place;
 use runvil_types::seed::RunSeed;
 use runvil_types::tools::{ToolCatalog, ToolId, ToolInfo};
 use runvil_types::untrusted::GuardNonce;
 use runvil_vfs::{Access, Origin, ScopeHandle, VfsRef};
 use serde_json::{Value as Json, json};
 
-use crate::error::{self, Result};
-use crate::section::scalar_return;
+use crate::error::{Result, UNNAMED_FILE, make_lua_runtime_error};
 use crate::tests::recording::null_emitter;
-use crate::{OfferedTool, RosterEntry, SectionRead, SectionVm, ToolSet};
+use crate::{
+    Answer, CoroStep, LuaBlockResult, LuaProgram, OfferedTool, Request, RosterEntry, SectionRead,
+    SectionVm, ToolSet, YieldParse, make_store_failure_error, run_store_op, store_error_message,
+};
 
 /// The one guard-nonce seed of every test VM.
 pub(crate) const TEST_SEED: RunSeed = RunSeed::from_bytes([0x73; 32]);
@@ -36,11 +42,12 @@ pub(crate) fn test_nonce() -> GuardNonce {
     GuardNonce::from_seed(&TEST_SEED)
 }
 
-/// A test VM's access capability beside the handle on its scope, which
-/// derives the access's store view.
+/// The access capability the block driver answers a test VM's store
+/// requests through, beside the handle on its scope, which derives the
+/// access's store view.
 #[derive(Clone)]
 pub(crate) struct ScopedAccess {
-    /// The capability the VM's `store` table operates through.
+    /// The capability whose store view the driver operates through.
     pub(crate) access: Arc<Access>,
     /// The handle on the capability's scope.
     pub(crate) scope: ScopeHandle,
@@ -57,14 +64,90 @@ impl ScopedAccess {
             scope,
         }
     }
+
+    /// The store view of this access: the view the block driver performs
+    /// each store request through, and the one a test seeds and reads
+    /// through under the same identity.
+    #[track_caller]
+    pub(crate) fn store_view(&self) -> Access {
+        self.scope
+            .store_view(&self.access)
+            .expect("the handle declares a store")
+    }
 }
 
 /// A fresh default handle's access capability: the store is declared at
 /// the root and the vended identity is the test's own, so seeding through
-/// the store view and the VM's store ops never meet a second live identity.
+/// the store view and the driver's store ops never meet a second live
+/// identity.
 #[track_caller]
 pub(crate) fn fresh_access() -> ScopedAccess {
     ScopedAccess::acquire(&VfsRef::default(), Origin::new("lua test fixture"))
+}
+
+/// Runs `program` as a block on `vm` to its end, answering each store
+/// request the block yields through `access`'s store view, the way the
+/// executor answers one: the operation's outcome, or its failure under the
+/// model-facing message, placed on the calling line.
+///
+/// # Errors
+/// Returns the block's own failure, a store failure it did not catch
+/// included.
+///
+/// # Panics
+/// Panics when the block yields any request but a store one: the driver
+/// answers no other.
+#[track_caller]
+pub(crate) fn drive_block(
+    vm: &SectionVm,
+    program: &LuaProgram,
+    access: &ScopedAccess,
+) -> Result<LuaBlockResult> {
+    let view = access.store_view();
+    let mut step = vm.start_block_coro(program)?;
+    loop {
+        let (thread, values) = match step {
+            CoroStep::Done(result) => return Ok(result),
+            CoroStep::Yielded(thread, values) => (thread, values),
+        };
+        let answer = match vm.request_from_yield(&values) {
+            YieldParse::Request(Request::Store { op }) => run_store_op(&view, op.clone())
+                .map(Answer::Store)
+                .map_err(|cause| {
+                    let failure =
+                        make_store_failure_error(&cause, store_error_message(&op, &cause));
+                    place(failure, UNNAMED_FILE, vm.call_line())
+                }),
+            YieldParse::Request(other) => {
+                panic!("the block driver answers store requests alone, got {other:?}")
+            }
+            YieldParse::Refused(refusal) => Err(refusal),
+            YieldParse::Malformed(failure) => return Err(failure),
+        };
+        step = vm.resume_block_coro_answer(program, &thread, answer)?;
+    }
+}
+
+/// Compiles `source` as the one block of a test prompt.
+#[track_caller]
+pub(crate) fn block(source: &str) -> LuaProgram {
+    LuaProgram::compile(source, UNNAMED_FILE, "test program", NonZeroU32::MIN)
+        .expect("the test block compiles")
+}
+
+/// The text a block ended with: `None` for a block that ran off its end
+/// or returned no text.
+///
+/// # Errors
+/// Returns a `LuaRuntime` failure for a block that ended in a `jump`.
+pub(crate) fn returned_text(result: LuaBlockResult) -> Result<Option<String>> {
+    match result {
+        LuaBlockResult::RanOff => Ok(None),
+        LuaBlockResult::Returned(value) => Ok(value),
+        LuaBlockResult::Jump(path, _) => {
+            Err(make_lua_runtime_error(format!("unexpected jump to {path}")))
+        }
+    }
 }
 
 /// The result of running a section's Lua block with [`run_chunk`].
@@ -76,21 +159,21 @@ pub(crate) struct LuaOutcome {
     pub(crate) var: Json,
 }
 
-/// Runs a section's Lua chunk with `args` (a JSON object) and `sys`
-/// exposed, a writable `var` table available, and a `store` table backed
-/// by `access`, returning the chunk's return value and the final `var`.
-/// Store operations and `log` report through `emitter` under `section`;
-/// direct `print` is unavailable.
+/// Runs a section's Lua chunk as a block with `args` (a JSON object) and
+/// `sys` exposed, a writable `var` table available, and every yield shim
+/// installed, returning the block's return value and the final `var`. The
+/// block driver answers its `store` calls through `access`. `log` reports
+/// through `emitter` under `section`; direct `print` is unavailable.
 ///
 /// The `tools` table is the same validating one every section VM installs,
 /// over an empty shared set: a chunk that calls `tools.offer(...)` fails
 /// loudly because the run offers no tool.
 ///
 /// # Errors
-/// Returns the failure if the sandbox cannot be built, `args`, `sys`, `var`,
-/// or `store` cannot be bridged, the chunk fails to run (including a failing
-/// `store` op, which raises a Lua error), or it returns a value that cannot
-/// be rendered as a result string.
+/// Returns the failure if the sandbox cannot be built, `args`, `sys`, or
+/// `var` cannot be bridged, the block fails (a `store` failure it did not
+/// catch is that store failure), or it returns a value that cannot be
+/// rendered as a result string.
 pub(crate) fn run_chunk(
     source: &str,
     args: &Json,
@@ -99,20 +182,21 @@ pub(crate) fn run_chunk(
     emitter: &Emitter,
     section: &str,
 ) -> Result<LuaOutcome> {
-    let vm = SectionVm::new(
+    let mut vm = SectionVm::new(
         &GuardNonce::from_seed(&RunSeed::from_bytes([0; 32])),
         emitter,
         section,
     )?
-    .inject_test_values(args, sys, &access.access)
+    .inject_test_values(args, sys)
     .map_err(|failure| failure.teardown(emitter, section))?;
-    vm.install_engine_globals(emitter, section, &access.scope)?;
-    let returned: MultiValue = vm
-        .lua()
-        .load(source)
-        .eval()
-        .map_err(error::make_lua_error)?;
-    let returned = scalar_return(returned)?;
+    vm.install_engine_globals(emitter, section)?;
+    vm.install_control_globals(|path: String, _| {
+        Ok::<SectionRead, std::convert::Infallible>(SectionRead::Missing(make_lua_runtime_error(
+            format!("section `{path}` not found"),
+        )))
+    })?;
+    vm.install_coro_shims(1)?;
+    let returned = returned_text(drive_block(&vm, &block(source), access)?)?;
     let var = vm.var()?;
     Ok(LuaOutcome { returned, var })
 }
@@ -266,8 +350,8 @@ pub(crate) fn dynamic(vm: &SectionVm) -> Vec<String> {
 type Selection = Arc<Mutex<Option<ModelBinding>>>;
 
 /// A section VM's setup as data. Unset, the VM shares an empty tool and
-/// model set, reports nowhere under [`TEST_SECTION`], gets a fresh store,
-/// and an empty `args`, `sys`, and `var`.
+/// model set, reports nowhere under [`TEST_SECTION`], is driven over a
+/// fresh store, and gets an empty `args`, `sys`, and `var`.
 pub(crate) struct TestVm<'a> {
     tools: ToolSet,
     models: ModelSet,
@@ -320,8 +404,8 @@ impl<'a> TestVm<'a> {
         self
     }
 
-    /// The VFS access the `store` table operates through, beside the
-    /// handle on its scope.
+    /// The VFS access the block driver answers the VM's store requests
+    /// through, beside the handle on its scope.
     #[track_caller]
     pub(crate) fn access(mut self, access: ScopedAccess) -> Self {
         self.access = Some(access);
@@ -417,7 +501,7 @@ impl<'a> TestVm<'a> {
     #[track_caller]
     pub(crate) fn build(mut self) -> BuiltVm {
         let (mut vm, selection, access) = self.run_injection();
-        vm.install_engine_globals(&self.emitter, self.section, &access.scope)
+        vm.install_engine_globals(&self.emitter, self.section)
             .expect("the Engine globals install");
         if let Some(read) = self.shims.take() {
             vm.install_control_globals(move |path, from| {
@@ -461,7 +545,6 @@ impl<'a> TestVm<'a> {
             .inject_values(
                 self.args.unwrap_or(&empty),
                 self.sys.unwrap_or(&empty),
-                &access.access,
                 self.var,
                 &selection,
             )
@@ -476,14 +559,25 @@ pub(crate) struct BuiltVm {
     vm: SectionVm,
     /// The section's current-model selection, which injection received.
     pub(crate) selection: Selection,
-    /// The access the VM's `store` table operates through, beside the
-    /// handle on its scope.
+    /// The access the block driver answers the VM's store requests
+    /// through, beside the handle on its scope.
     pub(crate) access: ScopedAccess,
     emitter: Emitter,
     section: String,
 }
 
 impl BuiltVm {
+    /// Runs `program` as a block to its end, the block driver answering
+    /// its store requests through the VM's access. The VM needs the
+    /// coroutine shims.
+    ///
+    /// # Errors
+    /// Returns the block's own failure.
+    #[track_caller]
+    pub(crate) fn drive(&self, program: &LuaProgram) -> Result<LuaBlockResult> {
+        drive_block(&self.vm, program, &self.access)
+    }
+
     /// Evaluates `source` on the VM's main state under the chunk name
     /// `probe`, failing the test when it raises.
     #[track_caller]

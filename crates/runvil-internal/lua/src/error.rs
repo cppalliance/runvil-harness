@@ -301,8 +301,7 @@ pub(crate) fn author_line(lua: &Lua) -> Option<NonZeroU32> {
 
 /// Whether a failure with `code` is one the prompt's Lua causes as it
 /// runs, whose prose names what failed: a Lua failure, an exhausted quota,
-/// the call-depth cap, a failed substitution, or a misused task. A direct
-/// `store` closure gives its own failure that prose itself.
+/// the call-depth cap, a failed substitution, or a misused task.
 fn is_authored(code: ErrorCode) -> bool {
     matches!(
         code,

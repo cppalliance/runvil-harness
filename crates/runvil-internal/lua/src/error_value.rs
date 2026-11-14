@@ -489,12 +489,6 @@ pub fn store_error_value_fields(error: &runvil_vfs::VfsError) -> Vec<(String, Er
 /// plus `anchor` and its integer `count` for an anchor error, `rule` for an
 /// invalid path, or the integer `valid_up_to` for text that is not UTF-8.
 /// The rule is the tag `PathReason::tag` returns.
-///
-/// Both store paths, the direct closures a Pack prelude's install calls
-/// and the executor's effect path, build their failure here, so a store
-/// error value has the same `kind`, `code`, `reason`, and fields on both;
-/// only the direct closures put the store's message ahead of the default
-/// prose.
 #[must_use]
 pub fn make_store_error(error: &runvil_vfs::VfsError) -> Error {
     let code = store_error_code(error);

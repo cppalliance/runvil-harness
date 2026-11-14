@@ -26,7 +26,6 @@ use std::sync::{Arc, LazyLock, Mutex};
 use mlua::{Function, Lua, StdLib, Table, Value};
 use runvil_model_client::model::ModelBinding;
 
-use crate::engine_globals_store::route_store_to_shims;
 use crate::error::{self, Error, Result, TRACEBACK_HEADING, make_lua_error as map_lua};
 use crate::error_value::{install_error_value, normalized, raised_from, retained_error};
 use crate::hardening::CancelHook;
@@ -72,11 +71,6 @@ const YIELD_SOURCE: &str =
 /// `call_id` path.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) const MODEL_TOOL_CALL_REGISTRY: &str = "runvil.impl_coro.model_tool_call";
-
-/// The registry key for the shim's store function table, stashed by the
-/// shim install so the executor can install the store yield shims onto a
-/// VM's `store` table after the Pack preludes install.
-const STORE_REGISTRY: &str = "runvil.impl_coro.store";
 
 /// The registry key for the shim's block guard, stashed by the shim
 /// install so [`block_guard`] can wrap every block coroutine the VM starts.
@@ -180,7 +174,10 @@ impl StashedFailure {
 /// `models` and `tools` tables are passed to the shim chunk as arguments, so
 /// the chunk never reads a global; the chunk shims `models.infer` and installs
 /// `tools.call`, and the `call` shim comes back for the Engine to install as
-/// a global. The `tasks` namespace is a second chunk, run over the same
+/// a global. So does the chunk's `store` table, whose eight functions each
+/// yield one store request: it is installed as the `store` global here,
+/// ahead of the Pack preludes, so no store function ever runs outside a
+/// block coroutine. The `tasks` namespace is a second chunk, run over the same
 /// `yield` and `var_snapshot` captures plus the shim chunk's returned failure
 /// helpers, and installed as the `tasks` global; `fanout` is a third, run
 /// over the same captures plus the collection enumerator and the item
@@ -307,7 +304,10 @@ pub(crate) fn install_shims(
     let call_from: Function = shims.raw_get("call_from").map_err(map_lua)?;
     crate::library_env::register_shims(lua, call_from, spawn_from, fanout_from, &tasks)
         .map_err(map_lua)?;
-    stash_shims(lua, &shims)?;
+    #[cfg(any(test, feature = "test-support"))]
+    stash_model_tool_call(lua, &shims)?;
+    let store: Table = shims.raw_get("store").map_err(map_lua)?;
+    globals.raw_set("store", store).map_err(map_lua)?;
     for name in ["loop", "compact"] {
         let entry: Function = shims.raw_get(name).map_err(map_lua)?;
         models.raw_set(name, entry).map_err(map_lua)?;
@@ -428,19 +428,12 @@ fn selection_captures(
     Ok((get, set))
 }
 
-/// Stashes the shim chunk's `store` under its registry key, for the store
-/// install that reads it after the Pack preludes install, and in test
-/// builds its model-issued `tool_call` form under
+/// Stashes the shim chunk's model-issued `tool_call` form under
 /// `MODEL_TOOL_CALL_REGISTRY`.
-fn stash_shims(lua: &Lua, shims: &Table) -> Result<()> {
-    #[cfg(any(test, feature = "test-support"))]
-    {
-        let model_tool_call: Function = shims.raw_get("model_tool_call").map_err(map_lua)?;
-        lua.set_named_registry_value(MODEL_TOOL_CALL_REGISTRY, model_tool_call)
-            .map_err(map_lua)?;
-    }
-    let store: Table = shims.raw_get("store").map_err(map_lua)?;
-    lua.set_named_registry_value(STORE_REGISTRY, store)
+#[cfg(any(test, feature = "test-support"))]
+fn stash_model_tool_call(lua: &Lua, shims: &Table) -> Result<()> {
+    let model_tool_call: Function = shims.raw_get("model_tool_call").map_err(map_lua)?;
+    lua.set_named_registry_value(MODEL_TOOL_CALL_REGISTRY, model_tool_call)
         .map_err(map_lua)
 }
 
@@ -534,34 +527,6 @@ pub(crate) fn take_failure(lua: &Lua) -> Result<StashedFailure> {
         table,
         traceback,
     })
-}
-
-/// Installs the store yield shims onto a VM's `store` table, replacing the
-/// dispatchers installed with the other Engine globals, and switches those
-/// dispatchers to the shims too, so a store function a Pack prelude
-/// captured before this call (`local write = store.write`) yields as well.
-/// Every store operation, through whichever reference the prompt holds,
-/// then suspends the block as a leaf yield.
-/// [`Request::Store`](crate::Request::Store) states why every backend takes
-/// this path. The Harness performs each one as an `Effect::Vfs`, and a
-/// claims-model conflict through any of them ends the run with a
-/// make_determinism_error violation that `pcall` cannot catch.
-///
-/// The executor's section setup is the only caller.
-///
-/// # Errors
-/// Returns a `LuaRuntime` failure if the shim install never ran on this VM, the
-/// `store` table is absent, or the install fails.
-pub fn install_store_shims(lua: &Lua) -> Result<()> {
-    let shims: Table = lua.named_registry_value(STORE_REGISTRY).map_err(map_lua)?;
-    let store: Table = lua.globals().raw_get("store").map_err(map_lua)?;
-    // `pairs` order is unspecified; every iteration only assigns one named
-    // function into `store`, so the resulting table does not depend on it.
-    for pair in shims.pairs::<String, Function>() {
-        let (name, function) = pair.map_err(map_lua)?;
-        store.raw_set(name, function).map_err(map_lua)?;
-    }
-    route_store_to_shims(lua, &shims)
 }
 
 #[cfg(test)]

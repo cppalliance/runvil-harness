@@ -6,10 +6,11 @@
 //! functions that survive hardening, the `string`, `table`, `math`, and `utf8`
 //! libraries, `tools`, `store`, `untrusted`, `json`, and a view of `var` that is
 //! read-only at every depth, each read from `_G` when the prelude installs. Reading them then means
-//! `pcall` and `xpcall` are the coroutine shim's normalized versions and
-//! `tools.call` is its yield shim, and because the store yield shims later
-//! land in the same `store` table, a prelude function called from a block
-//! reaches them too. Every other global, another prelude's included, reads
+//! `pcall` and `xpcall` are the coroutine shim's normalized versions, and
+//! `tools.call` and the `store` functions are its yield shims, which
+//! suspend only inside a block. So a prelude's own code calls neither
+//! while it installs, and a function it defines calls them when a block
+//! calls that function. Every other global, another prelude's included, reads
 //! as nil. Functions the prelude defines keep this environment when author
 //! code calls them later.
 //!
@@ -67,7 +68,8 @@ const VISIBLE_GLOBALS: [&str; 21] = [
 ///
 /// The Engine's section setup calls this after the coroutine yield shims
 /// install and before `require` does. The chunk is not a coroutine, so a
-/// prelude that calls `tools.call` while loading fails.
+/// prelude that calls `tools.call` or a `store` function while loading
+/// fails, and the store is untouched.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure naming the Pack when a prelude fails to
@@ -234,7 +236,7 @@ fn make_load_failure_error(pack: &PackId, error: &mlua::Error) -> Error {
     };
     let mut message = format!(
         "Pack `{pack}`: its prelude failed to load: {head}. A prelude only \
-         defines functions; it must not call tools while loading."
+         defines functions; it must not call tools or the store while loading."
     );
     if let Some(traceback) = traceback {
         message.push_str(TRACEBACK_HEADING);

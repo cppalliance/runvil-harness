@@ -28,11 +28,11 @@
 //! for prose substitution.
 //!
 //! The `store` table is a deterministic Engine global (like `var`), always
-//! present and independent of tool scoping. Its methods are backed by the
-//! store view derived from the run's VFS access capability, threaded in
-//! from the executor, so every section
+//! present and independent of tool scoping. Each of its functions suspends
+//! the block and hands the executor one store request, so every section
 //! in a run shares one set of virtual files even though contexts clear on each
-//! transition. A failed store op raises a structured error value of kind
+//! transition, and no store operation runs outside a block. A failed store
+//! op raises a structured error value of kind
 //! `store` carrying its `reason` and fields, which surfaces from the
 //! block's coroutine (`SectionVm::start_block_coro` and its resumes) as
 //! that store failure, never as a Lua runtime error.
@@ -137,7 +137,6 @@ pub use crate::bindings::{
 };
 pub use crate::collection::render_item;
 pub use crate::compactors::{OverflowReason, UsageAnchor, output_reserve, precheck};
-pub use crate::coro::install_store_shims;
 pub use crate::dispatch::{ScriptReport, ToolDispatch, prepare_dispatch, prepare_model_dispatch};
 pub use crate::engine_globals::install_ui;
 pub use crate::engine_globals_store::{

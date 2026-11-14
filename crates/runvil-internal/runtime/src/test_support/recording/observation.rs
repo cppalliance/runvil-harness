@@ -15,10 +15,6 @@ use serde_json::Value;
 /// The payload-free observations as named constants, the spelling the
 /// suites' expected sequences use.
 #[cfg(test)]
-#[expect(
-    dead_code,
-    reason = "the constants name the whole observation vocabulary; a suite uses the subset it asserts on"
-)]
 pub(crate) mod detail {
     use super::Observation;
 

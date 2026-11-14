@@ -187,7 +187,7 @@ fn an_injection_of_args_that_are_not_an_object_is_refused_as_internal() {
     let refused = |args: &Json| {
         SectionVm::new(&test_nonce(), &null_emitter(), "Args")
             .expect("VM must build")
-            .inject_test_values(args, &json!({}), &fresh_access().access)
+            .inject_test_values(args, &json!({}))
             .expect_err("args that are not an object are refused")
             .teardown(&null_emitter(), "Args")
     };

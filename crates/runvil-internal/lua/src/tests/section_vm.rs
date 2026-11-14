@@ -38,21 +38,16 @@ fn two_fresh_section_vms_yield_the_same_key_order() {
 
 #[test]
 fn section_vm_preserves_one_environment_across_all_phases() {
-    // The first chunk runs with every Engine global installed, so its top
+    // The first block runs with every Engine global installed, so its top
     // level reads `args` and `store`; the functions it defines resolve the
-    // same globals when later chunks call them.
-    let first = program(
-        "first_saw_args = args.text\n\
-             first_saw_store = store.read('seed.txt')\n\
-             function decorate(value) return '<' .. value .. '>' end",
-    );
-    let prologue = program(
-        "var.decorated = decorate(args.text)\n\
-             store.write('phase.txt', var.decorated)",
-    );
-    let between = program("phase_marker = 'model answer'");
-    let epilog =
-        program("return decorate(phase_marker) .. ':' .. first_saw_args .. ':' .. first_saw_store");
+    // same globals when later blocks call them.
+    let first = "first_saw_args = args.text\n\
+                 first_saw_store = store.read('seed.txt')\n\
+                 function decorate(value) return '<' .. value .. '>' end";
+    let prologue = "var.decorated = decorate(args.text)\n\
+                    store.write('phase.txt', var.decorated)";
+    let between = "phase_marker = 'model answer'";
+    let epilog = "return decorate(phase_marker) .. ':' .. first_saw_args .. ':' .. first_saw_store";
     let access = fresh_access();
     let store = store_view(&access);
     store
@@ -63,15 +58,13 @@ fn section_vm_preserves_one_environment_across_all_phases() {
     let vm = TestVm::new()
         .args(&args)
         .sys(&sys)
-        .access(access.clone())
-        .inject();
-    vm.install_engine_globals(&null_emitter(), "Test", &access.scope)
-        .expect("Engine globals must install");
-    run_scalar(&vm, &first, &null_emitter(), "Test")
-        .expect("the first chunk must run with the full environment");
+        .access(access)
+        .shims()
+        .build();
+    drive_scalar(&vm, first).expect("the first block must run with the full environment");
 
     assert_eq!(
-        run_scalar(&vm, &prologue, &null_emitter(), "Test").expect("prologue must run"),
+        drive_scalar(&vm, prologue).expect("prologue must run"),
         None
     );
     assert_eq!(
@@ -88,9 +81,9 @@ fn section_vm_preserves_one_environment_across_all_phases() {
         "<input>"
     );
 
-    run_scalar(&vm, &between, &null_emitter(), "Test").expect("the between chunk must run");
+    drive_scalar(&vm, between).expect("the between block must run");
     assert_eq!(
-        run_scalar(&vm, &epilog, &null_emitter(), "Test")
+        drive_scalar(&vm, epilog)
             .expect("epilog must run")
             .as_deref(),
         Some("<model answer>:input:seeded")
@@ -107,7 +100,6 @@ fn a_refused_injection_hands_back_the_vm_for_its_teardown() {
         .inject_values(
             &json!({}),
             &json!({}),
-            &fresh_access().access,
             Some(&json!(5)),
             &Arc::new(Mutex::new(None)),
         )
@@ -168,7 +160,6 @@ fn section_vm_value_injection_bypasses_chunk_global_metatables() {
          args.text .. ',' .. type(fixtures_search) .. ',' .. tools.get('fixtures/search').id",
     );
     let bindings = fixture_set(&[("search", "search the web")]);
-    let access = fresh_access();
     let vm = SectionVm::new_for_section(
         &test_nonce(),
         &Arc::new(bindings),
@@ -177,14 +168,10 @@ fn section_vm_value_injection_bypasses_chunk_global_metatables() {
         "Test",
     )
     .expect("VM must build")
-    .inject_test_values(
-        &json!({ "text": "private input" }),
-        &json!({}),
-        &access.access,
-    )
+    .inject_test_values(&json!({ "text": "private input" }), &json!({}))
     .expect("Engine values must inject");
     let observer = null_emitter();
-    vm.install_engine_globals(&observer, "Test", &access.scope)
+    vm.install_engine_globals(&observer, "Test")
         .expect("Engine globals must install");
     run_scalar(&vm, &intercept, &null_emitter(), "Test").expect("the intercepting chunk must run");
 
@@ -194,45 +181,6 @@ fn section_vm_value_injection_bypasses_chunk_global_metatables() {
             .as_deref(),
         Some("nil,nil,private input,nil,fixtures/search")
     );
-}
-
-#[test]
-fn section_vm_reports_store_operations_in_each_chunk() {
-    let write = program("store.write('state.txt', args.text)");
-    let read = program("return store.read('state.txt')");
-    let recorder = Recorder::default();
-    let access = fresh_access();
-    let args = json!({ "text": "private input" });
-    let vm = TestVm::new()
-        .section("Gather")
-        .args(&args)
-        .access(access.clone())
-        .inject();
-    let observer = recorder.emitter().clone();
-    vm.install_engine_globals(&observer, "Gather", &access.scope)
-        .expect("Engine globals must install");
-
-    run_scalar(&vm, &write, recorder.emitter(), "Gather").expect("first chunk write must run");
-    run_scalar(&vm, &read, recorder.emitter(), "Gather").expect("second chunk read must run");
-    vm.teardown(recorder.emitter(), "Gather");
-
-    assert_eq!(
-        recorder.observations(),
-        vec![
-            ("Gather".to_owned(), boundary::LUA_CHUNK_STARTED.clone(),),
-            ("Gather".to_owned(), boundary::VFS_WRITE_SUCCEEDED.clone(),),
-            ("Gather".to_owned(), boundary::LUA_CHUNK_SUCCEEDED.clone(),),
-            ("Gather".to_owned(), boundary::LUA_CHUNK_STARTED.clone(),),
-            ("Gather".to_owned(), boundary::VFS_READ_SUCCEEDED.clone(),),
-            ("Gather".to_owned(), boundary::LUA_CHUNK_SUCCEEDED.clone(),),
-            ("Gather".to_owned(), boundary::LUA_TEARDOWN_STARTED.clone(),),
-            (
-                "Gather".to_owned(),
-                boundary::LUA_TEARDOWN_SUCCEEDED.clone(),
-            ),
-        ]
-    );
-    assert_identity_only(&recorder);
 }
 
 #[test]
@@ -266,10 +214,9 @@ fn section_vm_accepts_only_scalar_top_level_returns() {
 fn section_vms_isolate_mutated_globals() {
     let seed = program("counter = 0");
     let increment = program("counter = counter + 1; return counter");
-    let access = fresh_access();
-    let first = TestVm::new().access(access.clone()).build();
+    let first = TestVm::new().build();
     run_scalar(&first, &seed, &null_emitter(), "First").expect("first VM must seed");
-    let second = TestVm::new().access(access).build();
+    let second = TestVm::new().build();
     run_scalar(&second, &seed, &null_emitter(), "Second").expect("second VM must seed");
 
     assert_eq!(
@@ -298,17 +245,12 @@ fn section_lifecycle_reports_are_ordered_exact_and_payload_free() {
     let prologue = program("var.value = args.text");
     let epilog = program("return 'epilog done'");
     let recorder = Recorder::default();
-    let access = fresh_access();
     let vm = SectionVm::new(&test_nonce(), recorder.emitter(), "Gather")
         .expect("VM must build")
-        .inject_test_values(
-            &json!({ "text": "private input" }),
-            &json!({}),
-            &access.access,
-        )
+        .inject_test_values(&json!({ "text": "private input" }), &json!({}))
         .expect("Engine values must inject");
     let observer = recorder.emitter().clone();
-    vm.install_engine_globals(&observer, "Gather", &access.scope)
+    vm.install_engine_globals(&observer, "Gather")
         .expect("Engine globals must install");
     run_scalar(&vm, &first, recorder.emitter(), "Gather").expect("the first chunk must run");
     run_scalar(&vm, &prologue, recorder.emitter(), "Gather").expect("prologue must run");

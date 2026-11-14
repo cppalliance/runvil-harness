@@ -12,9 +12,7 @@ use mlua::{Lua, Value};
 use runvil_model_client::model::ModelSet;
 use runvil_types::emitter::Emitter;
 use runvil_types::tools::{ToolId, ToolInfo};
-use runvil_vfs::{
-    Access, AcquireContext, ExecId, Origin, Vfs, VfsAccess, VfsError, VfsPath, VfsRef,
-};
+use runvil_vfs::Access;
 use serde_json::{Value as Json, json};
 
 use self::recording::{Observation, Recorder, boundary, null_emitter};
@@ -26,7 +24,8 @@ use crate::error::{Error, Result};
 use crate::hardening::install_cancel_hook;
 use crate::section::resolve_section_target;
 use crate::test_vm::{
-    BuiltVm, LuaOutcome, ScopedAccess, TEST_SECTION, TestVm, fresh_access, run_chunk, test_nonce,
+    BuiltVm, LuaOutcome, ScopedAccess, TEST_SECTION, TestVm, block, fresh_access, returned_text,
+    run_chunk, test_nonce,
 };
 use crate::var::{guarded_var, var_snapshot_table, var_to_json};
 use crate::vm::DEFAULT_LUA_LOG_EVENTS;
@@ -40,7 +39,6 @@ mod block_endings;
 mod budgets;
 mod cancellation;
 mod diagnostics;
-mod engine_misuse;
 mod json;
 mod library_load;
 mod logging;
@@ -51,18 +49,15 @@ mod sandbox;
 mod section_vm;
 mod store;
 mod store_errors;
-mod store_reports;
 mod sys_and_var;
 mod tool_scoping;
 mod views;
 
-/// The store view derived from a test's access: the same view the `store`
-/// table's closures operate through, for seeding and extraction.
+/// The store view derived from a test's access: the same view the block
+/// driver performs the VM's store requests through, for seeding and
+/// extraction.
 fn store_view(access: &ScopedAccess) -> Access {
-    access
-        .scope
-        .store_view(&access.access)
-        .expect("the handle declares a store")
+    access.store_view()
 }
 
 /// The fields every event carries ahead of its payload, sorted: its
@@ -131,97 +126,18 @@ fn lua_error_message(error: &Error) -> &str {
     &error.message
 }
 
-/// A backend whose every operation fails. The error is `Backend` rather
-/// than `NotFound` so the facade's idempotent-delete mapping (absent is
-/// `Ok`) cannot swallow the failure: every op must reach Lua as an error.
-#[derive(Debug)]
-struct FailingBackend;
-
-impl FailingBackend {
-    fn error(path: &VfsPath) -> VfsError {
-        VfsError::Backend {
-            message: format!("the failing backend rejects every operation: {path}"),
-        }
-    }
+/// Returns the message of a store failure whose code is `code`.
+#[track_caller]
+fn store_failure_message(error: &Error, code: ErrorCode) -> &str {
+    assert_eq!(
+        error.code, code,
+        "expected the store failure {code:?}, got {error:?}"
+    );
+    &error.message
 }
 
-impl Vfs for FailingBackend {
-    fn acquire(
-        &mut self,
-        cx: &AcquireContext,
-    ) -> std::result::Result<Box<dyn VfsAccess>, VfsError> {
-        let _ = cx;
-        Ok(Box::new(FailingAccess))
-    }
-
-    fn release(&mut self, id: ExecId) -> std::result::Result<(), VfsError> {
-        let _ = id;
-        Ok(())
-    }
-}
-
-struct FailingAccess;
-
-impl VfsAccess for FailingAccess {
-    fn read(&self, path: &VfsPath) -> std::result::Result<Vec<u8>, VfsError> {
-        Err(FailingBackend::error(path))
-    }
-
-    fn write(&mut self, path: &VfsPath, _contents: &[u8]) -> std::result::Result<(), VfsError> {
-        Err(FailingBackend::error(path))
-    }
-
-    fn append(&mut self, path: &VfsPath, _contents: &[u8]) -> std::result::Result<(), VfsError> {
-        Err(FailingBackend::error(path))
-    }
-
-    fn remove(&mut self, path: &VfsPath, _recursive: bool) -> std::result::Result<(), VfsError> {
-        Err(FailingBackend::error(path))
-    }
-
-    fn exists(&self, path: &VfsPath) -> std::result::Result<bool, VfsError> {
-        Err(FailingBackend::error(path))
-    }
-
-    fn glob(&self, pattern: &str) -> std::result::Result<Vec<String>, VfsError> {
-        Err(VfsError::Backend {
-            message: format!("the failing backend rejects every operation: {pattern}"),
-        })
-    }
-
-    fn list(&self, path: &VfsPath) -> std::result::Result<Vec<runvil_vfs::Entry>, VfsError> {
-        Err(FailingBackend::error(path))
-    }
-
-    fn stat(&self, path: &VfsPath) -> std::result::Result<runvil_vfs::Stat, VfsError> {
-        Err(FailingBackend::error(path))
-    }
-
-    fn mkdir(&mut self, path: &VfsPath, _recursive: bool) -> std::result::Result<(), VfsError> {
-        Err(FailingBackend::error(path))
-    }
-
-    fn rename(&mut self, from: &VfsPath, _to: &VfsPath) -> std::result::Result<(), VfsError> {
-        Err(FailingBackend::error(from))
-    }
-
-    fn copy(&mut self, from: &VfsPath, _to: &VfsPath) -> std::result::Result<(), VfsError> {
-        Err(FailingBackend::error(from))
-    }
-}
-
-/// The access a failing backend vends, for tests driving the error path:
-/// the failing backend declared as the store, so the store view derives
-/// and every operation reaches the backend's refusal.
-fn failing_access() -> ScopedAccess {
-    ScopedAccess::acquire(
-        &VfsRef::builder().store("/", FailingBackend).build(),
-        Origin::new("failing backend test"),
-    )
-}
-
-/// Runs a chunk on a fresh store, with the JSON object `args` as its
-/// `args` table.
+/// Runs a chunk as a block over a fresh store, with the JSON object `args`
+/// as its `args` table.
 fn run(source: &str, args: &Json) -> Result<LuaOutcome> {
     run_chunk(
         source,
@@ -233,8 +149,8 @@ fn run(source: &str, args: &Json) -> Result<LuaOutcome> {
     )
 }
 
-/// Runs a chunk against a caller-supplied access, so a test can inspect the
-/// store through the same identity after the chunk has run.
+/// Runs a chunk as a block against a caller-supplied access, so a test can
+/// inspect the store through the same identity after the block has run.
 fn run_with(source: &str, access: &ScopedAccess) -> Result<LuaOutcome> {
     run_chunk(
         source,
@@ -246,32 +162,28 @@ fn run_with(source: &str, access: &ScopedAccess) -> Result<LuaOutcome> {
     )
 }
 
-/// Runs one chunk on an existing VM and unwraps the text it returned,
-/// `None` for a chunk that ran off its end or returned no text, failing
-/// the test on a `jump` transfer.
+/// Runs one chunk on an existing VM's main state and unwraps the text it
+/// returned, `None` for a chunk that ran off its end or returned no text,
+/// failing the test on a `jump` transfer.
 fn run_scalar(
     vm: &SectionVm,
     program: &LuaProgram,
     emitter: &Emitter,
     section: &str,
 ) -> Result<Option<String>> {
-    match vm.run_chunk(program, emitter, section)? {
-        LuaBlockResult::RanOff => Ok(None),
-        LuaBlockResult::Returned(value) => Ok(value),
-        LuaBlockResult::Jump(path, _) => Err(crate::error::make_lua_runtime_error(format!(
-            "unexpected jump to {path}"
-        ))),
-    }
+    returned_text(vm.run_chunk(program, emitter, section)?)
 }
 
+/// Drives `source` as one block of a built VM that holds the coroutine
+/// shims, the block driver answering its store requests, and unwraps the
+/// text it returned as [`run_scalar`] does.
+fn drive_scalar(vm: &BuiltVm, source: &str) -> Result<Option<String>> {
+    returned_text(vm.drive(&block(source))?)
+}
+
+/// Compiles `source` as the one block of a test prompt.
 fn program(source: &str) -> LuaProgram {
-    LuaProgram::compile(
-        source,
-        "prompt",
-        "test program",
-        NonZeroU32::new(1).expect("compile source line is non-zero"),
-    )
-    .expect("test Lua must compile")
+    block(source)
 }
 
 /// A fixture tool as data: `fixtures/<name>`. The VM binds `ToolInfo`
@@ -380,9 +292,10 @@ pub(crate) fn assert_chunk_name_resolves(constant: &str, chunk_name: &str, embed
 }
 
 /// The refusal a `pcall` caught, from the caught error's `tostring`: the
-/// text its author prose names when the shim's `pcall` caught it where no
-/// prompt block runs, or its first line without the `runtime error: `
-/// prefix mlua renders when the base `pcall` did.
+/// text its author prose names when the shim's `pcall` caught it, behind
+/// the `file:line` of the prompt block that ran, if one did, or its first
+/// line without the `runtime error: ` prefix mlua renders when the base
+/// `pcall` did.
 pub(crate) fn refusal_line(caught: &str) -> Option<&str> {
     if let Some(text) = caught.strip_suffix(format!(". {}", ErrorCode::LuaRuntime.prose()).as_str())
     {

@@ -22,7 +22,6 @@ use std::sync::{Arc, Mutex};
 use runvil_types::event_lifecycle;
 use runvil_types::ids::TaskId;
 use runvil_types::tools::ToolId;
-use runvil_vfs::{Access, ScopeHandle};
 
 use crate::lua::{
     Library, LibraryKey, ProseState, ScriptReport, SectionVm, ToolCallCounts, Uninjected,
@@ -166,21 +165,14 @@ impl SectionContext {
     /// is the entering chain's `sys.taskid`. `var` is the walk's current
     /// `var` table, seeded into the section's VM. `seed` holds a spawned
     /// chain's `item` and `sys.index` on its first entry and is empty on
-    /// every other entry. `scope` is the handle on the run's scope, which
-    /// derives the `store` table's view of `access`.
+    /// every other entry.
     ///
     /// # Errors
     /// Returns an `Internal` failure when `pos` is past its slice, and
     /// otherwise the failure of whichever step failed (see [`section_vm`]
     /// for which failures tear the VM down).
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the frame takes the two chain-owned handles (access and selection) and the run's scope handle beside the section entry's own deltas, and each stays a separate borrow"
-    )]
     pub(crate) fn new(
         ctx: &ChainState,
-        access: &Arc<Access>,
-        scope: &ScopeHandle,
         selection: &Arc<Mutex<Option<ModelBinding>>>,
         pos: &SectionPos,
         section_id: &str,
@@ -217,8 +209,6 @@ impl SectionContext {
                 var: Some(var),
                 item: seed.item.as_ref(),
             },
-            access,
-            scope,
             selection,
             section.name(),
         );

@@ -23,7 +23,7 @@ pub(crate) use runvil_lua::{
     SectionRead, SectionText, SectionVm, TaskDelivery, TaskPhase, TaskStatus, ToolBinding,
     ToolCallCounts, ToolCallOutcome, ToolCallRecord, ToolSet, Uninjected, UsageAnchor, VfsOp,
     VfsOutcome, YieldParse, current_catalog_packs, current_dynamic_set, current_static_set,
-    install_preludes, install_store_shims, install_ui, output_reserve, precheck, prepare_dispatch,
+    install_preludes, install_ui, output_reserve, precheck, prepare_dispatch,
     prepare_model_dispatch, project_messages, render_item, wire_name_of,
 };
 

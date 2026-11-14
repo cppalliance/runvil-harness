@@ -1,5 +1,5 @@
-//! Compatibility-chunk returns, the read-only `sys` table, and the guarded
-//! `var` table.
+//! What a block returns, the read-only `sys` table, and the guarded `var`
+//! table.
 
 use super::*;
 
@@ -15,10 +15,15 @@ fn returns_an_args_field_verbatim() {
 }
 
 #[test]
-fn expression_only_compatibility_chunk_returns_its_value() {
-    assert_eq!(
-        run("42", &json!({})).unwrap().returned.as_deref(),
-        Some("42")
+fn an_expression_only_block_does_not_compile() {
+    // A block is a chunk of statements: it gives a value with `return`,
+    // and a bare expression is a syntax error.
+    let error = LuaProgram::compile("42", "prompt", "test program", NonZeroU32::MIN)
+        .expect_err("a bare expression is no chunk of statements");
+    assert_eq!(error.code, ErrorCode::LuaCompile, "{error:?}");
+    assert!(
+        error.message.contains("unexpected symbol near '42'"),
+        "the failure holds the Lua diagnostic: {error:?}"
     );
 }
 
@@ -76,10 +81,18 @@ fn writing_sys_field_is_a_lua_error() {
 
 #[test]
 fn a_sys_write_raises_the_whole_refusal_for_a_string_integer_or_other_key() {
+    // The block's `pcall` catches the refusal as an error table, whose
+    // text places it on the line of the write.
     for (target, refusal) in [
-        ("sys.extra", "sys is read-only; cannot set 'extra'"),
-        ("sys[1]", "sys is read-only; cannot set '1'"),
-        ("sys[true]", "sys is read-only; cannot set 'boolean'"),
+        (
+            "sys.extra",
+            "prompt:1: sys is read-only; cannot set 'extra'",
+        ),
+        ("sys[1]", "prompt:1: sys is read-only; cannot set '1'"),
+        (
+            "sys[true]",
+            "prompt:1: sys is read-only; cannot set 'boolean'",
+        ),
     ] {
         let source =
             format!("local ok, err = pcall(function() {target} = 1 end)\nreturn tostring(err)");
@@ -143,7 +156,7 @@ fn var_rejects_a_nested_function_at_the_assigning_line() {
 fn var_guard_error_is_catchable_at_the_assigning_line() {
     // A pcall around the write catches the guard's error, proving the failure
     // is raised by that statement rather than later at serialization. The
-    // caught value is mlua's error userdata, so stringify before matching.
+    // caught value is an error table, so stringify before matching.
     let out = run(
         "local ok, err = pcall(function() var.f = function() end end)\n\
          assert(not ok, 'the write must fail')\n\

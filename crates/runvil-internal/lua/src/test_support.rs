@@ -11,7 +11,6 @@ use runvil_types::emitter::Emitter;
 use runvil_types::event_lifecycle;
 use runvil_types::packs::PackId;
 use runvil_types::tools::ToolInfo;
-use runvil_vfs::Access;
 
 use crate::bindings::{RosterEntry, ToolBinding, ToolSet};
 use crate::coro::MODEL_TOOL_CALL_REGISTRY;
@@ -165,11 +164,10 @@ impl SectionVm<Uninjected> {
         self,
         args: &serde_json::Value,
         sys: &serde_json::Value,
-        access: &Arc<Access>,
     ) -> std::result::Result<SectionVm, InjectFailure> {
         let set = &self.bound_models;
         let selection = Arc::new(Mutex::new(set.binding("default").cloned()));
-        self.inject_values(args, sys, access, None, &selection)
+        self.inject_values(args, sys, None, &selection)
     }
 }
 
@@ -178,8 +176,9 @@ impl SectionVm {
     ///
     /// The test path that runs a section's Lua block without the scheduler;
     /// production drives blocks through
-    /// [`start_block_coro`](Self::start_block_coro). Store and
-    /// `log` reports go to the emitter captured by
+    /// [`start_block_coro`](Self::start_block_coro), and a call that
+    /// suspends, a `store` call included, fails here. `log` reports go to
+    /// the emitter captured by
     /// [`install_engine_globals`](Self::install_engine_globals). The chunk
     /// is called with the ran-off marker, as a block coroutine calls it, so
     /// a chunk that runs off its end produces [`LuaBlockResult::RanOff`]

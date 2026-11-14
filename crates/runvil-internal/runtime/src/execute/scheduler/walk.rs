@@ -100,11 +100,9 @@ impl ChainOps<'_> {
     ///
     /// # Errors
     /// Returns the failure of frame construction, as documented on
-    /// [`SectionContext::new`], or an `Internal` failure when the run holds
-    /// no scope handle.
+    /// [`SectionContext::new`].
     fn enter_section(&mut self) -> Result<bool> {
         let prompt = self.prompt();
-        let scope = self.scope()?;
         let chain = &mut *self.chain;
         // `section` borrows the shared prompt tree, not the arena, so the
         // frame construction can borrow the chain's own context and slots.
@@ -118,8 +116,6 @@ impl ChainOps<'_> {
         let seed = std::mem::take(&mut chain.seed);
         let frame = SectionContext::new(
             &chain.ctx,
-            chain.access()?,
-            scope,
             &chain.selection,
             chain.walk.current(),
             &section_id,

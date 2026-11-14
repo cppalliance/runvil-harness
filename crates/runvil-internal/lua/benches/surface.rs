@@ -47,15 +47,7 @@ fn builder_vm() -> SectionVm {
         SECTION,
     )
     .expect("the bench VM builds")
-    .inject_test_values(
-        &json!({}),
-        &json!({}),
-        &std::sync::Arc::new(
-            runvil_vfs::VfsRef::default()
-                .acquire(runvil_vfs::Origin::new("surface bench"))
-                .expect("the stock backend acquires"),
-        ),
-    )
+    .inject_test_values(&json!({}), &json!({}))
     .expect("value injection installs the messages list")
 }
 

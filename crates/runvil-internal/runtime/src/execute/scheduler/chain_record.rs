@@ -380,8 +380,9 @@ pub(super) struct Chain {
     /// The chain's current model, shared with each section VM it enters:
     /// it starts on the chain's starting model; `models.use` rewrites it.
     pub(super) selection: Arc<Mutex<Option<crate::model::ModelBinding>>>,
-    /// The chain's VFS access capability, installed into each section VM
-    /// the chain enters: the root walk holds the run's root
+    /// The chain's VFS access capability, which each store operation's
+    /// view and each tool call's identity derive from: the root walk holds
+    /// the run's root
     /// identity, a call chain borrows its parent's (a blocking child is
     /// the same serial thread - no new identity, no false conflicts), and
     /// a task chain forks its own from its spawner's, joined back into
@@ -443,9 +444,10 @@ impl fmt::Debug for Chain {
 }
 
 impl Chain {
-    /// The chain's access capability for section-VM installation. A live
-    /// chain always holds one; `finish` and `abort_subtree` take it at
-    /// chain end.
+    /// The chain's access capability, which its store views and the
+    /// identities of its tasks and tool calls derive from. A live chain
+    /// always holds one; `finish` and `abort_subtree` take it at chain
+    /// end.
     ///
     /// # Errors
     /// Returns an `Internal` failure when the chain's capability is gone,
