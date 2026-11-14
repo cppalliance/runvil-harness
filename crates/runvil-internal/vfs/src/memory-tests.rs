@@ -207,6 +207,23 @@ fn glob_results_are_sorted_and_include_directories() -> Result<(), VfsError> {
 }
 
 #[test]
+fn no_glob_pattern_matches_the_root() -> Result<(), VfsError> {
+    // The root holds every stored path and is not one itself, though
+    // `/*` and `/**` match its spelling.
+    let empty = seeded_session(&[])?;
+    for pattern in ["/", "/*", "/**", "/**/*"] {
+        assert_eq!(empty.glob(pattern)?, Vec::<String>::new(), "{pattern}");
+    }
+    let access = seeded_session(&[("/d/a.txt", "")])?;
+    assert_eq!(access.glob("/*")?, vec!["/d".to_owned()]);
+    assert_eq!(
+        access.glob("/**")?,
+        vec!["/d".to_owned(), "/d/a.txt".to_owned()]
+    );
+    Ok(())
+}
+
+#[test]
 fn glob_rejects_invalid_patterns() -> Result<(), VfsError> {
     let access = seeded_session(&[("/f.txt", "x")])?;
     assert_eq!(

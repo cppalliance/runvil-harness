@@ -423,6 +423,19 @@ fn the_strict_path_rules_apply_to_glob_patterns() -> Result<(), VfsError> {
 }
 
 #[test]
+fn a_directory_glob_never_returns_the_stores_root() -> Result<(), VfsError> {
+    let view = fresh_view(&Store::new())?;
+    // An empty store holds no directory: its root is not a stored path.
+    for pattern in ["*/", "**/"] {
+        assert_eq!(view.glob(pattern)?, Vec::<String>::new(), "{pattern}");
+    }
+    view.write("dir/a.txt", b"")?;
+    assert_eq!(view.glob("*/")?, ["dir"]);
+    assert_eq!(view.glob("**/")?, ["dir"]);
+    Ok(())
+}
+
+#[test]
 fn error_paths_come_back_in_the_callers_logical_form() -> Result<(), VfsError> {
     let store = Store::new();
     let view = fresh_view(&store)?;

@@ -46,6 +46,19 @@ fn glob_returns_files_and_a_trailing_slash_selects_directories() -> Result<(), V
 }
 
 #[test]
+fn a_directory_glob_never_returns_the_root() -> Result<(), VfsError> {
+    let access = access(&VfsRef::default())?;
+    // Nothing is stored yet, and the root is not a stored path.
+    for pattern in ["/", "/*/", "*/", "/**/"] {
+        assert_eq!(access.glob(pattern)?, Vec::<String>::new(), "{pattern}");
+    }
+    access.write("/d/a.txt", b"")?;
+    assert_eq!(access.glob("/*/")?, vec!["/d".to_owned()]);
+    assert_eq!(access.glob("*/")?, vec!["d".to_owned()]);
+    Ok(())
+}
+
+#[test]
 fn glob_refuses_a_backslash_in_the_raw_pattern() -> Result<(), VfsError> {
     let access = access(&VfsRef::default())?;
     access.write("/a.txt", b"")?;

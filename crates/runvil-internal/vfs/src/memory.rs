@@ -261,7 +261,10 @@ impl VfsAccess for MemoryAccess {
             .files
             .keys()
             .chain(tree.dirs.iter())
-            .filter(|key| matches_tokens(&tokens, key.as_bytes()))
+            // The root holds every stored path and is not one itself, so
+            // no pattern matches it. Without this, `/*` matches it with
+            // an empty segment.
+            .filter(|key| key.as_str() != "/" && matches_tokens(&tokens, key.as_bytes()))
             .cloned()
             .collect();
         matches.sort_unstable();

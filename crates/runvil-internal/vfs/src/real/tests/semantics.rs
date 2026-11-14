@@ -51,6 +51,20 @@ fn glob_returns_files_and_a_trailing_slash_selects_directories() -> Result<(), V
 }
 
 #[test]
+fn a_directory_glob_never_returns_the_root() -> Result<(), VfsError> {
+    let temp = TempRoot::new("a_directory_glob_never_returns_the_root");
+    let access = rooted(&temp)?.acquire(Origin::new("real semantics test"))?;
+    // Nothing is stored yet, and the root is not a stored path.
+    for pattern in ["/", "/*/", "*/", "/**/"] {
+        assert_eq!(access.glob(pattern)?, Vec::<String>::new(), "{pattern}");
+    }
+    access.write("/d/a.txt", b"")?;
+    assert_eq!(access.glob("/*/")?, vec!["/d".to_owned()]);
+    assert_eq!(access.glob("*/")?, vec!["d".to_owned()]);
+    Ok(())
+}
+
+#[test]
 fn a_relative_pattern_yields_relative_results() -> Result<(), VfsError> {
     let temp = TempRoot::new("a_relative_pattern_yields_relative_results");
     let access = rooted(&temp)?.acquire(Origin::new("real semantics test"))?;

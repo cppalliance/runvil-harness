@@ -324,6 +324,17 @@ fn store_glob_returns_a_sorted_array() {
 }
 
 #[test]
+fn a_directory_glob_on_an_empty_store_returns_an_empty_array() {
+    // The store's root is not a stored path, so no pattern returns it.
+    let out = run(
+        "local before = #store.glob('*/')\nstore.write('dir/a.txt', '')\nlocal g = store.glob('*/')\nreturn before .. ',' .. #g .. ',' .. g[1]",
+        &json!({}),
+    )
+    .unwrap();
+    assert_eq!(out.returned.as_deref(), Some("0,1,dir"));
+}
+
+#[test]
 fn an_uncaught_store_failure_ends_the_block_as_that_store_failure() {
     // An ambiguous `str_replace` anchor is a `VfsError::Anchor`: the block
     // that does not catch it ends with the store failure itself, under its

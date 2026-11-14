@@ -127,6 +127,8 @@ pub trait VfsAccess: Send {
 
     /// Returns stored paths matching `pattern`, sorted.
     ///
+    /// The root is not a stored path, so no pattern matches it.
+    ///
     /// # Errors
     ///
     /// Returns an error when the pattern is invalid or the backend fails.

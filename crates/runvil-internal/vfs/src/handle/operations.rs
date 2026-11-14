@@ -160,7 +160,8 @@ impl Access {
     /// A pattern that ends in `/` matches only directories. Any other
     /// pattern matches only files. A pattern that starts with `/` is
     /// absolute. Any other pattern is relative to `/`, and its results
-    /// come back relative too, without their leading `/`.
+    /// come back relative too, without their leading `/`. No pattern
+    /// matches the root itself.
     ///
     /// The raw pattern is validated before it is canonicalized. Because
     /// of this, a backslash or a control character is refused, and a
