@@ -4,40 +4,40 @@ overview: A prompt's output becomes its return value, so the `output:` frontmatt
 todos:
   - id: plan-copy
     content: "runvil-harness: on `master`, copy this plan to `plan/2026-11-14-1-private-store.plan.md` before any other change, and save the two survey reports from this conversation (Harness output and store surface, cross-repo output and store users) as research"
-    status: pending
+    status: completed
   - id: output-code
     content: "Commit 1 code: delete `FileDecl`, `Frontmatter::output`, and the `output` key in runvil-prompt with its re-exports; delete the runner's `files.rs`, `RunReport.output`, and `output_path`; delete `ErrorCode::NoOutput` and its lua mapping; reword the docs that speak of a declared output file"
-    status: pending
+    status: completed
   - id: output-tests
     content: "Commit 1 tests: fixtures that declared `output:` return the text and assert on `report.result`; delete `assert_not_completed`, the `files.rs` tests, and the tests of the deleted key; bless both `public-api.txt` listings; run every check in AGENTS.md; make commit 1 with the `Plan:` trailer"
-    status: pending
+    status: completed
   - id: prelude-store
     content: "Commit 2, runvil-lua and runvil-runtime: the store yield shims install with the other shims, before the preludes, so a store call while a prelude installs fails its load, and the load-failure sentence names the store; delete the direct store closures, the conflict slot, `__impl_store.lua`, `install_store_table`, `install_store_shims`, and the access and scope handle from the section VM setup; the lua test hub gains a block driver that answers store requests; replace the prelude conflict test, add the captured-function test, and move the store event tests to the runtime; reword the crate docs and the Engine definition in `AGENTS.md`; run every check in AGENTS.md; make commit 2 with the `Plan:` trailer"
-    status: pending
+    status: completed
   - id: vfs-store
     content: "Commit 3, runvil-vfs: add `Store` with `Store::new` and `Store::view`, an empty memory store under its own claims ledger, viewed under an access's identity and scope; delete `VfsRefBuilder::store`, `StoreDecl`, `acquire_store`, `ScopeHandle::store_view`, `probe_store`, `Access::store_view`, `StoreMount`, and `VfsError::NoStore`; `VfsRef::default()` is one memory mount at `/`; rewrite `scope_handle-tests.rs` and add the store tests, the two-store isolation tests among them"
-    status: pending
+    status: completed
   - id: engine-store
     content: "Commit 3, Engine: `SharedState` holds the run's `Store`, read only through `ChainState::store()`; `dispatch_vfs`, the one place that makes a store view, derives it from that; delete `ErrorCode::NoStore`, the lua crate's no-store message and mappings, and the start probe in `check_start`; reword the docs on `Effect::Vfs`, `dispatch_vfs`, `RunParams::with_vfs`, the runtime README, and the engine facade's `vfs` module"
-    status: pending
+    status: completed
   - id: harness-store
     content: "Commit 3, Harness: `answer_vfs` calls `perform_vfs_op` directly and the effect loop's module doc drops the real-disk and panic sentences; `RunSetup::vfs` docs in `setup.rs`, the runner's `lib.rs` and README, and `runvil/src/lib.rs` say it is the files the run's tools work in"
-    status: pending
+    status: completed
   - id: store-tests
     content: "Commit 3 tests: runtime `TestStore` reads the run's own `Store` through a `#[cfg(test)]` accessor; runner store hooks become recorder hooks and `HookedBackend` goes; tests built on a seeded, failing, or Host-read store go; policy, watcher, and Host-edit tests are re-aimed at tool files; add the run-level isolation tests and the test that a run's records rebuild its store; bless both listings; run every check and both sweeps; hold the commit"
-    status: pending
+    status: completed
   - id: design
     content: "runvil-design: bring `prompt-language.md`, `harness-and-host.md`, `files-and-the-vfs.md`, `engine.md`, `tools-and-packs.md`, the language spec, and the counts in `decisions/README.md` in line, each stating the rule as it is; one commit"
-    status: pending
+    status: completed
   - id: guide
     content: "runvil-docs: rewrite chapters 02 and 09 and the affected lines of chapters 01, 04, 05, 12, 14, 15, 16, and 17 with every result and message from the built Engine; run the checker and the site build; one commit"
-    status: pending
+    status: completed
   - id: small-docs
     content: "runvil: the Engine definition's effect list in `AGENTS.md` and `README.md`; one commit"
-    status: pending
+    status: completed
   - id: commit
     content: "runvil-harness: mark the plan copy's todos done, record in it what the build found, and make commit 3 on `master` with the `Plan:` trailer"
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -276,3 +276,54 @@ Before each Harness commit, every command in [AGENTS.md](runvil-harness/AGENTS.m
 
 - **Deleted names**, expecting no hit: `FileDecl`, `read_output`, `report_output`, `NoOutput`, `no_output`, `acquire_store`, `probe_store`, `probe_root`, `StoreDecl`, `StoreMount`, `trim_mount_error`, `NoStore`, `no_store`, `HookedBackend`, `install_store_table`, `install_store_shims`, `route_store_to_shims`, `store_conflict`, `STORE_PHASE_REGISTRY`, `__impl_store`, and `output:` as a frontmatter line in any fixture.
 - **Wording**, over the added lines of every repository this plan touches: `no longer`, `formerly`, `previously`, `used to`, `legacy`, `deprecat`, `migrat`, `replaced`, `renamed`, `changed`.
+
+## What the build found
+
+The design held: a store view joins its caller's scope and records its claims in the store's own ledger, and every test of the claims rules passes on it. These points differ from the plan above, or add to it.
+
+The store:
+
+- **`Store` wraps a handle with one memory mount at `/`**, built with `VfsRef::builder().mount("/", MemoryBackend::new()).build()`. The plan's sketch used `VfsRef::new`. The router keeps the path routing that the store had as a mount, so every store test kept its paths.
+- **`Store::view` builds its `Access` from `join_scope` and the backend's `acquire`.** The plan's sketch set a field on the result of `acquire_with` and wrapped its session. `Access` implements `Drop`, so its fields cannot be moved into a second value.
+- **`Store` also implements `Default` and `Debug`.** `Default` calls `Store::new()`, so every store still starts empty.
+- **Every `Access` is rooted at `/`, so the access root is gone.** The view of a store that was mounted at a path was the one access with another root. `Access.root`, `StoreScoped.root`, and the root parameter of `strip_root`, `relativize_error`, and `canonicalize` went with it. A view is marked by the flag `store_view`. `canonicalize_absolute` stays, because it refuses a relative path.
+- **A store call gives seven reasons and `determinism`.** The reasons are `not_found`, `not_a_directory`, `is_a_directory`, `directory_not_empty`, `invalid_path`, `invalid_range`, and `anchor`. A memory store under `AllowAll` gives none of the other thirteen store codes: `store.delete('')` is an invalid path, text that is not UTF-8 is refused as an argument, and a claims conflict ends the run.
+- **`store_error_message` still words those thirteen failures**, and the strict path rules of a store view still refuse the names that a real file system would read as another file. Both stay, as the plan says, though no store is on a disk.
+- **Three oddities were there before and are unchanged.** A glob for directories on a store view returns the root as `""`, so `store.glob('*/')` gives one empty string in an empty store. `ScopeHandle::spawn` on an ended store view reports `ScopeEnded` with the path `""`, where `Store::view` reports `/`. `glob` strips a trailing slash before it applies the strict rules.
+- **Three leftovers in `runvil-vfs`.** The path parameter of `Scope::fork` and of `Scope::attach` is always `/`. Some test names still say "the access root". The comment on `HandleAccess` in `handle/forward.rs` says that the capability has no byte-range read, which is false and no part of this work.
+
+The Engine:
+
+- **A failure of the caller's files has a message of its own.** The run's root access, the fork for a task, and the fork for a tool call come from the caller's `VfsRef`, and a refusal there has the message `file access failed: {cause}` under the cause's code, from `make_files_error`. A store view that the scope refuses keeps `store operation failed: {cause}`. The first build gave all four the store's message.
+- **A refusal of the root access ends the run after its start checks.** With no start probe, the run reports `run_started` and then fails. The tests `a_task_whose_files_refuse_its_fork_fails_the_spawn_and_starts_no_task` and `a_tool_call_whose_files_refuse_its_fork_fails_the_call_and_issues_no_effect` hold the two forks, which had no test.
+- **A prelude's caught store call reads `attempt to yield from outside a coroutine`**, and the load failure of an uncaught one has that text before the fixed sentence.
+- **A caught store failure on the yield path reads `{file}:{line}: {prose of the code}`**, and the path is in `err.path` alone. Seven lua tests asserted the code `LuaRuntime` for a store failure and now assert the failure's own code.
+- **A chunk that is one bare expression does not compile as a block.** The Lua binding's `eval` accepts one, and the block driver of the lua test hub compiles a block, so a test that evaluated an expression returns it.
+- **Fourteen of the sixteen store events had no test in the runtime.** `observations-store.rs` holds the five tests that moved there in commit 2.
+- **`SharedState` has 15 fields**, one over its entry in the type-size allowlist of `build-xtask`, which now records 15. Commit 2 removed the entry of `SectionVmSetup`, which fell under the limit.
+- **`store_probe_message` is gone.** Commit 3 put its text in `make_store_error` of `runvil-runtime` and deleted it with the `NoStore` arms.
+- **The engine facade still exports `make_store_error`**, and `ErrorCode` has 67 codes. `VfsError` has 20 variants.
+- **`answer_vfs` takes the view by value**, under an `expect` of `needless_pass_by_value`, so that the view drops with the operation.
+
+Tests and checks:
+
+- **The whole workspace runs 3,784 tests, all passing, and skips 24.** It ran 3,787 before commit 1, 3,777 after it, and 3,776 after commit 2. `runvil-runtime` has 1,226 tests where it had 1,216, `runvil-lua` has 794 where it had 802, `runvil-prompt` has 214 where it had 216, `harness-runner` has 167 where it had 175, the suite of `runvil-engine` has 50 where it had 46, and the suite of `runvil` has 10 where it had 9. `runvil-vfs` has the same count, with 19 tests in the new file `handle/tests/store.rs`.
+- **A `TestStore` that a test builds itself is not bound to a run**, so those tests read the store through `Trace::read` and `Trace::glob`. `Scenario::start` binds the scenario's own `TestStore` through `Run::store_for_test`.
+- **Six files went to the trash folder:** `files.rs`, `prepare-files.rs`, `__impl_store.lua`, `engine_misuse.rs`, `store_reports.rs`, and `temp_root.rs`, which lost its last user in `runvil-runtime`.
+- **Every check listed under Verification passed on the final tree.**
+- **The sweeps.** The deleted names have no hit. The wording sweep has one hit: the README of `runvil-runtime` names the Harness in a sentence that states a responsibility, which `AGENTS.md` allows.
+
+Documents:
+
+- **The guide checker installs a Pack prelude** with the option `--prelude <pack id>=<file>`, so every statement of chapter 12 on a prelude and the store comes from a run.
+- **The checker finds 529 examples in the 17 chapters, and 362 return their documented result.** Before the chapter work it found 536, and 363 returned theirs. Chapter 2 lost two examples with its section on the output file. Chapter 9 lost six with its section on Host stores and gained one that returns a file.
+- **The guide links resolve.** The checker found 2,157 links in 30 files and no broken one, and `cargo xtask site --books-only` built both books.
+- **Chapters 2, 6, and 10 also listed a store check among the start checks**, and the plan named only chapter 4. The work touched twelve chapters.
+- **No store call gives `not_utf8`**, so chapters 5, 9, and 17 have no `valid_up_to` field.
+- **An arm that has not finished when a store conflict ends the run is abandoned.** Chapter 14 said that it "reports canceled", and a run reports `task_abandoned` with the reason `run_terminated` for it.
+- **Three statements on the run's files come from the Engine's tests**, because the checker's files never refuse: the refusal at the run's start, of a task, and of a tool call. The codes of errors are from the tests too, because the checker prints a failed run's message and not its code.
+- **One thing in chapter 9 is left as it was:** its table of store events writes each name in upper case, as in `VFS_WRITE_SUCCEEDED`, and a run reports `vfs_write_succeeded`.
+- **The design pages keep their counts of entries.** `files-and-the-vfs.md` has 24, with an entry on the run's store in the place of the entry on the handle's store declaration. The pages list 73 gaps where they listed 74, because commit 3 corrected the comment on `OpSink`, and ask 122 questions where they asked 123.
+- **Two owner quotes left the design pages**, because each gave the reason for a rule that the code does not have: the one on a Host that gets data in and out through the VFS, and the one on a blocking file operation. The planned item "An offload for blocking file work" stays in `harness-and-host.md`, though the loop performs only store operations in memory.
+- **Left for the plan on child prompts:** the `execute` entry of the language spec still says that a child shares its parent's store and Host policy.
+- **Commits.** `3f05ed7b` and `56a2e680` here are commits 1 and 2. `runvil-design` commit `5a2f04e`, `runvil-docs` commit `a60b43b`, and `runvil` commit `4b3d48839` hold the document changes. Each is local on `master`.

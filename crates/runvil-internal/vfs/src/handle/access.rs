@@ -34,14 +34,16 @@ impl Access {
     ///
     /// Crate-internal: backs [`ScopeHandle::spawn`].
     pub(crate) fn spawn(&self, origin: Origin) -> Result<Access, VfsError> {
+        // A spawn names no path, so its refusal names `/`.
+        let root = VfsPath::root();
         self.scope
-            .refuse_if_closed(&self.root)
+            .refuse_if_closed(&root)
             .map_err(|err| self.relativize(err))?;
         let id = ExecId::vend();
         // The fork comes first so a wrapped handle acquiring the child
         // finds it already registered in the scope.
         self.scope
-            .fork(self.id, id, &self.root)
+            .fork(self.id, id, &root)
             .map_err(|err| self.relativize(err))?;
         let inner = match self
             .backend()
@@ -53,22 +55,17 @@ impl Access {
                 return Err(err);
             }
         };
-        // A store view's arms keep the view's confinement to the store
-        // mount and its logical error paths.
-        let inner: Box<dyn VfsAccess> = match &self.store_root {
-            Some(root) => Box::new(StoreScoped {
-                root: root.as_str().to_owned(),
-                inner,
-            }),
-            None => inner,
+        // A store view's arms keep the view's logical error paths.
+        let inner: Box<dyn VfsAccess> = if self.store_view {
+            Box::new(StoreScoped { inner })
+        } else {
+            inner
         };
         Ok(Access {
             id,
             origin: Some(origin),
-            // The child shares the parent's root: a store view's arms
-            // see the same store.
-            root: self.root.clone(),
-            store_root: self.store_root.clone(),
+            // A store view's arm is a view of the same store.
+            store_view: self.store_view,
             volume: Arc::clone(&self.volume),
             policy: Arc::clone(&self.policy),
             scope: Arc::clone(&self.scope),
@@ -117,28 +114,28 @@ impl Access {
     /// Re-spells an error's paths for the store view's caller; a plain
     /// access's errors pass through untouched.
     pub(super) fn relativize(&self, err: VfsError) -> VfsError {
-        match &self.store_root {
-            Some(root) => relativize_error(err, root.as_str()),
-            None => err,
+        if self.store_view {
+            relativize_error(err)
+        } else {
+            err
         }
     }
 
     /// Canonicalizes at receipt and consults the policy - in that order,
     /// so a denied operation never registers a claim and every claim key
-    /// is the canonical path. A path without a leading `/` joins onto the
-    /// access's root. The store view applies the store's strict
-    /// logical-path rules before canonicalization, and re-spells its
-    /// policy denials into the caller's logical form.
+    /// is the canonical path. A path without a leading `/` is relative to
+    /// `/`. The store view applies the store's strict logical-path rules
+    /// before canonicalization. A store has no policy of its own, so a
+    /// view's check always allows.
     pub(super) fn gate(&self, op: Op, path: &str) -> Result<VfsPath, VfsError> {
         // The strict rules run on every caller-supplied path, glob
-        // patterns included: a leading `/` is the one pattern shape
-        // that would canonicalize namespace-absolute and carry the
-        // claim outside the store mount. A pattern's wildcard grammar
-        // is validated separately, in `Access::glob`, before the gate.
-        if self.store_root.is_some() {
+        // patterns included, so a store path is always in its relative,
+        // logical form. A pattern's wildcard grammar is validated
+        // separately, in `Access::glob`, before the gate.
+        if self.store_view {
             validate_store_path(path)?;
         }
-        let path = canonicalize(&self.root, path)?;
+        let path = canonicalize(path)?;
         self.check_policy(op, &path)
             .map_err(|err| self.relativize(err))?;
         Ok(path)

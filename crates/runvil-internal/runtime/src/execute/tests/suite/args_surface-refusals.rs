@@ -4,16 +4,15 @@
 //! the code `args_invalid`: the failure has the reason and, for one
 //! argument, its path as facts, no location, and a message that names
 //! what is required and what was sent, and the run reports no event. The
-//! check runs after the version gate and before the store probe and the
-//! requirements refusal, and a cancel flag set before the first step ends
-//! the run canceled instead.
+//! first step checks the version gate, then the arguments, then the
+//! requirements, and a cancel flag set before the first step ends the run
+//! canceled instead.
 
 use std::collections::BTreeMap;
 
 use runvil_prompt::test_support::{one_section, prompt};
 use runvil_types::error::{Error, ErrorCode, ErrorFact};
 use runvil_types::models::ThinkingMode;
-use runvil_vfs::{MemoryBackend, VfsRef};
 use serde_json::json;
 
 use super::{NESTED, SEARCH, search_prompt};
@@ -269,20 +268,37 @@ fn an_unsupported_version_is_reported_before_refused_arguments() {
 }
 
 #[test]
-fn refused_arguments_are_reported_before_an_undeclared_store() {
-    let source = search_prompt(NEVER_RUNS);
-    let no_store = || VfsRef::new(MemoryBackend::new());
-    let error = refusal(Scenario::new(&source).vfs(no_store()));
-    assert_eq!(error.message, "argument `query` is required");
-
-    let accepted = Scenario::new(&source)
-        .vfs(no_store())
-        .args(r#"{"query":"papers"}"#)
-        .run();
+fn the_first_step_checks_the_version_gate_then_the_arguments_then_the_requirements() {
+    // One prompt fails all three checks at once: a version this build
+    // does not support, an argument its declaration refuses, and a
+    // requirement the model does not meet. The run ends with the first
+    // check's failure, and each check that passes leaves the next to
+    // refuse the run.
+    let front = format!("{SEARCH}\nmodels: {{ strong: {{ min_context: 200000 }} }}");
+    let supported = prompt(&front, &[("Only", NEVER_RUNS)]);
+    let unsupported = supported.replace("runvil: 0", "runvil: 7");
+    let refused_as = |source: &str, args: &str| {
+        let trace = Scenario::new(source)
+            .current_model(test_model_with("small", 32_000, ThinkingMode::Switchable))
+            .args(args)
+            .run();
+        assert!(trace.events().is_empty(), "nothing ran, nothing reported");
+        trace.error().code
+    };
     assert_eq!(
-        accepted.error().code,
-        ErrorCode::NoStore,
-        "with arguments the declaration accepts, the store probe is next"
+        refused_as(&unsupported, r#"{"query":5}"#),
+        ErrorCode::UnsupportedVersion,
+        "the version gate is the first check"
+    );
+    assert_eq!(
+        refused_as(&supported, r#"{"query":5}"#),
+        ErrorCode::ArgsInvalid,
+        "under a supported version, the arguments are the next check"
+    );
+    assert_eq!(
+        refused_as(&supported, r#"{"query":"papers"}"#),
+        ErrorCode::RequirementsUnmet,
+        "with arguments the declaration accepts, the requirements are the last check"
     );
 }
 

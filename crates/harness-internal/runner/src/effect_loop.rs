@@ -10,12 +10,13 @@
 //! future: the loop starts no task, so a run is one future that any
 //! executor can drive. When an effect's future lands, the loop appends the
 //! answer's record and resumes the run with it, then steps again. A Vfs
-//! effect has no future: the VFS is synchronous by design, so the loop
-//! performs the operation inline, appends the answer's record, and resumes
-//! the run at once. It resumes every Vfs effect of a step this way and then
+//! effect has no future: it is one operation on the run's store, which is
+//! memory, so the loop performs the operation inline through the effect's
+//! view, appends the answer's record, and resumes the run at once. It
+//! resumes every Vfs effect of a step this way and then
 //! steps once, so the loop awaits an answer only when it answered nothing
-//! inline. Real-disk operations therefore block whatever polls the run, and
-//! Vfs operations from different chains run one at a time in issue order.
+//! inline. Vfs operations from different chains run one at a time in issue
+//! order.
 //!
 //! An effect the step withdraws is answered `Dropped` without being
 //! performed, and a withdrawn effect an earlier step issued is aborted
@@ -53,8 +54,7 @@
 //!
 //! A performer that panics is caught where its future is polled: its
 //! effect is answered `Dropped` and the panic is logged, so a lost
-//! performer can never leave the run waiting forever. A Vfs operation that
-//! panics is caught where it runs and answered `Dropped` the same way.
+//! performer can never leave the run waiting forever.
 //!
 //! The loop delivers each message a Host sends to the run's main chain
 //! through `Run::deliver`, and records the events that return before the
@@ -80,7 +80,7 @@ use std::any::Any;
 use std::collections::{BTreeMap, HashMap};
 use std::future::{Future, poll_fn};
 use std::num::NonZeroUsize;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
@@ -286,7 +286,7 @@ impl Driver {
                         // The run is not stepped between inline answers:
                         // the whole batch is resumed, then stepped once.
                         if let Some((access, op)) = self.perform(id, provenance, issued.effect) {
-                            let answer = answer_vfs(id, provenance, access, op);
+                            let answer = answer_vfs(access, op);
                             self.answer(id, provenance, answer).await?;
                             answered = true;
                         }
@@ -854,35 +854,21 @@ impl Flights {
     }
 }
 
-/// Answers one Vfs effect inline: performs `op` through the store view
-/// the effect carries and returns the answer to record and resume the run
-/// with. A panic out of the backend is caught here, logged against `id`
-/// and `provenance`, and answered `Dropped`, so it ends the run as a
-/// canceled one and never unwinds the loop.
+/// Answers one Vfs effect inline: performs `op` on the run's store through
+/// the view the effect carries and returns the answer to record and resume
+/// the run with.
 ///
-/// The access is this function's own parameter, so it drops when the
-/// function returns. The drop is hygiene only: claims follow
-/// happens-before within the run's scope, and the run ends that scope at
-/// `Done` however long any access is held.
-fn answer_vfs(
-    id: EffectId,
-    provenance: &Provenance,
-    access: Arc<Access>,
-    op: VfsOp,
-) -> EffectAnswer {
-    let result = catch_unwind(AssertUnwindSafe(|| perform_vfs_op(&access, op)));
-    drop(access);
-    match result {
-        Ok(outcome) => EffectAnswer::Vfs(outcome),
-        Err(_panic) => {
-            tracing::error!(
-                effect = %id,
-                task = %provenance.task,
-                "a Vfs operation panicked; its effect is dropped"
-            );
-            EffectAnswer::Dropped
-        }
-    }
+/// The view is this function's own parameter, so it drops when the
+/// function returns, and the Harness holds no way to the store between
+/// effects. The drop is hygiene only: claims follow happens-before within
+/// the run's scope, and the run ends that scope at `Done` however long any
+/// access is held.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the view is taken by value so that it drops with the operation"
+)]
+fn answer_vfs(access: Arc<Access>, op: VfsOp) -> EffectAnswer {
+    EffectAnswer::Vfs(perform_vfs_op(&access, op))
 }
 
 /// A panic payload's message, when it carries one.

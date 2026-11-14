@@ -1,7 +1,7 @@
 //! The `store` table as a block calls it: each operation's result, the
 //! line bounds of `read` and `read_numbered`, the store failure an
-//! operation the block does not catch ends it with, and writes seen
-//! through the access the block driver answers through.
+//! operation the block does not catch ends it with, and writes seen in
+//! the store the block driver answers in.
 
 use super::*;
 
@@ -342,10 +342,10 @@ fn an_uncaught_store_failure_ends_the_block_as_that_store_failure() {
 }
 
 #[test]
-fn store_writes_are_visible_on_the_shared_handle() {
-    // The block driver performs the write through the test's access, so a
-    // write from Lua reads back through that access's store view once the
-    // block ends.
+fn store_writes_are_visible_in_the_shared_store() {
+    // The block driver performs the write in the test's store, so a write
+    // from Lua reads back through a view of that store under the same
+    // access once the block ends.
     let access = fresh_access();
     let store = store_view(&access);
     run_with("store.write('shared.txt', 'from lua')", &access).unwrap();

@@ -97,21 +97,14 @@ fn glob_refuses_control_characters_and_bad_grammar_with_their_reasons() -> Resul
 #[test]
 fn two_spellings_of_one_file_conflict_where_the_file_system_folds_case() -> Result<(), VfsError> {
     let temp = TempRoot::new("two_spellings_of_one_file_conflict_where_the_file_system_folds_case");
-    let store =
-        TempRoot::new("two_spellings_of_one_file_conflict_where_the_file_system_folds_case");
     let vfs = VfsRef::builder()
         .mount("/", MemoryBackend::new())
         .mount("/Real", RealBackend::rooted(temp.path())?)
-        .store("/Store", RealBackend::rooted(store.path())?)
         .build();
     let first = vfs.acquire(Origin::new("first spelling"))?;
     let second = vfs.acquire(Origin::new("second spelling"))?;
     first.write("/Real/Notes.md", b"1")?;
     let mount = second.write("/Real/NOTES.md", b"2");
-    let first_view = vfs.acquire_store(Origin::new("first view"))?;
-    let second_view = vfs.acquire_store(Origin::new("second view"))?;
-    first_view.write("Draft.md", b"1")?;
-    let view = second_view.write("draft.md", b"2");
     // The memory mount keeps case, so its two spellings are two files.
     first.write("/Mem.md", b"1")?;
     second.write("/mem.md", b"2")?;
@@ -122,13 +115,8 @@ fn two_spellings_of_one_file_conflict_where_the_file_system_folds_case() -> Resu
             }
             other => panic!("expected the folded conflict, got {other:?}"),
         }
-        match view {
-            Err(VfsError::Conflict { path, .. }) => assert_eq!(path, "draft.md"),
-            other => panic!("expected the folded conflict, got {other:?}"),
-        }
     } else {
         mount?;
-        view?;
     }
     Ok(())
 }

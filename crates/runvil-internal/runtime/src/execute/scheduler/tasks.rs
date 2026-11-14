@@ -621,7 +621,7 @@ impl Scheduler {
             .ok_or(error::make_internal_error(
                 "a resolved worker is absent from its slice",
             ))?;
-        // The access spawns before the chain exists: a store refusal here
+        // The access spawns before the chain exists: a refused fork here
         // is the last fallible step that can leave nothing behind, so it
         // runs ahead of the id allocation and the arena push rather than
         // orphaning a started chain that is neither enqueued nor entered
@@ -632,7 +632,7 @@ impl Scheduler {
                 &spawner_access,
                 prompt_origin(&prompt, worker.name(), worker.blocks()),
             )
-            .map_err(|cause| error::make_store_error(&cause))?;
+            .map_err(|cause| error::make_files_error(&cause))?;
         // The task's happens-before identity, recorded before the access
         // moves into the chain: every delivery joins it, and the chain
         // end joins it last.

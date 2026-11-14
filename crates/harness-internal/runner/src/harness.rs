@@ -7,7 +7,7 @@
 //! [`Harness::run`] on whatever executor it likes. The run begins its
 //! record, resolves the run's model through the setup's broker, prepares
 //! the prompt, and drives the run through the effect loop. Every performer
-//! future is polled inside that one future, and every VFS operation runs
+//! future is polled inside that one future, and every store operation runs
 //! inline in it, so the Harness starts no task and names no runtime. The
 //! stop and
 //! the cancel a [`RunControl`] raises are plain flags any thread can set,

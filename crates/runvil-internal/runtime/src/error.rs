@@ -130,12 +130,18 @@ pub(crate) fn make_stalled_error(waiting: &[TaskId]) -> Error {
     )
 }
 
-/// A store failure with no operation to render, such as a handle
-/// acquisition or the declared-store probe: the store's code and facts,
-/// and a message that tells a run that declares no store so and follows
-/// the fixed probe text for any other failure.
+/// A store failure with no operation to render: a store view the run's
+/// scope refuses. The failure's code and facts, under one fixed text.
 pub(crate) fn make_store_error(cause: &runvil_vfs::VfsError) -> Error {
-    runvil_lua::make_store_failure_error(cause, crate::lua::store_probe_message(cause))
+    runvil_lua::make_store_failure_error(cause, format!("store operation failed: {cause}"))
+}
+
+/// A failure of the filesystem the caller gave the run, with no operation
+/// to render: an access it refuses to acquire for the run, or to fork for
+/// a task or a tool call. No store is involved. The failure's code and
+/// facts, under one fixed text.
+pub(crate) fn make_files_error(cause: &runvil_vfs::VfsError) -> Error {
+    runvil_lua::make_store_failure_error(cause, format!("file access failed: {cause}"))
 }
 
 /// One store operation's failure: the store's code and facts, and the

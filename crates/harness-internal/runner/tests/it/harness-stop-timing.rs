@@ -5,16 +5,16 @@
 //! main chain waits on its inbox spares the round after its message; and
 //! a stop raised with nothing in flight changes nothing.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use harness_runner::recorder::MemoryRecorder;
+use harness_runner::recorder::{MemoryRecorder, RecordKind};
 use harness_runner::{RunControl, RunSetup};
-use runvil_engine::vfs::VfsRef;
 use serde_json::json;
 
 use super::{
-    FIRST_RUN, HookedBackend, PendingTimer, answers_to, inbox_waits, launch, main_waits, no_packs,
-    run_beside, setup, until,
+    FIRST_RUN, HookedRecorder, PendingTimer, answers_to, hooked_recorder, inbox_waits,
+    is_store_write, launch, main_waits, no_packs, run_beside, setup, until,
 };
 use crate::scripted::{Held, HeldTimer, ScriptedBroker, held_broker};
 
@@ -57,22 +57,22 @@ const WRITES_THEN_INFERS: &str = "---\nname: writes-infers\ndescription: d\nrunv
     ---\n\n\
     ## Only\n\n```lua\nstore.write('note.md', 'kept')\nreturn models.infer('after')\n```\n";
 
-/// A store whose every write raises a stop through the control the
-/// returned slot holds, once the test puts the run's control there.
-fn stopping_store() -> (VfsRef, Arc<OnceLock<RunControl>>) {
-    let slot = Arc::new(OnceLock::<RunControl>::new());
-    let control = Arc::clone(&slot);
-    let vfs = VfsRef::builder()
-        .store(
-            "/",
-            HookedBackend::new(move || {
-                if let Some(control) = control.get() {
-                    control.stop_round();
-                }
-            }),
-        )
-        .build();
-    (vfs, slot)
+/// A recorder over `records` that raises a stop as the loop appends the
+/// effect record of each store write, which is before the loop performs
+/// the write, through the control the returned slot holds, once the test
+/// puts the run's control there. It counts each stop it raises in
+/// `raised`.
+fn stopping_at_each_store_write(
+    records: &Arc<MemoryRecorder>,
+    raised: &Arc<AtomicUsize>,
+) -> (Arc<HookedRecorder>, Arc<OnceLock<RunControl>>) {
+    let raised = Arc::clone(raised);
+    hooked_recorder(records, move |record, control| {
+        if is_store_write(record) {
+            control.stop_round();
+            raised.fetch_add(1, Ordering::SeqCst);
+        }
+    })
 }
 
 #[tokio::test]
@@ -118,23 +118,22 @@ async fn a_stop_drops_a_timed_join_any_and_its_pcall_resumes_while_the_joined_ta
 async fn a_stop_seen_before_a_steps_effects_start_drops_the_round_in_flight_and_its_pcall_resumes()
 {
     let chat = Arc::new(Held::default());
-    let recorder = Arc::new(MemoryRecorder::new());
-    let (vfs, stops) = stopping_store();
+    let records = Arc::new(MemoryRecorder::new());
+    let raised = Arc::new(AtomicUsize::new(0));
+    let (recorder, stops) = stopping_at_each_store_write(&records, &raised);
     let harness = launch(
         no_packs(),
         PendingTimer::default(),
         STOPS_BEFORE_A_STEP,
-        RunSetup {
-            vfs,
-            ..setup(recorder.clone(), held_broker(&chat))
-        },
+        setup(recorder, held_broker(&chat)),
     );
     stops.set(harness.control()).unwrap();
 
     // The write and the child's round are issued in one step, and the
-    // write runs inline and raises the stop. The loop sees the stop before
-    // the next step's effects start, and that step issues none: the main
-    // only waits on the child, whose dropped round is all that can wake it.
+    // write's effect record raises the stop before the loop performs the
+    // write. The loop sees the stop before the next step's effects start,
+    // and that step issues none: the main only waits on the child, whose
+    // dropped round is all that can wake it.
     let report = run_beside(harness, |_control| async {})
         .await
         .expect("the run is reported");
@@ -144,11 +143,31 @@ async fn a_stop_seen_before_a_steps_effects_start_drops_the_round_in_flight_and_
         Ok("chat:false:canceled".to_owned()),
         "the child's pcall caught its dropped round, and the main joined the child"
     );
-    let records = recorder.records(report.run_id);
+    assert_eq!(
+        raised.load(Ordering::SeqCst),
+        1,
+        "the one write's effect record raised the stop"
+    );
+    let records = records.records(report.run_id);
     assert_eq!(
         answers_to(&records, "Chat"),
         [json!("Dropped")],
         "the stop answered the round in flight Dropped"
+    );
+    let written = records
+        .iter()
+        .position(is_store_write)
+        .expect("the write's effect is recorded");
+    let asked = records
+        .iter()
+        .position(|record| {
+            record.kind == RecordKind::Effect && record.payload.get("Chat").is_some()
+        })
+        .expect("the round's effect is recorded");
+    assert!(
+        written < asked,
+        "the write's effect record raised the stop before the loop started the step's round: \
+         {records:?}"
     );
 }
 
@@ -206,17 +225,16 @@ async fn a_stop_while_the_main_chain_waits_on_its_inbox_spares_the_round_after_i
 async fn a_stop_raised_with_nothing_in_flight_changes_nothing_for_the_next_effect() {
     let broker = ScriptedBroker::replying();
     let rounds = broker.rounds();
-    let recorder = Arc::new(MemoryRecorder::new());
-    // The write runs inline, so nothing is in flight when it raises the stop.
-    let (vfs, stops) = stopping_store();
+    let records = Arc::new(MemoryRecorder::new());
+    let raised = Arc::new(AtomicUsize::new(0));
+    // The write is its step's one effect, and the loop answers it inline,
+    // so nothing is in flight when its effect record raises the stop.
+    let (recorder, stops) = stopping_at_each_store_write(&records, &raised);
     let harness = launch(
         no_packs(),
         PendingTimer::default(),
         WRITES_THEN_INFERS,
-        RunSetup {
-            vfs,
-            ..setup(recorder.clone(), broker)
-        },
+        setup(recorder, broker),
     );
     stops.set(harness.control()).unwrap();
 
@@ -228,11 +246,16 @@ async fn a_stop_raised_with_nothing_in_flight_changes_nothing_for_the_next_effec
         "the round after the stop completed"
     );
     assert_eq!(
+        raised.load(Ordering::SeqCst),
+        1,
+        "the one write's effect record raised the stop"
+    );
+    assert_eq!(
         rounds.lock().unwrap().len(),
         1,
         "the round reached the broker"
     );
-    let records = recorder.records(report.run_id);
+    let records = records.records(report.run_id);
     let chats = answers_to(&records, "Chat");
     assert_eq!(chats.len(), 1, "one round: {chats:?}");
     assert_ne!(

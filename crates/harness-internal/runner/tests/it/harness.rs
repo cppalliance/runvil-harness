@@ -3,9 +3,9 @@
 //! drives the run as one future; the record opens
 //! with the run's own start, numbered from zero; the `ui()` snapshot serves the
 //! setup's selection and first workspace root; a run that fails after it
-//! starts is a recorded failed run, never an error of `run`; a Vfs effect
-//! is answered inline as it is issued; and one run completes under a
-//! thread-parking executor with no runtime behind it. How a stop and a
+//! starts is a recorded failed run, never an error of `run`; a Vfs effect's
+//! answer record directly follows its effect record; and one run completes
+//! under a thread-parking executor with no runtime behind it. How a stop and a
 //! cancel reach the effects in flight sits in the `stop` child module, how
 //! a stop reaches the tool calls waiting for a slot and how a task's early
 //! end drops its stop-surviving call while the run goes on in the
@@ -18,21 +18,20 @@
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll, Wake, Waker};
-use std::thread::{self, Thread, ThreadId};
+use std::thread::{self, Thread};
 use std::time::Duration;
 
 use harness_runner::performers::{InferenceBroker, Timer};
-use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunRecorder};
+use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder};
 use harness_runner::{Harness, Packs, RunControl, RunReport, RunSetup};
-use runvil_engine::vfs::{Origin, VfsRef};
-use runvil_engine::{Error, ErrorCode};
+use runvil_engine::{BoxFuture, Error, ErrorCode};
 use runvil_plugin::PackRegistry;
 use serde_json::{Value, json};
 
-use crate::scripted::{Kept, MODEL, ScriptedBroker};
-use crate::support::{HookedBackend, PendingTimer, host_over, parsed};
+use crate::scripted::{MODEL, ScriptedBroker};
+use crate::support::{PendingTimer, host_over, parsed};
 
 #[path = "harness-errors.rs"]
 mod errors;
@@ -49,8 +48,8 @@ mod stop_timing;
 const PATIENCE: Duration = Duration::from_secs(10);
 
 /// The setup of a run recorded through `recorder` and served by `broker`,
-/// with [`MODEL`] selected, the empty object `{}` as its arguments, and a
-/// fresh memory store.
+/// with [`MODEL`] selected, the empty object `{}` as its arguments, and
+/// an empty memory filesystem for its tool calls.
 pub(crate) fn setup(
     recorder: Arc<dyn RunRecorder>,
     broker: impl InferenceBroker + 'static,
@@ -174,10 +173,68 @@ fn main_waits(records: &[Record]) -> usize {
     inbox_waits(records, "0")
 }
 
-/// A prompt whose one section writes `report.md` from the `paper.md` it
-/// finds in the store, and returns the report.
+/// Whether `record` is the effect record of a `store.write`. The loop
+/// appends an effect's record before it performs the effect, so a
+/// recorder that acts on this record acts before the write runs.
+fn is_store_write(record: &Record) -> bool {
+    record.kind == RecordKind::Effect && record.payload["Vfs"]["op"].get("Write").is_some()
+}
+
+/// What a [`HookedRecorder`] runs on each record the loop appends, beside
+/// the run's control.
+type Hook = dyn Fn(&Record, &RunControl) + Send + Sync;
+
+/// A recorder that keeps every record in `records` and, once the test
+/// puts the run's control in `control`, hands `hook` each record beside
+/// that control as the loop appends it.
+struct HookedRecorder {
+    records: Arc<MemoryRecorder>,
+    control: Arc<OnceLock<RunControl>>,
+    hook: Box<Hook>,
+}
+
+impl RunRecorder for HookedRecorder {
+    fn begin_run(&self, meta: RunMeta) -> BoxFuture<'_, Result<RunId, Error>> {
+        self.records.begin_run(meta)
+    }
+
+    fn append(&self, run: RunId, record: Record) -> BoxFuture<'_, Result<(), Error>> {
+        if let Some(control) = self.control.get() {
+            (self.hook)(&record, control);
+        }
+        self.records.append(run, record)
+    }
+
+    fn end_run(
+        &self,
+        run: RunId,
+        result: Result<String, Error>,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        self.records.end_run(run, result)
+    }
+}
+
+/// A recorder over `records` that runs `hook` on each record the loop
+/// appends, beside the run's control, once the test puts the control in
+/// the returned slot.
+fn hooked_recorder(
+    records: &Arc<MemoryRecorder>,
+    hook: impl Fn(&Record, &RunControl) + Send + Sync + 'static,
+) -> (Arc<HookedRecorder>, Arc<OnceLock<RunControl>>) {
+    let slot = Arc::new(OnceLock::new());
+    let recorder = HookedRecorder {
+        records: Arc::clone(records),
+        control: Arc::clone(&slot),
+        hook: Box::new(hook),
+    };
+    (Arc::new(recorder), slot)
+}
+
+/// A prompt whose one section writes `paper.md`, writes `report.md` from
+/// what it reads back, and returns the report.
 const FILES: &str = "---\nname: files\ndescription: d\nrunvil: 0\n---\n\n\
     ## Only\n\n```lua\n\
+    store.write('paper.md', '# Paper')\n\
     store.write('report.md', 'seen: ' .. store.read('paper.md'))\n\
     return store.read('report.md')\n```\n";
 
@@ -205,23 +262,12 @@ const READS_UI: &str = "---\nname: reads-ui\ndescription: d\nrunvil: 0\n---\n\n\
     return tostring(ui().selected_model) .. '|' .. tostring(ui().workspace_root)\n```\n";
 
 #[tokio::test]
-async fn a_seeded_file_round_trips_into_the_recorded_result() {
+async fn a_file_the_prompt_stores_round_trips_into_the_recorded_result() {
     let recorder = Arc::new(MemoryRecorder::new());
-    let vfs = VfsRef::default();
-    vfs.acquire_store(Origin::new("harness test"))
-        .expect("the default handle declares a store")
-        .write("paper.md", b"# Paper")
-        .expect("the seed is written");
-    let harness = launch(
-        no_packs(),
-        PendingTimer::default(),
-        FILES,
-        RunSetup {
-            vfs,
-            ..setup(recorder.clone(), ScriptedBroker::replying())
-        },
-    );
-    let report = harness.run().await.expect("the run is reported");
+    let report = plain_harness(&recorder, ScriptedBroker::replying(), FILES)
+        .run()
+        .await
+        .expect("the run is reported");
 
     assert_eq!(report.result, Ok("seen: # Paper".to_owned()));
     let run_id = report.run_id;
@@ -244,7 +290,11 @@ async fn a_seeded_file_round_trips_into_the_recorded_result() {
         .filter(|(_, kind)| **kind == RecordKind::Effect)
         .map(|(position, _)| position)
         .collect();
-    assert_eq!(effects.len(), 3, "the read, the write, and the read back");
+    assert_eq!(
+        effects.len(),
+        4,
+        "the paper's write and read, then the report's write and read"
+    );
     for position in effects {
         assert_eq!(
             kinds[position + 1],
@@ -339,41 +389,26 @@ async fn a_run_that_fails_after_it_starts_is_a_recorded_failed_run_not_an_error(
 }
 
 #[tokio::test]
-async fn a_vfs_effect_is_answered_inline_on_the_thread_that_polls_the_run() {
-    let ran_on: Kept<ThreadId> = Kept::default();
-    let seen = Arc::clone(&ran_on);
-    let vfs = VfsRef::builder()
-        .store(
-            "/",
-            HookedBackend::new(move || seen.lock().unwrap().push(thread::current().id())),
-        )
-        .build();
+async fn a_vfs_effects_answer_record_directly_follows_its_effect_record() {
     let recorder = Arc::new(MemoryRecorder::new());
-    let harness = launch(
-        no_packs(),
-        PendingTimer::default(),
-        WRITES_TWICE,
-        RunSetup {
-            vfs,
-            ..setup(recorder.clone(), ScriptedBroker::replying())
-        },
-    );
-    let report = harness.run().await.expect("the run is reported");
+    let report = plain_harness(&recorder, ScriptedBroker::replying(), WRITES_TWICE)
+        .run()
+        .await
+        .expect("the run is reported");
 
     assert_eq!(report.result, Ok("12".to_owned()));
-    assert_eq!(
-        *ran_on.lock().unwrap(),
-        vec![thread::current().id(); 2],
-        "both writes ran inline, on the thread that polls the run"
-    );
     let records = recorder.records(report.run_id);
+    let mut effects = 0;
     for (position, effect) in records.iter().enumerate() {
         if effect.kind == RecordKind::Effect {
+            effects += 1;
+            assert!(effect.payload.get("Vfs").is_some(), "{effect:?}");
             let answer = &records[position + 1];
             assert_eq!(answer.kind, RecordKind::Answer, "nothing comes between");
             assert_eq!(answer.effect_id, effect.effect_id, "the answer is its own");
         }
     }
+    assert_eq!(effects, 4, "the two writes and the two reads");
 }
 
 /// Wakes the thread parked in [`block_on`].

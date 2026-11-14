@@ -1,25 +1,22 @@
 //! The effect loop answers a Vfs effect inline: a run of nothing but Vfs
-//! operations completes without a stall, the operation runs on the loop's
-//! own thread, a Vfs chain keeps stepping while another effect is parked,
-//! a backend that panics drops its effect instead of unwinding the run,
-//! and a Vfs effect withdrawn in the step that issued it is dropped
-//! without being performed.
+//! operations completes without a stall, a Vfs chain keeps stepping while
+//! another effect is parked, a Vfs effect withdrawn in the step that
+//! issued it is dropped without being performed, a step's Vfs effect is
+//! answered before the step's next effect is recorded, and a run's Vfs
+//! records rebuild its store.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::ThreadId;
+use std::sync::Arc;
 use std::time::Duration;
 
 use harness_runner::effect_loop::drive_run;
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId};
 use runvil_engine::cancel::CancelHandle;
-use runvil_engine::vfs::VfsRef;
+use runvil_engine::vfs::{Origin, VfsOp, VfsRef, perform_vfs_op};
 use serde_json::json;
 
 use super::{answers, assert_one_answer_per_effect, begun_log, kinds};
 use crate::support::{
-    GatedTool, HookedBackend, TextTool, Unused, WAITS, assert_canceled, loop_setup,
-    run_of_sections, run_over, run_with_child,
+    GatedTool, TextTool, Unused, WAITS, loop_setup, run, run_of_sections, run_with_child,
 };
 
 #[tokio::test]
@@ -30,12 +27,9 @@ async fn a_run_of_only_vfs_operations_completes_with_one_answer_per_effect() {
     // out: a loop that awaited an answer, or reported a stall, after
     // answering them inline would fail the run here.
     let result = drive_run(
-        run_over(
-            "store.write('a.md', '1')\n\
+        run("store.write('a.md', '1')\n\
              store.append('a.md', '2')\n\
-             return store.read('a.md')",
-            VfsRef::default(),
-        ),
+             return store.read('a.md')"),
         &loop_setup(recorder.clone()),
         Arc::new(Unused),
         Arc::new(Unused),
@@ -60,39 +54,6 @@ async fn a_run_of_only_vfs_operations_completes_with_one_answer_per_effect() {
             "an inline answer carries the operation's outcome"
         );
     }
-}
-
-#[tokio::test]
-async fn a_vfs_operation_runs_on_the_thread_that_drives_the_loop() {
-    let (recorder, run_id) = begun_log().await;
-    let ran_on: Arc<Mutex<Option<ThreadId>>> = Arc::new(Mutex::new(None));
-    let seen = Arc::clone(&ran_on);
-    let vfs = VfsRef::builder()
-        .store(
-            "/",
-            HookedBackend::new(move || {
-                *seen.lock().unwrap() = Some(std::thread::current().id());
-            }),
-        )
-        .build();
-
-    // `#[tokio::test]` runs the test body, and so the loop, on this
-    // thread; a blocking-pool thread would be another one.
-    drive_run(
-        run_over("store.write('a.md', 'x')\nreturn 'ok'", vfs),
-        &loop_setup(recorder.clone()),
-        Arc::new(Unused),
-        Arc::new(Unused),
-        run_id,
-        CancelHandle::new(),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        *ran_on.lock().unwrap(),
-        Some(std::thread::current().id()),
-        "the write ran inline, on the thread that drives the loop"
-    );
 }
 
 /// The effect record for writing `contents` to `path`.
@@ -184,41 +145,9 @@ async fn a_vfs_chain_keeps_stepping_while_a_tool_call_is_parked() {
     assert_one_answer_per_effect(&recorder.records(run_id));
 }
 
-#[tokio::test]
-async fn a_backend_that_panics_drops_its_effect_instead_of_unwinding_the_run() {
-    let (recorder, run_id) = begun_log().await;
-    let vfs = VfsRef::builder()
-        .store(
-            "/",
-            HookedBackend::new(|| panic!("the backend panics in a write")),
-        )
-        .build();
-
-    // The panic is caught where the operation runs and answered
-    // `Dropped`; the run resumes with the canceled error of a dropped
-    // effect and ends, and the loop returns normally.
-    let result = drive_run(
-        run_over("store.write('a.md', 'x')\nreturn 'ok'", vfs),
-        &loop_setup(recorder.clone()),
-        Arc::new(Unused),
-        Arc::new(Unused),
-        run_id,
-        CancelHandle::new(),
-    )
-    .await;
-    assert_canceled(&result);
-
-    let records = recorder.records(run_id);
-    assert_one_answer_per_effect(&records);
-    let answers = answers(&records);
-    assert_eq!(answers.len(), 1, "the one write");
-    assert_eq!(answers[0].payload, json!("Dropped"));
-    assert_eq!(recorder.result(run_id), Some(result));
-}
-
 /// Main spawns Slow, whose write stays out, and Fast, waits on Fast,
-/// cancels Slow, and returns: the step that decides the run issues Slow's
-/// write and withdraws it.
+/// cancels Slow, and asks the store whether Slow's file exists: one step
+/// issues Slow's write, withdraws it, and issues Main's question.
 const WITHDRAWS_A_WRITE: [(&str, &str); 3] = [
     (
         "Main",
@@ -226,7 +155,7 @@ const WITHDRAWS_A_WRITE: [(&str, &str); 3] = [
          local fast = tasks.spawn('../Fast')\n\
          local _task, _ok, result = tasks.join_any({ fast })\n\
          tasks.cancel(slow)\n\
-         return result",
+         return result .. '|' .. tostring(store.exists('slow.md'))",
     ),
     ("Slow", "store.write('slow.md', 'never')\nreturn 'slow'"),
     ("Fast", "return 'fast'"),
@@ -235,17 +164,9 @@ const WITHDRAWS_A_WRITE: [(&str, &str); 3] = [
 #[tokio::test]
 async fn a_vfs_effect_withdrawn_in_the_step_that_issued_it_is_dropped_unperformed() {
     let (recorder, run_id) = begun_log().await;
-    let written = Arc::new(AtomicBool::new(false));
-    let seen = Arc::clone(&written);
-    let vfs = VfsRef::builder()
-        .store(
-            "/",
-            HookedBackend::new(move || seen.store(true, Ordering::SeqCst)),
-        )
-        .build();
 
     let result = drive_run(
-        run_of_sections(&WITHDRAWS_A_WRITE, vfs),
+        run_of_sections(&WITHDRAWS_A_WRITE),
         &loop_setup(recorder.clone()),
         Arc::new(Unused),
         Arc::new(Unused),
@@ -253,23 +174,35 @@ async fn a_vfs_effect_withdrawn_in_the_step_that_issued_it_is_dropped_unperforme
         CancelHandle::new(),
     )
     .await;
-    assert_eq!(result, Ok("fast".to_owned()));
-    assert!(
-        !written.load(Ordering::SeqCst),
-        "the withdrawn write never reached the backend"
+    assert_eq!(
+        result,
+        Ok("fast|false".to_owned()),
+        "the store holds no file of the withdrawn write"
     );
 
     let records = recorder.records(run_id);
     assert_one_answer_per_effect(&records);
-    let effects: Vec<&Record> = records
+    let issued: Vec<(RecordKind, serde_json::Value)> = records
         .iter()
-        .filter(|record| record.kind == RecordKind::Effect)
+        .filter(|record| record.kind != RecordKind::Event)
+        .map(|record| (record.kind, record.payload.clone()))
         .collect();
-    assert_eq!(effects.len(), 1, "Slow's write is the run's one effect");
-    assert_eq!(effects[0].payload, write_effect("slow.md", "never"));
-    let answers = answers(&records);
-    assert_eq!(answers.len(), 1);
-    assert_eq!(answers[0].payload, json!("Dropped"));
+    assert_eq!(
+        issued,
+        [
+            (RecordKind::Effect, write_effect("slow.md", "never")),
+            (RecordKind::Answer, json!("Dropped")),
+            (
+                RecordKind::Effect,
+                json!({ "Vfs": { "op": { "Exists": { "path": "slow.md" } } } })
+            ),
+            (
+                RecordKind::Answer,
+                json!({ "Vfs": { "Ok": { "Bool": false } } })
+            ),
+        ],
+        "Slow's write is answered Dropped unperformed, and Main's question then finds no file"
+    );
 }
 
 /// A label for one record: an event's kind, or the effect or answer kind
@@ -338,5 +271,74 @@ async fn a_step_with_a_vfs_effect_records_its_inline_answer_before_the_next_effe
             .iter()
             .all(|kind| *kind == RecordKind::Event),
         "the run opens with its own events"
+    );
+}
+
+/// A section that writes, appends to, edits, and deletes store files,
+/// reads the deleted one under a `pcall`, and returns what it reads back
+/// of the file it kept.
+const EDITS_ITS_STORE: &str = "store.write('notes.md', 'one')\n\
+     store.append('notes.md', ' two')\n\
+     store.str_replace('notes.md', 'one', 'three')\n\
+     store.write('draft.md', 'gone')\n\
+     store.delete('draft.md')\n\
+     pcall(store.read, 'draft.md')\n\
+     return store.read('notes.md')";
+
+#[tokio::test]
+async fn a_runs_vfs_records_rebuild_its_store() {
+    let (recorder, run_id) = begun_log().await;
+
+    let returned = drive_run(
+        run(EDITS_ITS_STORE),
+        &loop_setup(recorder.clone()),
+        Arc::new(Unused),
+        Arc::new(Unused),
+        run_id,
+        CancelHandle::new(),
+    )
+    .await
+    .expect("the run completes");
+    assert_eq!(returned, "three two");
+
+    // The store is gone with the run. Each Vfs effect's record holds its
+    // operation whole, so the operations the store performed, applied in
+    // record order to an empty filesystem, give the files the store held.
+    let records = recorder.records(run_id);
+    let files = VfsRef::default()
+        .acquire(Origin::new("store rebuild"))
+        .expect("an empty memory filesystem acquires");
+    let mut applied = 0;
+    for effect in &records {
+        if effect.kind != RecordKind::Effect {
+            continue;
+        }
+        let Some(vfs) = effect.payload.get("Vfs") else {
+            continue;
+        };
+        let answer = records
+            .iter()
+            .find(|record| {
+                record.kind == RecordKind::Answer && record.effect_id == effect.effect_id
+            })
+            .expect("every effect is answered");
+        if answer.payload["Vfs"].get("Ok").is_none() {
+            continue;
+        }
+        let op: VfsOp = serde_json::from_value(vfs["op"].clone())
+            .expect("a Vfs effect's record holds its operation whole");
+        perform_vfs_op(&files, op).expect("an operation the store performed applies again");
+        applied += 1;
+    }
+    assert_eq!(applied, 6, "every operation but the refused read");
+    assert_eq!(
+        files.read_string("notes.md"),
+        Ok(returned),
+        "the rebuilt file reads as the text the run returned"
+    );
+    assert_eq!(
+        files.exists("draft.md"),
+        Ok(false),
+        "the deleted file is absent"
     );
 }

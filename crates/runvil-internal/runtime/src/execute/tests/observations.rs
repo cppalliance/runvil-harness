@@ -8,7 +8,6 @@ use super::context::{Recorder, sequence};
 use super::fixtures::{echo_tool, scoped_tool};
 use super::models_loop::{LOOP_TO_TEXT, loop_events, loop_scenario};
 use super::*;
-use crate::test_support::scenario::TestStore;
 
 /// The prompt whose one section, `Only`, raises.
 fn failing_prompt() -> String {
@@ -127,21 +126,19 @@ fn recording_and_null_observers_produce_the_same_result_and_store_state() {
     // The Engine takes no observer: a recording or null observer only
     // replays the events a run returns, after the run. What keeps the
     // choice from changing a run is that its result and store side effects
-    // are fixed by its input, which two runs over fresh stores pin.
-    let first_store = TestStore::new();
-    let first = Scenario::new(STORE_SECTIONS).vfs(first_store.vfs()).run();
-    let second_store = TestStore::new();
-    let second = Scenario::new(STORE_SECTIONS).vfs(second_store.vfs()).run();
+    // are fixed by its input, which two runs, each in its own store, pin.
+    let first = Scenario::new(STORE_SECTIONS).run();
+    let second = Scenario::new(STORE_SECTIONS).run();
 
     assert_eq!(first.text(), second.text());
     assert_eq!(
-        first_store.glob("**").unwrap(),
-        second_store.glob("**").unwrap(),
+        first.glob("**").unwrap(),
+        second.glob("**").unwrap(),
         "two runs of one prompt must leave the same store paths"
     );
     assert_eq!(
-        first_store.read("state.txt").unwrap(),
-        second_store.read("state.txt").unwrap(),
+        first.read("state.txt").unwrap(),
+        second.read("state.txt").unwrap(),
         "two runs of one prompt must store the same contents"
     );
 

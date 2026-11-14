@@ -26,7 +26,7 @@ use runvil_types::event::Event;
 use runvil_types::seed::RunSeed;
 use runvil_types::timestamp::Timestamp;
 use runvil_types::tools::{ToolCatalog, ToolId, ToolInfo, make_tool_error};
-use runvil_vfs::{Origin, VfsError, VfsRef};
+use runvil_vfs::{Access, Origin, Store, VfsError, VfsRef};
 
 use super::recording::{
     DebugCapture, DebugEvent, NullObserver, Observation, Observer, forward_one,
@@ -183,45 +183,80 @@ impl Answers {
     }
 }
 
-/// The test store: a VFS handle, a fresh default one (a memory store at
-/// `/`) unless the test supplies its own, whose `read` and `glob` helpers
-/// each go through a fresh, immediately dropped access and its store view.
-/// A short-lived access per call is what keeps seeding and post-run
-/// assertions conflict-free: each access is its own scope, and its claims
-/// die with it, so a held seeder access would meet the run's own scope as
-/// a false race.
-pub(crate) struct TestStore(Mutex<VfsRef>);
+/// A view of `store` under a fresh access of a scope of its own, for a
+/// test that reads a run's store from outside the run. A short-lived view
+/// per read is what keeps such a read conflict-free once the run is over:
+/// its claims die with it, where a held view would meet a live run's scope
+/// as a false race.
+///
+/// # Errors
+/// Returns the failure of the throwaway acquisition or of the view.
+pub(crate) fn fresh_store_view(store: &Store, origin: &str) -> Result<Access, VfsError> {
+    let access = VfsRef::default().acquire(Origin::new(origin))?;
+    store.view(&access)
+}
+
+/// What a scenario's run works on: the VFS handle the run takes for its
+/// tool calls, a fresh default one unless the test supplies its own, and
+/// the run's own store, which the scenario binds here once it builds the
+/// run. `read` and `glob` each go through a [`fresh_store_view`] of that
+/// store.
+pub(crate) struct TestStore {
+    vfs: Mutex<VfsRef>,
+    /// The run's store, from the test-only accessor; `None` until the
+    /// scenario builds its run.
+    store: Mutex<Option<Store>>,
+}
 
 impl TestStore {
     pub(crate) fn new() -> TestStore {
-        TestStore(Mutex::new(VfsRef::default()))
+        TestStore::from_vfs(VfsRef::default())
     }
 
-    /// Wraps a caller-built handle - a gated backend, say - in the test
-    /// store's seeding and post-run assertion helpers.
+    /// Runs over a caller-built handle - a gated backend, say - as the
+    /// files the run's tool calls work in.
     pub(crate) fn from_vfs(vfs: VfsRef) -> TestStore {
-        TestStore(Mutex::new(vfs))
+        TestStore {
+            vfs: Mutex::new(vfs),
+            store: Mutex::new(None),
+        }
     }
 
-    /// The handle the run and the params builders take: the run's whole
-    /// filesystem, store included.
+    /// The handle the run and the params builders take: the files the
+    /// run's tool calls work in.
     pub(crate) fn vfs(&self) -> VfsRef {
-        self.0
+        self.vfs
             .lock()
-            .expect("the store lock is not poisoned")
+            .expect("the handle lock is not poisoned")
             .clone()
     }
 
+    /// Binds the store of the run the scenario built.
+    fn bind(&self, store: Store) {
+        *self.store.lock().expect("the store lock is not poisoned") = Some(store);
+    }
+
+    /// A fresh view of the run's store.
+    ///
+    /// # Panics
+    /// When the scenario has not built its run, which binds the store.
+    #[track_caller]
+    fn view(&self, origin: &str) -> Result<Access, VfsError> {
+        let store = self
+            .store
+            .lock()
+            .expect("the store lock is not poisoned")
+            .clone()
+            .expect("the scenario binds its run's store when it builds the run");
+        fresh_store_view(&store, origin)
+    }
+
     pub(crate) fn read(&self, path: &str) -> Result<String, VfsError> {
-        self.vfs()
-            .acquire_store(Origin::new("TestStore::read"))?
-            .read_string(path)
+        self.view("TestStore::read")?.read_string(path)
     }
 
     pub(crate) fn glob(&self, pattern: &str) -> Result<Vec<String>, VfsError> {
-        self.vfs()
-            .acquire_store(Origin::new("TestStore::glob"))?
-            .glob(pattern)
+        self.view("TestStore::glob")?.glob(pattern)
     }
 }
 
@@ -250,7 +285,7 @@ pub(crate) struct Scenario {
 
 impl Scenario {
     /// A run of `source` under [`TEST_SEED`] and [`TEST_STARTED_AT`], with
-    /// the empty object `{}` as its args, a fresh memory store, no tools,
+    /// the empty object `{}` as its args, a fresh memory filesystem, no tools,
     /// no model, nothing filled in, and no held effect.
     pub(crate) fn new(source: impl Into<String>) -> Scenario {
         Scenario {
@@ -323,7 +358,8 @@ impl Scenario {
         self
     }
 
-    /// Runs over the caller-built handle `vfs` in place of a fresh store.
+    /// Runs over the caller-built handle `vfs`, the files the run's tool
+    /// calls work in, in place of a fresh one.
     pub(crate) fn vfs(mut self, vfs: VfsRef) -> Scenario {
         self.store = TestStore::from_vfs(vfs);
         self
@@ -439,6 +475,7 @@ impl Scenario {
             signalled: Cell::new(false),
         };
         let run = self.prefill.start(Arc::new(prompt), &self.args, ctx);
+        self.store.bind(run.store_for_test());
         let canceller = signalled.map(|signalled| {
             let cancel = self.cancel.clone();
             thread::spawn(move || {
@@ -795,9 +832,16 @@ impl Trace {
         self.turns
     }
 
-    /// Reads a store path after the run, through a fresh access.
+    /// Reads a path of the run's store after the run, through a fresh
+    /// view.
     pub(crate) fn read(&self, path: &str) -> Result<String, VfsError> {
         self.store.read(path)
+    }
+
+    /// The paths of the run's store that match `pattern`, after the run,
+    /// through a fresh view.
+    pub(crate) fn glob(&self, pattern: &str) -> Result<Vec<String>, VfsError> {
+        self.store.glob(pattern)
     }
 }
 

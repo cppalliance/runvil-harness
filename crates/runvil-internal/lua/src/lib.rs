@@ -5,7 +5,7 @@
 //! functions are available; `args`, the read-only table of the chain's
 //! arguments, and the runtime `sys` table are exposed; a writable `var`
 //! table is provided for the block to populate; an always-on `store` table
-//! gives the block the run's virtual files; and an every-Nth-instruction
+//! gives the block the run's store; and an every-Nth-instruction
 //! hook polls the run's cancel flag, so even an unbounded loop aborts
 //! promptly once the run is canceled.
 //! Direct `print` and `warn` are unavailable. A persistent `log(message)`
@@ -140,7 +140,7 @@ pub use crate::compactors::{OverflowReason, UsageAnchor, output_reserve, prechec
 pub use crate::dispatch::{ScriptReport, ToolDispatch, prepare_dispatch, prepare_model_dispatch};
 pub use crate::engine_globals::install_ui;
 pub use crate::engine_globals_store::{
-    make_store_failure_error, run_store_op, store_error_message, store_probe_message,
+    make_store_failure_error, run_store_op, store_error_message,
 };
 pub use crate::error::{
     QuotaResource, make_context_exhausted_error, make_internal_at_error, make_internal_error,

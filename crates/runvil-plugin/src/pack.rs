@@ -77,7 +77,7 @@ pub trait Pack: Send + Sync {
     ///   effect of a run on the same task, so blocking or CPU-heavy work
     ///   goes to the Host's runtime, without the access. Operations
     ///   through [`ToolContext::access`] run inside the call; on real
-    ///   directories they block the poll briefly, as `store.*` does.
+    ///   directories they block the poll briefly.
     /// - `call` must not panic. If it does, the Harness answers its effect
     ///   `Dropped` and logs the panic.
     /// - `call` marks the trust of every output correctly. Output that

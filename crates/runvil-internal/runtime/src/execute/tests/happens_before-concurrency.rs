@@ -83,7 +83,7 @@ fn nested_tasks_join_transitively_and_do_not_deadlock_at_a_ceiling_of_one() {
     // admits one task at a time, so the nested tasks only run because the
     // parked arm gives its slot back.
     assert_every_interleaving_reads(
-        |store| trace_scenario(TRACE_6, store).limits(ceiling(1)),
+        || scheduler_scenario(TRACE_6).limits(ceiling(1)),
         "sub one/sub two",
     );
 }
@@ -104,8 +104,8 @@ fn an_arms_concurrency_limit_gates_its_fanout_and_the_whole_run() {
         .join("|");
     let gateway = ScriptedChat::new((1..=10).map(|i| text(&format!("r{i}"))).collect::<Vec<_>>());
     assert_every_interleaving_reads(
-        |store| {
-            trace_scenario(TRACE_12, store)
+        || {
+            scheduler_scenario(TRACE_12)
                 .limits(ceiling(8))
                 .chat(&gateway)
         },
@@ -124,7 +124,7 @@ fn tasks_concurrency_clamps_to_the_callers_ceiling() {
     // yields the effective limit 4, so a prompt stays portable wherever it
     // runs, including where the ceiling is tighter.
     assert_every_interleaving_reads(
-        |store| trace_scenario(TRACE_12_CLAMP, store).limits(ceiling(4)),
+        || scheduler_scenario(TRACE_12_CLAMP).limits(ceiling(4)),
         "clamped:4",
     );
 }

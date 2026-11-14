@@ -11,24 +11,20 @@ use harness_runner::display_chain;
 use harness_runner::effect_loop::drive_run;
 use harness_runner::recorder::{MemoryRecorder, RecordKind, RunRecorder};
 use runvil_engine::cancel::CancelHandle;
-use runvil_engine::vfs::VfsRef;
 use runvil_engine::{ErrorCode, ErrorFact};
 use serde_json::json;
 
 use super::{answers, await_raised, cancel_after, meta};
 use crate::prepare::RefusingAppends;
 use crate::support::{
-    FailingRecorder, PendingTimer, TIMED_MAIN, TextTool, Unused, WAITS, loop_setup, run_over,
+    FailingRecorder, PendingTimer, TIMED_MAIN, TextTool, Unused, WAITS, loop_setup, run,
     run_with_child, run_with_child_and_cancel,
 };
 
-/// A run of one store write and one read, over a fresh memory store: its
-/// every effect is a Vfs effect, so no performer is ever out.
+/// A run of one store write and one read: its every effect is a Vfs
+/// effect, so no performer is ever out.
 fn store_round_trip() -> runvil_engine::Run {
-    run_over(
-        "store.write('a.md', '1')\nreturn store.read('a.md')",
-        VfsRef::default(),
-    )
+    run("store.write('a.md', '1')\nreturn store.read('a.md')")
 }
 
 #[tokio::test]

@@ -1,69 +1,26 @@
-//! The executor's `VfsRef` contract with its caller: an end-to-end run
-//! over the caller's handle, and the seed-run-extract round trip a caller
-//! drives with no real files - seed a file through the run's handle, run,
-//! and read what the run wrote back through the handle.
+//! The executor's `VfsRef` contract with its caller: the handle is the
+//! files the run's tool calls work in and no part of the run's store. A
+//! run's sections share the run's own store, no file of the handle is in
+//! that store, no file of that store is in the handle, and the handle's
+//! policy and operation observer never see a store operation.
 //! Then the run-bounded scope: a run's `Done`, or its drop before `Done`,
 //! ends its scope however long the caller holds the store views it was
 //! handed.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::Error;
 use crate::execute::run::{Effect, IssuedEffect, Run, Step};
 use crate::execute::tests::context::{parse, test_params};
 use crate::test_support::perform_locally;
-use crate::test_support::scenario::Scenario;
-use crate::test_support::temp_root::TempRoot;
-use runvil_prompt::test_support::prompt;
-use runvil_vfs::{Access, Origin, RealBackend, VfsError, VfsRef};
-
-const ROUND_TRIP_PROMPT: &str = concat!(
-    "---\n",
-    "name: round-trip\n",
-    "description: Seed, run, extract\n",
-    "runvil: 0\n",
-    "---\n\n",
-    "## Summarize\n\n",
-    "```lua\n",
-    "local paper = store.read('paper.md')\n",
-    "store.write('report.md', 'report on: ' .. paper)\n",
-    "return 'done'\n",
-    "```\n",
-);
-
-/// The store view derived from a fresh access on the run's handle: the
-/// caller's seeding and extraction half of the seed-run-extract round trip.
-fn fresh_store_view(vfs: &VfsRef, origin: &str) -> Access {
-    vfs.acquire_store(Origin::new(origin))
-        .expect("the handle declares a store")
-}
-
-/// Seeds `paper.md`, the file the fixture reads, through the handle the
-/// run will take. The seeding access drops here - its scope ends - so the
-/// run's own scope never meets the caller's.
-fn seed_paper(vfs: &VfsRef, contents: &str) {
-    fresh_store_view(vfs, "seed_paper")
-        .write("paper.md", contents.as_bytes())
-        .expect("the paper seeds");
-}
-
-/// Seeds `paper.md` with `contents` and runs `source` over the seeded
-/// handle, which the run keeps as given: the test's seed-run-extract
-/// sequence is seed through the handle, run, extract through the handle.
-/// Returns the run's text and the handle.
-#[track_caller]
-fn seeded_run(source: &str, contents: &str) -> (String, VfsRef) {
-    let vfs = VfsRef::default();
-    seed_paper(&vfs, contents);
-    let trace = Scenario::new(source).vfs(vfs.clone()).run();
-    (trace.text().to_owned(), vfs)
-}
+use crate::test_support::scenario::{Scenario, fresh_store_view};
+use runvil_prompt::test_support::{one_section, prompt};
+use runvil_vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsError, VfsPath, VfsRef};
 
 #[test]
-fn an_end_to_end_run_threads_one_vfs_ref_through_every_section() {
-    // The store survives the context-clearing section transition: one
-    // section's write is the next section's read, over the run's
-    // handle.
+fn one_sections_store_write_is_the_next_sections_read() {
+    // The store survives the context-clearing section transition: every
+    // section of a run works in the run's one store.
     let source = prompt(
         "",
         &[
@@ -73,70 +30,128 @@ fn an_end_to_end_run_threads_one_vfs_ref_through_every_section() {
     );
     let trace = Scenario::new(source).run();
     assert_eq!(trace.text(), "across the reset");
-    // Extraction after the run takes a fresh access: the run's identities
-    // dropped with it, so nothing the run touched can conflict here.
+    // The read after the run takes a fresh view: the run's identities
+    // ended with it, so nothing the run touched can conflict here.
     assert_eq!(
         trace
             .read("handoff.txt")
-            .expect("the run's write persists on the handle"),
+            .expect("the run's write stays in its store"),
         "across the reset"
     );
 }
 
 #[test]
-fn a_caller_seeds_and_extracts_through_the_runs_handle_with_no_real_files() {
-    let (text, vfs) = seeded_run(ROUND_TRIP_PROMPT, "the paper body");
-    assert_eq!(text, "done");
-    let report = fresh_store_view(&vfs, "round-trip extraction")
-        .read_string("report.md")
-        .expect("the run left its report");
-    assert_eq!(report, "report on: the paper body");
+fn a_runs_store_holds_no_file_of_its_handle_and_its_handle_no_file_of_its_store()
+-> Result<(), VfsError> {
+    // The handle holds `/notes.md` when the run starts. The access that
+    // wrote it drops at once, so its scope ends before the run's starts.
+    let vfs = VfsRef::default();
+    vfs.acquire(Origin::new("the caller's files"))?
+        .write("/notes.md", b"the caller's notes")?;
+    let source = one_section(
+        "
+        local seen = store.exists('notes.md')
+        store.write('notes.md', 'the run wrote this')
+        store.write('report.md', 'the run wrote this too')
+        return tostring(seen)",
+    );
+    let trace = Scenario::new(source).vfs(vfs.clone()).run();
+    assert_eq!(
+        trace.text(),
+        "false",
+        "the run's store holds no file of the handle"
+    );
+    assert_eq!(
+        trace.glob("**")?,
+        ["notes.md", "report.md"],
+        "both writes landed in the run's store"
+    );
+    let files = vfs.acquire(Origin::new("after the run"))?;
+    assert_eq!(
+        files.glob("/**")?,
+        ["/notes.md"],
+        "the handle holds no file the run's store took"
+    );
+    assert_eq!(
+        files.read("/notes.md")?,
+        b"the caller's notes",
+        "the store's write of the same name left the handle's file as it was"
+    );
+    Ok(())
+}
+
+/// Each operation a handle's policy was asked about and each event its
+/// observer received, in order.
+#[derive(Clone, Default)]
+struct Seen(Arc<Mutex<Vec<String>>>);
+
+impl Seen {
+    fn note(&self, what: String) {
+        self.0
+            .lock()
+            .expect("the record is not poisoned")
+            .push(what);
+    }
+
+    fn so_far(&self) -> Vec<String> {
+        self.0.lock().expect("the record is not poisoned").clone()
+    }
+}
+
+/// A policy that denies every operation and notes each one it is asked
+/// about.
+struct DenyAll(Seen);
+
+impl Policy for DenyAll {
+    fn check(&self, op: Op, path: &VfsPath) -> Verdict {
+        self.0.note(format!("policy: {op:?} {path}"));
+        Verdict::Deny("this handle denies every operation".to_owned())
+    }
 }
 
 #[test]
-fn fanout_interleaving_is_invariant_across_memory_and_real_backends() {
-    // The consistency rule: every store operation takes the leaf-yield path
-    // uniformly, with no inline fast path, so a run's observable behavior
-    // cannot depend on which backend serves the store mount. The same
-    // fanout fixture (arm-scoped writes, a post-join glob, the ordered
-    // merge) runs over the stock memory mount and over a `RealBackend`
-    // rooted in a temp dir; the result and the stored contents must be
-    // identical.
-    const FANOUT_STORE_WRITES: &str =
-        include_str!("../../../../tests/prompts/execution/fanout-store-writes.md");
-    // Both arms drive the raw caller-supplied handle contract, so the
-    // caller's own backend serves the declared store in each.
-    let memory = Scenario::new(FANOUT_STORE_WRITES)
-        .vfs(VfsRef::default())
-        .run();
-
-    let temp = TempRoot::new("fanout_interleaving_is_invariant_across_memory_and_real_backends");
-    let real_vfs = VfsRef::builder()
-        .store(
-            "/",
-            RealBackend::rooted(temp.path()).expect("the temp dir roots the real backend"),
-        )
+fn a_handles_policy_and_observer_never_see_a_store_operation() -> Result<(), VfsError> {
+    let seen = Seen::default();
+    let observer = seen.clone();
+    let vfs = VfsRef::builder()
+        .mount("/", MemoryBackend::new())
+        .policy(DenyAll(seen.clone()))
+        .on_op(move |event| observer.note(format!("observer: {:?} {}", event.op(), event.path())))
         .build();
-    let real = Scenario::new(FANOUT_STORE_WRITES).vfs(real_vfs).run();
-
+    let source = one_section(
+        "
+        store.write('kept.txt', 'from')
+        store.append('kept.txt', ' the run')
+        store.str_replace('kept.txt', 'from', 'by')
+        local listed = store.glob('*.txt')
+        local found = store.exists('kept.txt')
+        local text = store.read('kept.txt')
+        store.delete('kept.txt')
+        return #listed .. '|' .. tostring(found) .. '|' .. text",
+    );
+    let trace = Scenario::new(source).vfs(vfs.clone()).run();
     assert_eq!(
-        memory.text(),
-        real.text(),
-        "the run's result must not depend on the backend"
+        trace.text(),
+        "1|true|by the run",
+        "every store operation ran over a handle whose policy denies every operation"
     );
-    for path in ["arm-1.md", "arm-2.md", "merged.md"] {
-        assert_eq!(
-            memory.read(path).ok(),
-            real.read(path).ok(),
-            "stored contents at {path} must not depend on the backend"
-        );
-    }
-    // The `RealBackend` really served the mount: the arm's write landed on
-    // the real filesystem under the root.
+    assert_eq!(
+        seen.so_far(),
+        Vec::<String>::new(),
+        "neither the handle's policy nor its observer saw a store operation"
+    );
+    // The policy is live: it is asked about a write through the handle
+    // and denies it, so the observer receives nothing.
+    let files = vfs.acquire(Origin::new("the handle's own files"))?;
     assert!(
-        temp.path().join("arm-1.md").is_file(),
-        "the real backend must persist the arm's write under its root"
+        matches!(
+            files.write("/kept.txt", b"from"),
+            Err(VfsError::PermissionDenied { .. })
+        ),
+        "the handle's policy denies a write to the handle's files"
     );
+    assert_eq!(seen.so_far(), ["policy: Write /kept.txt"]);
+    Ok(())
 }
 
 const HELD_STORE: &str = "---\nname: held-store\ndescription: d\nrunvil: 0\n---\n\n\
@@ -146,14 +161,13 @@ const HELD_STORE: &str = "---\nname: held-store\ndescription: d\nrunvil: 0\n---\
     return store.read('kept.txt')\n\
     ```\n";
 
-/// Starts the `HELD_STORE` run over `vfs`.
-fn held_store_run(vfs: &VfsRef) -> Run {
-    let ctx = test_params().with_vfs(vfs.clone());
-    Run::new(Arc::new(parse(HELD_STORE)), "{}", ctx)
+/// Builds the `HELD_STORE` run.
+fn held_store_run() -> Run {
+    Run::new(Arc::new(parse(HELD_STORE)), "{}", test_params())
 }
 
 /// Answers `effects` through the local performer, keeping each one in
-/// `held` so the store views they carry outlive the answer.
+/// `held` so the store views they hold outlive the answer.
 fn answer_holding(run: &mut Run, effects: Vec<IssuedEffect>, held: &mut Vec<Effect>) {
     assert!(!effects.is_empty(), "every issued effect is answered");
     for IssuedEffect { id, effect, .. } in effects {
@@ -165,11 +179,11 @@ fn answer_holding(run: &mut Run, effects: Vec<IssuedEffect>, held: &mut Vec<Effe
     }
 }
 
-/// Drives the `HELD_STORE` run over `vfs` to `Done`, keeping every
-/// effect, and returns the run itself too, so both the run and every
-/// store view it handed out are still alive when the caller asserts.
-fn drive_holding_effects(vfs: &VfsRef) -> (Run, Result<String, Error>, Vec<Effect>) {
-    let mut run = held_store_run(vfs);
+/// Drives the `HELD_STORE` run to `Done`, keeping every effect, and
+/// returns the run itself too, so both the run and every store view it
+/// handed out are still alive when the caller asserts.
+fn drive_holding_effects() -> (Run, Result<String, Error>, Vec<Effect>) {
+    let mut run = held_store_run();
     let mut held = Vec::new();
     loop {
         match run.step() {
@@ -182,8 +196,7 @@ fn drive_holding_effects(vfs: &VfsRef) -> (Run, Result<String, Error>, Vec<Effec
 #[test]
 fn a_run_ends_its_scope_at_done_while_the_caller_still_holds_its_store_views()
 -> Result<(), VfsError> {
-    let vfs = VfsRef::default();
-    let (run, result, held) = drive_holding_effects(&vfs);
+    let (run, result, held) = drive_holding_effects();
     assert!(
         matches!(&result, Ok(text) if text == "from the run"),
         "the run succeeds: {result:?}"
@@ -195,8 +208,8 @@ fn a_run_ends_its_scope_at_done_while_the_caller_still_holds_its_store_views()
     );
     // A fresh scope reads the run's write without a conflict: the run's
     // scope ended at Done, not when the run or the test driver's views dropped.
-    let fresh = vfs.acquire(Origin::new("after done"))?;
-    assert_eq!(fresh.read("/kept.txt")?, b"from the run");
+    let fresh = fresh_store_view(&run.store_for_test(), "after done")?;
+    assert_eq!(fresh.read("kept.txt")?, b"from the run");
     drop(held);
     drop(run);
     Ok(())
@@ -205,8 +218,7 @@ fn a_run_ends_its_scope_at_done_while_the_caller_still_holds_its_store_views()
 #[test]
 fn an_operation_through_a_store_view_held_past_done_is_refused_and_changes_nothing()
 -> Result<(), VfsError> {
-    let vfs = VfsRef::default();
-    let (run, _, held) = drive_holding_effects(&vfs);
+    let (run, _, held) = drive_holding_effects();
     let access = match held.first() {
         Some(Effect::Vfs { access, .. }) => access,
         other => panic!("the run's first effect is its store write: {other:?}"),
@@ -217,8 +229,8 @@ fn an_operation_through_a_store_view_held_past_done_is_refused_and_changes_nothi
         }
         other => panic!("a write through a view held past Done is refused, got {other:?}"),
     }
-    let fresh = vfs.acquire(Origin::new("after done"))?;
-    assert_eq!(fresh.read("/kept.txt")?, b"from the run");
+    let fresh = fresh_store_view(&run.store_for_test(), "after done")?;
+    assert_eq!(fresh.read("kept.txt")?, b"from the run");
     drop(held);
     drop(run);
     Ok(())
@@ -227,8 +239,8 @@ fn an_operation_through_a_store_view_held_past_done_is_refused_and_changes_nothi
 #[test]
 fn dropping_a_run_before_done_ends_its_scope_while_the_caller_still_holds_its_store_views()
 -> Result<(), VfsError> {
-    let vfs = VfsRef::default();
-    let mut run = held_store_run(&vfs);
+    let mut run = held_store_run();
+    let store = run.store_for_test();
     let mut held = Vec::new();
     let effects = match run.step() {
         Step::Pending { effects, .. } => effects,
@@ -243,8 +255,8 @@ fn dropping_a_run_before_done_ends_its_scope_while_the_caller_still_holds_its_st
     drop(run);
     // A fresh scope reads the dropped run's write without a conflict,
     // though the test driver still holds every store view the run handed out.
-    let fresh = vfs.acquire(Origin::new("after drop"))?;
-    assert_eq!(fresh.read("/kept.txt")?, b"from the run");
+    let fresh = fresh_store_view(&store, "after drop")?;
+    assert_eq!(fresh.read("kept.txt")?, b"from the run");
     drop(held);
     Ok(())
 }

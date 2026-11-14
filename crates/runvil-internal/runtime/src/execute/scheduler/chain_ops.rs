@@ -33,8 +33,7 @@ pub(super) struct ChainOps<'a> {
     pub(super) chain: &'a mut Chain,
     /// The effect table the view's leaf arms issue into.
     effects: &'a mut EffectTable,
-    /// The handle on the run's scope, which forks the chain's access and
-    /// derives its store view.
+    /// The handle on the run's scope, which forks the chain's access.
     scope: Option<&'a ScopeHandle>,
     /// Whether the view delivered an answer to the chain, which
     /// [`Scheduler::with_chain`] requeues once.
@@ -75,9 +74,9 @@ impl<'a> ChainOps<'a> {
         Arc::clone(self.chain.ctx.prompt())
     }
 
-    /// The handle on the run's scope, which forks the chain's access and
-    /// derives its store view. It borrows from the scheduler rather than
-    /// the view, so it outlives a borrow of the chain.
+    /// The handle on the run's scope, which forks the chain's access. It
+    /// borrows from the scheduler rather than the view, so it outlives a
+    /// borrow of the chain.
     ///
     /// # Errors
     /// Returns an `Internal` failure when the run holds no scope handle,

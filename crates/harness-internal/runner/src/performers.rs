@@ -17,9 +17,9 @@
 //! block while polled: one that blocks stalls every other effect of the
 //! run, and the run's stop and cancel with them. A performer with blocking
 //! or CPU-heavy work hands it to the Host's own runtime and awaits the
-//! result. A `Vfs` effect has no performer: the VFS is synchronous by
-//! design, so the loop answers it inline through the Engine's store
-//! operation.
+//! result. A `Vfs` effect has no performer: it is one operation on the
+//! run's store, which is memory, so the loop answers it inline through
+//! the Engine's store operation.
 //!
 //! The runner supplies the tool performer itself: the run's snapshot of
 //! the Host's Packs, taken at preparation. The Host supplies the

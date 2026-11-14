@@ -100,16 +100,16 @@ impl fmt::Display for VfsPathBuf {
 /// The internal namespace follows POSIX: rooted, forward slashes, strict.
 /// The lexical rules are: backslashes from Windows machines count as
 /// separators; duplicate separators collapse; `.` segments vanish; `..`
-/// pops exactly one segment and stops at the access root, never climbing
-/// above it; a trailing slash is dropped; the root canonicalizes to
+/// pops exactly one segment, and is rejected at `/`, where there is none
+/// to pop; a trailing slash is dropped; the root canonicalizes to
 /// itself. Case is preserved and significant (POSIX semantics): paths
 /// differing only in case are distinct. The one exception is the claims
 /// check: on Windows and macOS, where the file system treats such paths
 /// as one file, a path a rooted real mount serves is claimed under its
 /// lowercase spelling below the mount, so two spellings of one file
-/// conflict. A path without a leading `/` joins onto `root`, and the
+/// conflict. A path without a leading `/` is relative to `/`, and the
 /// empty path is rejected.
-pub(crate) fn canonicalize(root: &VfsPath, path: &str) -> Result<VfsPath, VfsError> {
+pub(crate) fn canonicalize(path: &str) -> Result<VfsPath, VfsError> {
     if path.is_empty() {
         return Err(VfsError::InvalidPath {
             path: path.to_owned(),
@@ -118,21 +118,11 @@ pub(crate) fn canonicalize(root: &VfsPath, path: &str) -> Result<VfsPath, VfsErr
     }
     let normalized = path.replace('\\', "/");
     let mut segments: Vec<&str> = Vec::new();
-    // A relative path joins onto the access root: the root's own
-    // segments seed the stack, so `..` can pop them but never climbs
-    // below the root's floor.
-    let mut floor = 0usize;
-    if !normalized.starts_with('/') {
-        segments.extend(root.as_str().split('/').filter(|s| !s.is_empty()));
-        floor = segments.len();
-    }
     for segment in normalized.split('/') {
         match segment {
             "" | "." => {}
             ".." => {
-                if segments.len() > floor {
-                    segments.pop();
-                } else if floor == 0 {
+                if segments.pop().is_none() {
                     return Err(VfsError::InvalidPath {
                         path: path.to_owned(),
                         reason: PathReason::Traversal,
@@ -159,7 +149,7 @@ pub(crate) fn canonicalize(root: &VfsPath, path: &str) -> Result<VfsPath, VfsErr
 
 /// Canonicalizes a path that is already namespace-absolute: mount
 /// prefixes, mount-relative backend paths, and backend results. A
-/// relative path is rejected rather than joined onto a root, so
+/// relative path is rejected rather than taken as relative to `/`, so
 /// construction-time prefixes stay strict. Reaching this boundary with a
 /// relative value is a producer bug - a backend result or a construction
 /// prefix outside the namespace - so it reports as a backend failure.
@@ -169,7 +159,7 @@ pub(crate) fn canonicalize_absolute(path: &str) -> Result<VfsPath, VfsError> {
             message: format!("relative path is not in the virtual namespace: {path:?}"),
         });
     }
-    canonicalize(&VfsPath::root(), path)
+    canonicalize(path)
 }
 
 #[cfg(test)]
@@ -180,7 +170,7 @@ mod tests {
     use crate::{PathReason, VfsError};
 
     fn canonical(path: &str) -> Result<String, VfsError> {
-        Ok(canonicalize(&VfsPath::root(), path)?.as_str().to_owned())
+        Ok(canonicalize(path)?.as_str().to_owned())
     }
 
     #[test]
@@ -224,7 +214,7 @@ mod tests {
     fn traversal_past_the_root_is_rejected() {
         for path in ["/..", "/a/../../b"] {
             assert_eq!(
-                canonicalize(&VfsPath::root(), path),
+                canonicalize(path),
                 Err(VfsError::InvalidPath {
                     path: path.to_owned(),
                     reason: PathReason::Traversal,
@@ -237,7 +227,7 @@ mod tests {
     #[test]
     fn empty_paths_are_rejected() {
         assert_eq!(
-            canonicalize(&VfsPath::root(), ""),
+            canonicalize(""),
             Err(VfsError::InvalidPath {
                 path: String::new(),
                 reason: PathReason::Empty,
@@ -269,18 +259,6 @@ mod tests {
     }
 
     #[test]
-    fn dotdot_never_climbs_above_the_access_root() -> Result<(), VfsError> {
-        let store = canonicalize(&VfsPath::root(), "/store")?;
-        // At the root's own floor, `..` stops instead of escaping.
-        assert_eq!(canonicalize(&store, "..")?.as_str(), "/store");
-        assert_eq!(canonicalize(&store, "../..")?.as_str(), "/store");
-        assert_eq!(canonicalize(&store, "a/../b")?.as_str(), "/store/b");
-        // Past the namespace root, `..` is still rejected.
-        assert!(canonicalize(&VfsPath::root(), "..").is_err());
-        Ok(())
-    }
-
-    #[test]
     fn a_relative_backslash_path_joins_onto_the_access_root() -> Result<(), VfsError> {
         assert_eq!(canonical("a\\b/c")?, "/a/b/c");
         Ok(())
@@ -289,16 +267,16 @@ mod tests {
     #[test]
     fn case_is_preserved_and_significant() -> Result<(), VfsError> {
         assert_eq!(canonical("/ReadMe.md")?, "/ReadMe.md");
-        let upper: VfsPath = canonicalize(&VfsPath::root(), "/ReadMe.md")?;
-        let lower: VfsPath = canonicalize(&VfsPath::root(), "/readme.md")?;
+        let upper: VfsPath = canonicalize("/ReadMe.md")?;
+        let lower: VfsPath = canonicalize("/readme.md")?;
         assert_ne!(upper, lower);
         Ok(())
     }
 
     #[test]
     fn identical_paths_canonicalize_to_equal_values() -> Result<(), VfsError> {
-        let first = canonicalize(&VfsPath::root(), "/a/b")?;
-        let second = canonicalize(&VfsPath::root(), "/a/./b/")?;
+        let first = canonicalize("/a/b")?;
+        let second = canonicalize("/a/./b/")?;
         assert_eq!(first, second);
         assert_eq!(first.as_str(), second.as_str());
         Ok(())
@@ -306,7 +284,7 @@ mod tests {
 
     #[test]
     fn clones_share_one_allocation() -> Result<(), VfsError> {
-        let path = canonicalize(&VfsPath::root(), "/a/b")?;
+        let path = canonicalize("/a/b")?;
         let clone = path.clone();
         assert_eq!(Arc::strong_count(&path.text), 2);
         drop(clone);
@@ -321,10 +299,9 @@ mod tests {
         // process's life, so a loop like this grew the heap
         // monotonically. Each path's string must free with its last
         // owner - here, at the end of its own iteration.
-        let root = VfsPath::root();
         let mut dangling = Vec::new();
         for index in 0..1000 {
-            let path = canonicalize(&root, &format!("/loop/{index}"))?;
+            let path = canonicalize(&format!("/loop/{index}"))?;
             dangling.push(Arc::downgrade(&path.text));
         }
         assert!(

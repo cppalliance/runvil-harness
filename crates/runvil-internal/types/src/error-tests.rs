@@ -88,7 +88,7 @@ fn an_error_is_a_cancel_exactly_when_its_code_is_canceled() {
 }
 
 /// Every code, in declaration order.
-const ALL: [ErrorCode; 68] = [
+const ALL: [ErrorCode; 67] = [
     ErrorCode::FrontmatterInvalid,
     ErrorCode::StructureInvalid,
     ErrorCode::FenceInvalid,
@@ -143,7 +143,6 @@ const ALL: [ErrorCode; 68] = [
     ErrorCode::ReadOnly,
     ErrorCode::OutsideRoot,
     ErrorCode::RootProtected,
-    ErrorCode::NoStore,
     ErrorCode::CrossMount,
     ErrorCode::Io,
     ErrorCode::Unsupported,
@@ -217,7 +216,6 @@ fn family(code: ErrorCode) -> u16 {
         | ErrorCode::ReadOnly
         | ErrorCode::OutsideRoot
         | ErrorCode::RootProtected
-        | ErrorCode::NoStore
         | ErrorCode::CrossMount
         | ErrorCode::Io
         | ErrorCode::Unsupported
@@ -292,7 +290,6 @@ fn store_and_model_codes_are_tagged_with_their_failure_kinds() {
         (ErrorCode::ReadOnly, "read_only"),
         (ErrorCode::OutsideRoot, "outside_root"),
         (ErrorCode::RootProtected, "root_protected"),
-        (ErrorCode::NoStore, "no_store"),
         (ErrorCode::CrossMount, "cross_mount"),
         (ErrorCode::Io, "io"),
         (ErrorCode::Unsupported, "unsupported"),

@@ -23,7 +23,9 @@ pub struct RunSetup {
     pub recorder: Arc<dyn RunRecorder>,
     /// Lists the models and performs model rounds.
     pub broker: Arc<dyn InferenceBroker>,
-    /// The run's whole filesystem, which the run works in.
+    /// The filesystem the run's tool calls work in. The run's store is no
+    /// part of it: the Engine makes each run an empty store of its own,
+    /// which no setup fills and no report hands back.
     pub vfs: VfsRef,
     /// The model id the user selected, if any.
     pub selected_model: Option<String>,
@@ -46,7 +48,7 @@ pub struct RunSetup {
 
 impl RunSetup {
     /// A setup over `recorder` and `broker`. Every other field starts
-    /// empty or at its default: a fresh memory store, no selection, no
+    /// empty or at its default: an empty memory filesystem, no selection, no
     /// roots, the empty object `{}` as its args, `RunLimits::default()`,
     /// at most 10 tool calls in flight, and no user.
     #[must_use]

@@ -133,8 +133,7 @@ impl Run {
     /// Building a run never fails. The first `step` checks, in order,
     /// that the prompt declares a supported `runvil:` version, that
     /// `args` is a JSON object the prompt's `args` declaration accepts,
-    /// that the params' filesystem declares a store whose backend passes
-    /// its probe, and that the params meet what the prompt requires: each
+    /// and that the params meet what the prompt requires: each
     /// Pack the prompt declares is on the roster and can serve (a run given
     /// no roster skips this check), each declared role's requirements hold
     /// for the model that fills it, a non-empty role map has a `default`
@@ -245,6 +244,13 @@ impl Run {
     #[cfg(test)]
     pub(crate) fn turns_for_test(&self) -> u32 {
         self.scheduler.turns_for_test()
+    }
+
+    /// The run's store, for the suites that read what the run's `store`
+    /// calls left in it. No production code hands the store out.
+    #[cfg(test)]
+    pub(crate) fn store_for_test(&self) -> runvil_vfs::Store {
+        self.scheduler.store_for_test()
     }
 }
 

@@ -107,8 +107,9 @@ impl<'a> OpEvent<'a> {
 /// A callback that receives an `OpEvent` for each admitted file
 /// operation.
 ///
-/// The sink must be cheap. Store operations call it from the blocking
-/// pool, inline with the operation.
+/// The sink must be cheap: a file operation calls it inline, on the
+/// thread that performs the operation. A [`Store`](crate::Store) has no
+/// sink, so no store operation calls one.
 pub(crate) type OpSink = Arc<dyn Fn(OpEvent<'_>) + Send + Sync>;
 
 #[cfg(test)]

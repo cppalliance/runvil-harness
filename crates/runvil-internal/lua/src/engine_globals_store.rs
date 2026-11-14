@@ -27,11 +27,6 @@ enum LineNumbers {
     Prefixed,
 }
 
-/// The model-facing message for [`VfsError::NoStore`], with or without an
-/// operation to render: [`store_error_message`] and [`store_probe_message`]
-/// both answer with it.
-const NO_STORE_MESSAGE: &str = "this run declares no store, so no store operation can run";
-
 /// The model-facing message for a failed store operation: what failed and,
 /// when there is a fix, how to make it, so the text a model reads names
 /// both. The operation supplies the wording its call surface promises (a
@@ -91,7 +86,6 @@ pub fn store_error_message(op: &VfsOp, error: &VfsError) -> String {
         VfsError::RootProtected { path } => {
             format!("the store's mounted root cannot be removed, renamed, or replaced: {path}")
         }
-        VfsError::NoStore => NO_STORE_MESSAGE.to_owned(),
         VfsError::CrossMount { path, detail } => {
             format!("store operation on {path} spans two mounts: {detail}")
         }
@@ -105,24 +99,12 @@ pub fn store_error_message(op: &VfsOp, error: &VfsError) -> String {
     }
 }
 
-/// The model-facing message for a store failure that has no operation to
-/// render - deriving a store view, the declared-store probe: a run that
-/// declares no store is told so, and any other failure follows the fixed
-/// probe text.
-#[must_use]
-pub fn store_probe_message(error: &VfsError) -> String {
-    match error {
-        VfsError::NoStore => NO_STORE_MESSAGE.to_owned(),
-        _ => format!("store operation failed: {error}"),
-    }
-}
-
 /// Executes one validated store operation against the store view `view`:
 /// what the request a `store.*` call yields comes to once it is performed.
 ///
 /// # Errors
 /// Returns the [`VfsError`] the operation produces: path or pattern
-/// validation, not-found, anchor, range, conflict, or backend failure.
+/// validation, not-found, anchor, range, or conflict.
 pub fn run_store_op(view: &Access, op: VfsOp) -> std::result::Result<VfsOutcome, VfsError> {
     match op {
         VfsOp::Write { path, contents } => view

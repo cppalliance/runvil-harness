@@ -528,9 +528,7 @@ pub fn runvil_engine::vfs::RealBackend::with_writability(self, writability: runv
 pub fn runvil_engine::vfs::ScopeHandle::end(&self)
 pub fn runvil_engine::vfs::ScopeHandle::end_access(&self, owner: core::option::Option<runvil_engine::vfs::ExecId>, child: runvil_engine::vfs::ExecId)
 pub fn runvil_engine::vfs::ScopeHandle::join(&self, owner: runvil_engine::vfs::ExecId, child: runvil_engine::vfs::ExecId)
-pub fn runvil_engine::vfs::ScopeHandle::probe_store(&self, access: &runvil_engine::vfs::Access) -> core::result::Result<(), runvil_engine::vfs::VfsError>
 pub fn runvil_engine::vfs::ScopeHandle::spawn(&self, parent: &runvil_engine::vfs::Access, origin: runvil_engine::vfs::Origin) -> core::result::Result<runvil_engine::vfs::Access, runvil_engine::vfs::VfsError>
-pub fn runvil_engine::vfs::ScopeHandle::store_view(&self, access: &runvil_engine::vfs::Access) -> core::result::Result<runvil_engine::vfs::Access, runvil_engine::vfs::VfsError>
 pub fn runvil_engine::vfs::Stat::new(file_type: runvil_engine::vfs::FileType, size: u64) -> runvil_engine::vfs::Stat
 pub fn runvil_engine::vfs::Stat::with_created(self, created: core::option::Option<std::time::SystemTime>) -> runvil_engine::vfs::Stat
 pub fn runvil_engine::vfs::Stat::with_mode(self, mode: core::option::Option<u32>) -> runvil_engine::vfs::Stat
@@ -562,7 +560,6 @@ pub fn runvil_engine::vfs::VfsPath::to_buf(&self) -> runvil_engine::vfs::VfsPath
 pub fn runvil_engine::vfs::VfsPathBuf::as_str(&self) -> &str
 pub fn runvil_engine::vfs::VfsRef::acquire(&self, origin: runvil_engine::vfs::Origin) -> core::result::Result<runvil_engine::vfs::Access, runvil_engine::vfs::VfsError>
 pub fn runvil_engine::vfs::VfsRef::acquire_scope(&self, origin: runvil_engine::vfs::Origin) -> core::result::Result<(runvil_engine::vfs::Access, runvil_engine::vfs::ScopeHandle), runvil_engine::vfs::VfsError>
-pub fn runvil_engine::vfs::VfsRef::acquire_store(&self, origin: runvil_engine::vfs::Origin) -> core::result::Result<runvil_engine::vfs::Access, runvil_engine::vfs::VfsError>
 pub fn runvil_engine::vfs::VfsRef::builder() -> runvil_engine::vfs::VfsRefBuilder
 pub fn runvil_engine::vfs::VfsRef::new(backend: impl runvil_engine::vfs::Vfs + 'static) -> runvil_engine::vfs::VfsRef
 pub fn runvil_engine::vfs::VfsRef::overlay(&self, prefix: &str, backend: impl runvil_engine::vfs::Vfs + 'static) -> runvil_engine::vfs::VfsRef
@@ -570,7 +567,6 @@ pub fn runvil_engine::vfs::VfsRefBuilder::build(self) -> runvil_engine::vfs::Vfs
 pub fn runvil_engine::vfs::VfsRefBuilder::mount(self, prefix: &str, backend: impl runvil_engine::vfs::Vfs + 'static) -> runvil_engine::vfs::VfsRefBuilder
 pub fn runvil_engine::vfs::VfsRefBuilder::on_op(self, sink: impl core::ops::function::Fn(runvil_engine::vfs::OpEvent<'_>) + core::marker::Send + core::marker::Sync + 'static) -> runvil_engine::vfs::VfsRefBuilder
 pub fn runvil_engine::vfs::VfsRefBuilder::policy(self, policy: impl runvil_engine::vfs::Policy + core::marker::Sync + 'static) -> runvil_engine::vfs::VfsRefBuilder
-pub fn runvil_engine::vfs::VfsRefBuilder::store(self, root: &str, backend: impl runvil_engine::vfs::Vfs + 'static) -> runvil_engine::vfs::VfsRefBuilder
 pub fn runvil_engine::vfs::make_store_error(error: &runvil_engine::vfs::VfsError) -> runvil_engine::Error
 pub fn runvil_engine::vfs::perform_vfs_op(access: &runvil_engine::vfs::Access, op: runvil_engine::vfs::VfsOp) -> core::result::Result<runvil_engine::vfs::VfsOutcome, runvil_engine::vfs::VfsError>
 pub mod runvil_engine::cancel
@@ -616,7 +612,6 @@ pub runvil_engine::ErrorCode::LuaRuntime = 201
 pub runvil_engine::ErrorCode::MalformedResponse = 410
 pub runvil_engine::ErrorCode::ModelOnlyTool = 507
 pub runvil_engine::ErrorCode::ModelRequired = 415
-pub runvil_engine::ErrorCode::NoStore = 616
 pub runvil_engine::ErrorCode::NotADirectory = 603
 pub runvil_engine::ErrorCode::NotFound = 601
 pub runvil_engine::ErrorCode::NotUtf8 = 606
@@ -1092,7 +1087,6 @@ pub runvil_engine::vfs::VfsError::Io::path: alloc::string::String
 pub runvil_engine::vfs::VfsError::Io::raw_os_error: core::option::Option<i32>
 pub runvil_engine::vfs::VfsError::IsADirectory { .. }
 pub runvil_engine::vfs::VfsError::IsADirectory::path: alloc::string::String
-pub runvil_engine::vfs::VfsError::NoStore
 pub runvil_engine::vfs::VfsError::NotADirectory { .. }
 pub runvil_engine::vfs::VfsError::NotADirectory::path: alloc::string::String
 pub runvil_engine::vfs::VfsError::NotFound { .. }

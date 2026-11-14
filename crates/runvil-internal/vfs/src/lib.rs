@@ -4,10 +4,10 @@
 //! mount router, the operation-observation seam, and the backends. The
 //! crate root holds runvil policy: [`ModePolicy`], the editor mode
 //! gate. The machinery modules hold no runvil policy (no run
-//! concepts). The declared store is generic machinery:
-//! [`VfsRefBuilder::store`] names any mount as the store, and the store
-//! view's strict logical-path rules are the store's caller contract, not
-//! runvil policy.
+//! concepts). A [`Store`] is generic machinery: an empty set of files in
+//! memory, under a claims ledger of its own, that any access's identity
+//! can view. It sits outside every [`VfsRef`], and a store view's strict
+//! logical-path rules are the store's caller contract, not runvil policy.
 //!
 //! This crate is the permanent bottom of the dependency stack: the library
 //! is std only, with no normal or build dependencies.
@@ -35,7 +35,7 @@ mod traits;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 pub use error::{PathReason, VfsError};
-pub use handle::{Access, ScopeHandle, VfsRef};
+pub use handle::{Access, ScopeHandle, Store, VfsRef};
 pub use memory::MemoryBackend;
 pub use observe::{OpEvent, Origin};
 pub use path::{VfsPath, VfsPathBuf};
@@ -44,14 +44,10 @@ pub use router::VfsRefBuilder;
 pub use stat::{Entry, FileType, Stat};
 pub use traits::{AcquireContext, AllowAll, ExecId, Op, Policy, Verdict, Vfs, VfsAccess};
 
-/// The default handle has one mount: an in-memory store at `/`.
-///
-/// The handle is built with [`VfsRefBuilder::store`], which mounts the
-/// memory backend at `/` and declares it the store. Relative paths
-/// therefore address the store directly.
+/// The default handle has one mount: an empty in-memory backend at `/`.
 impl Default for VfsRef {
     fn default() -> VfsRef {
-        VfsRef::builder().store("/", MemoryBackend::new()).build()
+        VfsRef::builder().mount("/", MemoryBackend::new()).build()
     }
 }
 
@@ -186,7 +182,7 @@ impl Policy for ModePolicy {
 #[cfg(test)]
 mod tests {
     use super::{Mode, ModePolicy};
-    use crate::{Origin, VfsError, VfsRef};
+    use crate::{FileType, Origin, VfsError, VfsRef};
 
     /// A manifest section is a dependency table when it is exactly
     /// `dependencies` or `build-dependencies`, a sub-table of one
@@ -372,6 +368,23 @@ mod tests {
         let access = vfs.acquire(Origin::new("read gate test"))?;
         assert_eq!(access.read(path)?, b"text");
         assert!(access.exists(path)?);
+        Ok(())
+    }
+
+    #[test]
+    fn the_default_handle_is_one_empty_memory_mount_at_the_root() -> Result<(), VfsError> {
+        let access = VfsRef::default().acquire(Origin::new("default handle test"))?;
+        // The mount at `/` serves the whole namespace, and holds nothing.
+        assert_eq!(access.stat("/")?.file_type, FileType::Directory);
+        assert!(access.list("/")?.is_empty());
+        // A write lands with no directory made first, and memory tracks
+        // no time for it.
+        access.write("/notes/draft.md", b"# draft")?;
+        assert_eq!(access.read("notes/draft.md")?, b"# draft");
+        assert_eq!(access.stat("/notes/draft.md")?.modified, None);
+        // Each default handle has a memory of its own.
+        let other = VfsRef::default().acquire(Origin::new("default handle test"))?;
+        assert!(!other.exists("/notes/draft.md")?);
         Ok(())
     }
 }

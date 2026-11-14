@@ -567,9 +567,7 @@ pub fn runvil::vfs::RealBackend::with_writability(self, writability: runvil::vfs
 pub fn runvil::vfs::ScopeHandle::end(&self)
 pub fn runvil::vfs::ScopeHandle::end_access(&self, owner: core::option::Option<runvil::vfs::ExecId>, child: runvil::vfs::ExecId)
 pub fn runvil::vfs::ScopeHandle::join(&self, owner: runvil::vfs::ExecId, child: runvil::vfs::ExecId)
-pub fn runvil::vfs::ScopeHandle::probe_store(&self, access: &runvil::vfs::Access) -> core::result::Result<(), runvil::vfs::VfsError>
 pub fn runvil::vfs::ScopeHandle::spawn(&self, parent: &runvil::vfs::Access, origin: runvil::vfs::Origin) -> core::result::Result<runvil::vfs::Access, runvil::vfs::VfsError>
-pub fn runvil::vfs::ScopeHandle::store_view(&self, access: &runvil::vfs::Access) -> core::result::Result<runvil::vfs::Access, runvil::vfs::VfsError>
 pub fn runvil::vfs::Stat::new(file_type: runvil::vfs::FileType, size: u64) -> runvil::vfs::Stat
 pub fn runvil::vfs::Stat::with_created(self, created: core::option::Option<std::time::SystemTime>) -> runvil::vfs::Stat
 pub fn runvil::vfs::Stat::with_mode(self, mode: core::option::Option<u32>) -> runvil::vfs::Stat
@@ -601,7 +599,6 @@ pub fn runvil::vfs::VfsPath::to_buf(&self) -> runvil::vfs::VfsPathBuf
 pub fn runvil::vfs::VfsPathBuf::as_str(&self) -> &str
 pub fn runvil::vfs::VfsRef::acquire(&self, origin: runvil::vfs::Origin) -> core::result::Result<runvil::vfs::Access, runvil::vfs::VfsError>
 pub fn runvil::vfs::VfsRef::acquire_scope(&self, origin: runvil::vfs::Origin) -> core::result::Result<(runvil::vfs::Access, runvil::vfs::ScopeHandle), runvil::vfs::VfsError>
-pub fn runvil::vfs::VfsRef::acquire_store(&self, origin: runvil::vfs::Origin) -> core::result::Result<runvil::vfs::Access, runvil::vfs::VfsError>
 pub fn runvil::vfs::VfsRef::builder() -> runvil::vfs::VfsRefBuilder
 pub fn runvil::vfs::VfsRef::new(backend: impl runvil::vfs::Vfs + 'static) -> runvil::vfs::VfsRef
 pub fn runvil::vfs::VfsRef::overlay(&self, prefix: &str, backend: impl runvil::vfs::Vfs + 'static) -> runvil::vfs::VfsRef
@@ -609,7 +606,6 @@ pub fn runvil::vfs::VfsRefBuilder::build(self) -> runvil::vfs::VfsRef
 pub fn runvil::vfs::VfsRefBuilder::mount(self, prefix: &str, backend: impl runvil::vfs::Vfs + 'static) -> runvil::vfs::VfsRefBuilder
 pub fn runvil::vfs::VfsRefBuilder::on_op(self, sink: impl core::ops::function::Fn(runvil::vfs::OpEvent<'_>) + core::marker::Send + core::marker::Sync + 'static) -> runvil::vfs::VfsRefBuilder
 pub fn runvil::vfs::VfsRefBuilder::policy(self, policy: impl runvil::vfs::Policy + core::marker::Sync + 'static) -> runvil::vfs::VfsRefBuilder
-pub fn runvil::vfs::VfsRefBuilder::store(self, root: &str, backend: impl runvil::vfs::Vfs + 'static) -> runvil::vfs::VfsRefBuilder
 pub mod runvil::effect
 pub mod runvil::event
 pub mod runvil::harness
@@ -654,7 +650,6 @@ pub runvil::ErrorCode::LuaRuntime = 201
 pub runvil::ErrorCode::MalformedResponse = 410
 pub runvil::ErrorCode::ModelOnlyTool = 507
 pub runvil::ErrorCode::ModelRequired = 415
-pub runvil::ErrorCode::NoStore = 616
 pub runvil::ErrorCode::NotADirectory = 603
 pub runvil::ErrorCode::NotFound = 601
 pub runvil::ErrorCode::NotUtf8 = 606
@@ -1115,7 +1110,6 @@ pub runvil::vfs::VfsError::Io::path: alloc::string::String
 pub runvil::vfs::VfsError::Io::raw_os_error: core::option::Option<i32>
 pub runvil::vfs::VfsError::IsADirectory { .. }
 pub runvil::vfs::VfsError::IsADirectory::path: alloc::string::String
-pub runvil::vfs::VfsError::NoStore
 pub runvil::vfs::VfsError::NotADirectory { .. }
 pub runvil::vfs::VfsError::NotADirectory::path: alloc::string::String
 pub runvil::vfs::VfsError::NotFound { .. }

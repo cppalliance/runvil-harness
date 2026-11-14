@@ -2,23 +2,28 @@
 //! and `chat`, `tool_call`, `store`, `timer` - issues
 //! exactly one `Effect` out of the run's `step`, after the one `Render`
 //! a section's first round with catalog offers issues, and each effect's
-//! record round-trips through serde; a section's round carries the `Chat`
-//! origin and a nested infer round the `Infer` origin. The run's answer
-//! rules (a drop, an orphan, a wrong kind) are pinned beside `Run` itself.
+//! record round-trips through serde; a run's store records, applied in
+//! order to a new store, rebuild the run's store; a section's round
+//! carries the `Chat` origin and a nested infer round the `Infer` origin.
+//! The run's answer rules (a drop, an orphan, a wrong kind) are pinned
+//! beside `Run` itself.
 
-use runvil_prompt::test_support::one_section;
+use runvil_prompt::test_support::{one_section, prompt};
 use runvil_types::event::ReplyOrigin;
 use runvil_types::ids::RoundId;
 use runvil_types::packs::PackId;
+use runvil_vfs::Store;
 
 use super::fixtures::echo_tool;
 use super::models_loop::{loop_model_name, loop_scenario};
 use super::scheduler::scheduler_scenario;
 use super::*;
-use crate::execute::run::{EffectRecord, PackToolSets, Round, ToolCallOrigin, ToolCaller};
-use crate::lua::VfsOp;
+use crate::execute::run::{
+    AnswerRecord, EffectRecord, PackToolSets, Round, ToolCallOrigin, ToolCaller,
+};
+use crate::lua::{VfsOp, run_store_op};
 use crate::test_support::rig::Rig;
-use crate::test_support::scenario::round_trip;
+use crate::test_support::scenario::{fresh_store_view, round_trip};
 
 /// Asserts every recorded effect survives the round trip unchanged.
 #[track_caller]
@@ -218,6 +223,98 @@ fn a_store_operation_issues_exactly_one_store_effect() {
         "each store call is one store effect holding its validated op"
     );
     assert_round_trips(rig.issued());
+}
+
+/// Every file of a store beside its text, in path order, as `glob` lists
+/// the store's paths and `read` reads one.
+fn files_of(
+    glob: impl Fn(&str) -> std::result::Result<Vec<String>, VfsError>,
+    read: impl Fn(&str) -> std::result::Result<String, VfsError>,
+) -> std::result::Result<Vec<(String, String)>, VfsError> {
+    glob("**")?
+        .into_iter()
+        .map(|path| {
+            let text = read(&path)?;
+            Ok((path, text))
+        })
+        .collect()
+}
+
+#[test]
+fn a_runs_store_effect_records_rebuild_its_store() -> std::result::Result<(), VfsError> {
+    // Two sections and three fanout arms write, append to, replace in,
+    // and delete files of the run's store, and the last section's read of
+    // a deleted file fails.
+    let source = prompt(
+        "",
+        &[
+            (
+                "Draft",
+                "
+                store.write('outline.md', 'one\\ntwo')
+                store.append('outline.md', '\\nthree')
+                store.write('scratch.md', 'deleted by the next section')
+                tasks.fanout('Part', { 'a', 'b', 'c' })
+                store.append('log.md', 'drafted\\n')",
+            ),
+            (
+                "### Part",
+                "
+                local path = 'parts/' .. sys.index .. '.md'
+                store.write(path, 'part ' .. item)
+                store.append(path, ', more of ' .. item)
+                store.str_replace(path, 'part', 'section')
+                return item",
+            ),
+            (
+                "Finish",
+                "
+                store.str_replace('outline.md', 'two', 'TWO')
+                store.delete('scratch.md')
+                store.delete('parts/2.md')
+                store.append('log.md', 'finished\\n')
+                return tostring(pcall(store.read, 'scratch.md'))",
+            ),
+        ],
+    );
+    let trace = Scenario::new(source).run();
+    assert_eq!(trace.text(), "false");
+
+    // Each operation the run's store performed, applied in record order
+    // through one view of a new store. An operation the run's store
+    // refused left that store as it was, so it is left out.
+    let rebuilt = fresh_store_view(&Store::new(), "the rebuilt store")?;
+    for (effect, answer) in trace.effects() {
+        if let (EffectRecord::Vfs { op }, AnswerRecord::Vfs(Ok(outcome))) = (effect, answer) {
+            assert_eq!(
+                &run_store_op(&rebuilt, op.clone())?,
+                outcome,
+                "{op:?} gives the outcome the run recorded"
+            );
+        }
+    }
+
+    let left = files_of(|pattern| trace.glob(pattern), |path| trace.read(path))?;
+    let expected = [
+        ("log.md", "drafted\nfinished\n"),
+        ("outline.md", "one\nTWO\nthree"),
+        ("parts/1.md", "section a, more of a"),
+        ("parts/3.md", "section c, more of c"),
+    ]
+    .map(|(path, text)| (path.to_owned(), text.to_owned()));
+    assert_eq!(
+        left, expected,
+        "the run's store holds what its sections and arms left"
+    );
+    assert_eq!(
+        files_of(
+            |pattern| rebuilt.glob(pattern),
+            |path| rebuilt.read_string(path)
+        )?,
+        left,
+        "the rebuilt store holds exactly the files and contents the run's own store holds"
+    );
+    Ok(())
 }
 
 #[test]

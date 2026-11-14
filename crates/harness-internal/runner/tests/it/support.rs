@@ -18,10 +18,7 @@ use runvil_engine::effect::{Round, ToolCallOrigin};
 use runvil_engine::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
 };
-use runvil_engine::vfs::{
-    Access, AcquireContext, Entry, ExecId, MemoryBackend, Stat, Vfs, VfsAccess, VfsError, VfsPath,
-    VfsRef,
-};
+use runvil_engine::vfs::Access;
 use runvil_engine::{BoxFuture, Error, ErrorCode};
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Timestamp};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
@@ -110,39 +107,31 @@ fn prompt(sections: &[(&str, &str)]) -> Arc<Prompt> {
 
 /// A Pack-free run over `prompt` with a fixed seed and start and the
 /// empty object `{}` as its arguments, prepared against the fixture
-/// [`catalog`], over the run's filesystem `vfs`, under the cancel flag
-/// `cancel`.
-fn prepared(prompt: Arc<Prompt>, vfs: VfsRef, cancel: &CancelHandle) -> Run {
+/// [`catalog`], under the cancel flag `cancel`. Its tool calls work in
+/// the params' default filesystem, one empty memory mount at `/`, and
+/// its store is the empty one the Engine makes for it.
+fn prepared(prompt: Arc<Prompt>, cancel: &CancelHandle) -> Run {
     let ctx = RunParams::new(TEST_SEED, Timestamp::UNIX_EPOCH)
-        .with_vfs(vfs)
         .with_tools(catalog())
         .with_cancel(cancel.clone());
     Run::new(prompt, "{}", ctx)
 }
 
-/// A Pack-free run over `lua` with a fixed seed and start, over a
-/// fresh memory store.
+/// A Pack-free run over `lua` with a fixed seed and start.
 pub(crate) fn run(lua: &str) -> Run {
-    run_over(lua, VfsRef::default())
-}
-
-/// A Pack-free run over `lua` whose `store` table operates on
-/// `vfs`: the test holds the handle, so it can read what the run wrote or
-/// mount a backend of its own.
-pub(crate) fn run_over(lua: &str, vfs: VfsRef) -> Run {
-    run_of_sections(&[("Only", lua)], vfs)
+    run_of_sections(&[("Only", lua)])
 }
 
 /// A Pack-free run over `sections`, each a section's name and the Lua it
-/// runs, whose `store` table operates on `vfs`.
-pub(crate) fn run_of_sections(sections: &[(&str, &str)], vfs: VfsRef) -> Run {
-    prepared(prompt(sections), vfs, &CancelHandle::new())
+/// runs.
+pub(crate) fn run_of_sections(sections: &[(&str, &str)]) -> Run {
+    prepared(prompt(sections), &CancelHandle::new())
 }
 
 /// [`run`] under the cancel flag `cancel`, which the test also hands the
 /// loop.
 pub(crate) fn run_with_cancel(lua: &str, cancel: &CancelHandle) -> Run {
-    prepared(prompt(&[("Only", lua)]), VfsRef::default(), cancel)
+    prepared(prompt(&[("Only", lua)]), cancel)
 }
 
 /// A Pack-free run over two sections: `## Main` runs `main`, and
@@ -155,7 +144,7 @@ pub(crate) fn run_with_child(main: &str, child: &str) -> Run {
 /// hands the loop.
 pub(crate) fn run_with_child_and_cancel(main: &str, child: &str, cancel: &CancelHandle) -> Run {
     let sections = [("Main", main), ("Child", child)];
-    prepared(prompt(&sections), VfsRef::default(), cancel)
+    prepared(prompt(&sections), cancel)
 }
 
 /// A main section that parks on a 30-second timer beside its child: the
@@ -428,90 +417,5 @@ impl ToolPerformer for GatedTool {
                 .forget();
             Ok(ToolOutput::trusted("opened"))
         })
-    }
-}
-
-/// A [`MemoryBackend`] that runs `on_write` as each write starts and
-/// delegates every operation to the memory backend: a test mounts it as
-/// the run's store, so a store operation reaches it through the run's
-/// real store view, and the hook sees where the operation runs or makes
-/// the backend panic in the one chosen operation.
-pub(crate) struct HookedBackend {
-    inner: MemoryBackend,
-    on_write: Arc<dyn Fn() + Send + Sync>,
-}
-
-impl HookedBackend {
-    pub(crate) fn new(on_write: impl Fn() + Send + Sync + 'static) -> Self {
-        Self {
-            inner: MemoryBackend::new(),
-            on_write: Arc::new(on_write),
-        }
-    }
-}
-
-impl Vfs for HookedBackend {
-    fn acquire(&mut self, cx: &AcquireContext) -> Result<Box<dyn VfsAccess>, VfsError> {
-        Ok(Box::new(HookedAccess {
-            inner: self.inner.acquire(cx)?,
-            on_write: Arc::clone(&self.on_write),
-        }))
-    }
-
-    fn release(&mut self, id: ExecId) -> Result<(), VfsError> {
-        self.inner.release(id)
-    }
-}
-
-/// One session with a [`HookedBackend`].
-struct HookedAccess {
-    inner: Box<dyn VfsAccess>,
-    on_write: Arc<dyn Fn() + Send + Sync>,
-}
-
-impl VfsAccess for HookedAccess {
-    fn read(&self, path: &VfsPath) -> Result<Vec<u8>, VfsError> {
-        self.inner.read(path)
-    }
-
-    fn write(&mut self, path: &VfsPath, contents: &[u8]) -> Result<(), VfsError> {
-        (self.on_write)();
-        self.inner.write(path, contents)
-    }
-
-    fn append(&mut self, path: &VfsPath, contents: &[u8]) -> Result<(), VfsError> {
-        self.inner.append(path, contents)
-    }
-
-    fn remove(&mut self, path: &VfsPath, recursive: bool) -> Result<(), VfsError> {
-        self.inner.remove(path, recursive)
-    }
-
-    fn exists(&self, path: &VfsPath) -> Result<bool, VfsError> {
-        self.inner.exists(path)
-    }
-
-    fn glob(&self, pattern: &str) -> Result<Vec<String>, VfsError> {
-        self.inner.glob(pattern)
-    }
-
-    fn list(&self, path: &VfsPath) -> Result<Vec<Entry>, VfsError> {
-        self.inner.list(path)
-    }
-
-    fn stat(&self, path: &VfsPath) -> Result<Stat, VfsError> {
-        self.inner.stat(path)
-    }
-
-    fn mkdir(&mut self, path: &VfsPath, recursive: bool) -> Result<(), VfsError> {
-        self.inner.mkdir(path, recursive)
-    }
-
-    fn rename(&mut self, from: &VfsPath, to: &VfsPath) -> Result<(), VfsError> {
-        self.inner.rename(from, to)
-    }
-
-    fn copy(&mut self, from: &VfsPath, to: &VfsPath) -> Result<(), VfsError> {
-        self.inner.copy(from, to)
     }
 }

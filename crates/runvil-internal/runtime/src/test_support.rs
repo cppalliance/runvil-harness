@@ -52,8 +52,6 @@ pub mod scripted_chat;
 #[cfg(test)]
 pub(crate) mod seeded;
 #[cfg(test)]
-pub(crate) mod temp_root;
-#[cfg(test)]
 mod tools;
 
 #[cfg(test)]

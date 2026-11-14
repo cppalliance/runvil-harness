@@ -56,13 +56,14 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crate::error::VfsError;
 use crate::observe::{OpSink, Origin};
 use crate::path::{VfsPath, canonicalize_absolute};
-use crate::router::{Mounts, Router, StoreDecl, VfsRefBuilder};
+use crate::router::{Mounts, Router, VfsRefBuilder};
 use crate::traits::{AcquireContext, AllowAll, ExecId, Policy, Vfs, VfsAccess};
 
 pub(crate) use case_fold::CaseFolds;
 use claims::Claims;
 pub(crate) use scope::Scope;
 pub use scope_handle::ScopeHandle;
+pub use store_view::Store;
 
 /// One mounted filesystem instance: its backend and the ledger of who is
 /// touching what. The two are separately `Arc`-shareable so `overlay()`
@@ -71,10 +72,6 @@ struct Volume {
     backend: Arc<Mutex<Box<dyn Vfs>>>,
     claims: Arc<Claims>,
     sink: Option<OpSink>,
-    /// The declared store, when the builder that built this handle
-    /// declared one. The store view derives from it; a mounted
-    /// handle's declaration stays invisible behind its backend.
-    store: Option<StoreDecl>,
     /// The mount prefixes whose claim keys fold case.
     folds: CaseFolds,
 }
@@ -122,7 +119,6 @@ impl VfsRef {
                 backend: Arc::new(Mutex::new(Box::new(backend))),
                 claims: Arc::new(Claims::new()),
                 sink: None,
-                store: None,
                 folds,
             }),
             policy: Arc::new(policy),
@@ -142,8 +138,7 @@ impl VfsRef {
     /// this handle's namespace.
     ///
     /// The new handle shares this handle's claims table, so conflicts are
-    /// detected across both views of the same storage. It also inherits
-    /// this handle's store declaration, when it has one.
+    /// detected across both views of the same storage.
     ///
     /// # Panics
     /// Panics when `prefix` is not an absolute virtual path or is the
@@ -177,7 +172,6 @@ impl VfsRef {
                 // One sink observes both views of the same storage, fired
                 // by the outer capability with the caller's origin.
                 sink: self.volume.sink.clone(),
-                store: self.volume.store.clone(),
                 folds,
             }),
             policy: Arc::clone(&self.policy),
@@ -210,9 +204,9 @@ impl VfsRef {
     /// execution, beside the [`ScopeHandle`] on the scope it starts.
     ///
     /// This is [`VfsRef::acquire`] plus the authority over the new scope:
-    /// the scope handle forks, joins, and ends the scope's identities,
-    /// derives their store views, and ends the scope. No other call returns
-    /// a scope handle, so an `Access` alone never carries that authority.
+    /// the scope handle forks, joins, and ends the scope's identities, and
+    /// ends the scope. No other call returns a scope handle, so an
+    /// `Access` alone never carries that authority.
     ///
     /// # Errors
     /// Returns an error when the backend refuses to acquire the identity.
@@ -220,30 +214,6 @@ impl VfsRef {
         let access = self.acquire(origin)?;
         let scope = ScopeHandle::new(&access.scope);
         Ok((access, scope))
-    }
-
-    /// Acquires a store view for a new serial thread of execution.
-    ///
-    /// The store view is an [`Access`] rooted at the declared store root.
-    /// Its operations reach only the store's own mount. It is
-    /// [`VfsRef::acquire`] followed by switching to the store view, so it
-    /// starts a new scope of its own.
-    ///
-    /// Paths are relative to the store root and follow strict rules. A
-    /// path must be 1 to 1024 bytes long and free of control characters,
-    /// backslashes, and colons. No segment may be empty, `.`, or `..`,
-    /// end in a dot or a space, or be a reserved device name such as
-    /// `CON` or `COM0`. Error paths come back relative to the store root,
-    /// in the form the caller supplied. So the caller can seed and
-    /// extract store files by the names the prompt uses, wherever the
-    /// store is mounted.
-    ///
-    /// # Errors
-    /// Returns [`VfsError::NoStore`] when the handle declares no store.
-    /// Returns the backend's error when the backend refuses to acquire
-    /// the identity.
-    pub fn acquire_store(&self, origin: Origin) -> Result<Access, VfsError> {
-        self.acquire(origin)?.store_view()
     }
 
     /// Acquires the capability for the identity and scope in `cx`: a
@@ -276,8 +246,7 @@ impl VfsRef {
         Ok(Access {
             id: cx.id(),
             origin,
-            root: VfsPath::root(),
-            store_root: None,
+            store_view: false,
             volume: Arc::clone(&self.volume),
             policy: Arc::clone(&self.policy),
             scope,
@@ -297,13 +266,12 @@ impl VfsRef {
     }
 
     /// Builds a handle over a router with a fresh claims table and the
-    /// installed policy, op sink, store declaration, and the mounts'
-    /// case folds: the builder's exit.
+    /// installed policy, op sink, and the mounts' case folds: the
+    /// builder's exit.
     pub(crate) fn from_router(
         router: Router,
         policy: Arc<dyn Policy + Sync>,
         sink: Option<OpSink>,
-        store: Option<StoreDecl>,
         folds: CaseFolds,
     ) -> VfsRef {
         VfsRef {
@@ -311,7 +279,6 @@ impl VfsRef {
                 backend: Arc::new(Mutex::new(Box::new(router))),
                 claims: Arc::new(Claims::new()),
                 sink,
-                store,
                 folds,
             }),
             policy,
@@ -346,14 +313,10 @@ pub struct Access {
     /// The caller-supplied observability origin; `None` only on the
     /// crate-private mount forward, which never fires.
     origin: Option<Origin>,
-    /// The root that relative paths and patterns join onto, fixed for
-    /// the access's life. A plain acquire roots at `/`.
-    root: VfsPath,
-    /// The declared store root, when this access is a store view:
-    /// relative paths join onto it, the strict store-path rules gate
-    /// every path, and errors come back in the caller's logical form.
-    /// Plain accesses have `None`.
-    store_root: Option<VfsPath>,
+    /// Set when this access is a view of a [`Store`]: the strict
+    /// store-path rules gate every path, and errors come back in the
+    /// caller's logical form.
+    store_view: bool,
     volume: Arc<Volume>,
     policy: Arc<dyn Policy + Sync>,
     /// The scope this identity belongs to: its vector clock and its

@@ -30,7 +30,7 @@ pub(crate) use runvil_lua::{
 // The store operation behind `execute::perform_vfs_op`, the entry point
 // a caller answers a `Vfs` effect through, and the
 // model-facing message renderers a store failure carries.
-pub(crate) use runvil_lua::{run_store_op, store_error_message, store_probe_message};
+pub(crate) use runvil_lua::{run_store_op, store_error_message};
 
 #[cfg(test)]
 mod tests;

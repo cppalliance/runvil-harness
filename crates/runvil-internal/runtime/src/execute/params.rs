@@ -48,7 +48,7 @@ pub struct RunParams {
     pub(super) limits: RunLimits,
     /// The application-state snapshot the `ui()` global serves; set by `with_ui`.
     pub(super) ui: Option<serde_json::Value>,
-    /// The run's whole filesystem; set by `with_vfs`.
+    /// The filesystem the run's tool calls work in; set by `with_vfs`.
     pub(super) vfs: VfsRef,
     /// The caller's role map, which fills the run's five roles; set by
     /// `with_models`.
@@ -68,7 +68,7 @@ impl RunParams {
     ///
     /// The new params have a fresh cancel flag, a `ui` snapshot of `None`,
     /// debug reporting off, default [`RunLimits`], and the default
-    /// filesystem, which is a fresh memory store at `/`.
+    /// filesystem, which is one empty memory mount at `/`.
     ///
     /// `seed` is the source of the untrusted-envelope nonce. For a live
     /// run, the caller must draw its 32 bytes from a CSPRNG,
@@ -151,16 +151,18 @@ impl RunParams {
         self
     }
 
-    /// Sets the run's VFS handle, which is the run's whole filesystem.
+    /// Sets the run's VFS handle: the filesystem the run's tool calls work
+    /// in.
     ///
-    /// The filesystem holds the real directories and the declared store
-    /// that every section's `store` table operates on. The default is a
-    /// fresh memory store at `/`.
+    /// Every tool call effect carries an access to this filesystem, so the
+    /// run's tools share one set of files, which the caller can fill
+    /// before the run and read after it through its own clone of `vfs`.
+    /// The default is one empty memory mount at `/`.
     ///
-    /// Every tool call effect carries an access to this same filesystem, so
-    /// the tools and the run share one set of files. The caller seeds files
-    /// before the run and extracts output after it through its own clone of
-    /// `vfs`.
+    /// The run's store is no part of it. Every section's `store` table
+    /// operates on a store the Engine makes empty for the run and keeps
+    /// to the run, so nothing the caller puts in `vfs` reaches `store`,
+    /// and what a prompt hands back is the text it returns.
     #[must_use]
     pub fn with_vfs(mut self, vfs: VfsRef) -> RunParams {
         self.vfs = vfs;

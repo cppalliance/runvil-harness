@@ -1,6 +1,6 @@
-//! Start tests that reach engine-only items: the per-run store mount's
-//! claims isolation, the caller's role map filling the model set, and the
-//! run's first step refusing an unsatisfiable prompt with the
+//! Start tests that reach engine-only items: the separate stores of two
+//! runs over one handle, the caller's role map filling the model set, and
+//! the run's first step refusing an unsatisfiable prompt with the
 //! model-readable notice or running a satisfiable one. The rest of the
 //! suite runs against the `runvil-engine` facade.
 
@@ -20,7 +20,7 @@ use runvil_prompt::test_support::{PromptSource, parse_ok};
 use runvil_types::error::ErrorCode;
 use runvil_types::event::Event;
 use runvil_types::models::{ModelId, ModelInfo, ModelRole, ThinkingMode};
-use runvil_vfs::Origin;
+use runvil_vfs::VfsRef;
 
 /// A prompt declaring no Packs at all.
 const DECLARES_NOTHING: &str = concat!(
@@ -34,22 +34,35 @@ const DECLARES_NOTHING: &str = concat!(
 );
 
 #[test]
-fn two_runs_writing_the_same_store_path_do_not_conflict() {
-    let (ctx_a, ctx_b) = (test_params(), test_params());
-    let store_a = ctx_a
-        .vfs
-        .acquire_store(Origin::new("run-a"))
-        .expect("run a's handle declares a store");
-    let store_b = ctx_b
-        .vfs
-        .acquire_store(Origin::new("run-b"))
-        .expect("run b's handle declares a store");
-    // Both writes proceed while both accesses are live: each run's store
-    // is its own storage under its own claims table.
-    store_a.write("paper.md", b"from a").expect("run a writes");
-    store_b.write("paper.md", b"from b").expect("run b writes");
-    assert_eq!(store_a.read("paper.md").expect("run a reads"), b"from a");
-    assert_eq!(store_b.read("paper.md").expect("run b reads"), b"from b");
+fn two_runs_over_one_handle_have_separate_stores() {
+    // Each run writes `paper.md` and a file named after itself, then
+    // lists its store. The two runs take their steps in turn over one
+    // handle, so both are live while both write the one path: each run's
+    // store is its own files under its own claims, so neither write
+    // conflicts, and neither run lists the file the other wrote.
+    let source = declaring(
+        "",
+        "
+        store.write('paper.md', 'from ' .. args.text)
+        store.write(args.text .. '.md', 'x')
+        return table.concat(store.glob('**'), ',') .. '|' .. store.read('paper.md')",
+    );
+    let vfs = VfsRef::default();
+    let start = |text: &str| {
+        Scenario::new(&source)
+            .vfs(vfs.clone())
+            .args(&format!(r#"{{"text":"{text}"}}"#))
+            .start()
+    };
+    let (mut a, mut b) = (start("a"), start("b"));
+    assert!(a.step(), "run a's first step writes `paper.md`");
+    assert!(
+        b.step(),
+        "run b's first step writes `paper.md` while run a is live"
+    );
+    while a.step() | b.step() {}
+    assert_eq!(a.finish().text(), "a.md,paper.md|from a");
+    assert_eq!(b.finish().text(), "b.md,paper.md|from b");
 }
 
 /// The model `name` with the given context window and thinking capability.

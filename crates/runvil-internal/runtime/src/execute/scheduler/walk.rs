@@ -36,7 +36,7 @@ impl Scheduler {
     ///
     /// # Errors
     /// Returns an `Internal` failure when the run's chain count exceeds `u32`,
-    /// or a store failure when the backend refuses acquisition.
+    /// or the failure of the run's files when they refuse the root access.
     pub(super) fn start_root_walk(&mut self) -> Result<()> {
         // The root walk is the run's one serial thread of execution at the
         // top, so it acquires the run's root capability. It serves every
@@ -50,7 +50,7 @@ impl Scheduler {
             .ctx
             .vfs()
             .acquire_scope(origin)
-            .map_err(|cause| error::make_store_error(&cause))?;
+            .map_err(|cause| error::make_files_error(&cause))?;
         self.scope = Some(scope);
         let id = self.start_chain(ChainStart {
             lineage: ChainId::root(),

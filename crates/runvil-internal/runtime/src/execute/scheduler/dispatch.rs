@@ -3,8 +3,7 @@
 //! through the chain view's one `issue` path; the arm performs nothing and
 //! emits nothing for the answer, which `apply_answer` handles when it
 //! lands. Every store operation is a leaf yield, handed to the caller
-//! uniformly for all backends - no inline fast path - so interleaving
-//! behavior never depends on which backend serves the mount. A refusal
+//! with no inline fast path, so the run's record holds each one. A refusal
 //! decided before dispatch may still report its failure and answer inline,
 //! so the arm returns without the chain ever parking.
 //!
@@ -243,22 +242,21 @@ impl ChainOps<'_> {
         Ok(())
     }
 
-    /// Dispatches a `store` request: derives the store view from the
-    /// chain's access capability and issues the operation through it as a
-    /// `Vfs` effect for the caller to perform, parking the chain in the
-    /// effect table exactly as a leaf I/O round does. The operation's event
-    /// is pushed when the answer is applied, before the chain resumes.
+    /// Dispatches a `store` request: derives a view of the chain's store
+    /// under the chain's access capability and issues the operation
+    /// through it as a `Vfs` effect for the caller to perform, parking the
+    /// chain in the effect table exactly as a leaf I/O round does. The
+    /// operation's event is pushed when the answer is applied, before the
+    /// chain resumes. This is the one place the Engine makes a store view.
     ///
     /// # Errors
     /// Returns an `Internal` failure when the live chain's access
-    /// capability is gone, which only the chain-end paths take, or when the
-    /// run holds no scope handle, or a store failure when the handle the
-    /// chain's access came from declares no store, which the run's start
-    /// probe already ruled out, placed on the store call's line.
+    /// capability is gone, which only the chain-end paths take, or a store
+    /// failure when the chain's scope has ended, placed on the store
+    /// call's line.
     fn dispatch_vfs(&mut self, op: VfsOp) -> Result<()> {
-        let access = Arc::clone(self.chain.access()?);
-        let view = Arc::new(self.scope()?.store_view(&access).map_err(|cause| {
-            let chain = &*self.chain;
+        let chain = &*self.chain;
+        let view = Arc::new(chain.ctx.store().view(chain.access()?).map_err(|cause| {
             let line = chain.frame().ok().and_then(|frame| frame.vm().call_line());
             place(
                 error::make_store_error(&cause),

@@ -1,6 +1,6 @@
 //! How store failures reach the author and the run: caught error tables,
-//! uncaught run errors, the store view's confinement and the line its
-//! failure is placed on, and write conflicts from library code.
+//! uncaught run errors, the line a store view's failure is placed on, and
+//! write conflicts from library code.
 
 use runvil_lua::VfsOp;
 use runvil_types::error::ErrorCode;
@@ -41,10 +41,11 @@ fn a_caught_store_error_is_a_store_table_with_reason_fields_and_prose() {
     assert_eq!(Scenario::new(source).run().text(), "ok");
 }
 
-/// A store view the chain cannot derive ends the chain without reaching
-/// Lua, so it is placed on the store call's line. The run's start probe
-/// rules out a missing store, so the hook re-dispatches the parked write
-/// through an access whose handle declares none.
+/// A store view the chain's scope refuses ends the chain without
+/// reaching Lua, so it is placed on the store call's line. A run ends its
+/// scope at `Done` or at its drop and never under a chain that still
+/// runs, so the hook ends the scope under the parked write and dispatches
+/// the write again.
 #[test]
 fn a_store_view_failure_is_placed_on_the_store_calls_line() {
     let source = one_section(
@@ -56,12 +57,12 @@ fn a_store_view_failure_is_placed_on_the_store_calls_line() {
     rig.settle();
     let error = rig
         .scheduler_for_test()
-        .dispatch_store_without_a_store_for_test(VfsOp::Write {
+        .dispatch_store_past_the_scopes_end_for_test(VfsOp::Write {
             path: "a.txt".to_owned(),
             contents: "x".to_owned(),
         })
-        .expect_err("a handle that declares no store has no store view");
-    assert_eq!(error.code, ErrorCode::NoStore, "{error:?}");
+        .expect_err("an ended scope refuses the store view");
+    assert_eq!(error.code, ErrorCode::ScopeEnded, "{error:?}");
     assert_eq!(error.at, at_line(11), "{error:?}");
 }
 
@@ -165,36 +166,6 @@ fn a_caught_store_error_raised_again_after_a_suspending_call_keeps_store() {
             .to_string()
             .contains("file not found in store: missing.txt"),
         "the message is the original rendering: {error}"
-    );
-}
-
-/// A store declared at `/` covers only its own mount: a directory
-/// mounted beneath it lies outside the store view, so a file that
-/// directory holds reads as absent from the store.
-#[test]
-fn a_store_at_the_root_cannot_reach_a_mount_beneath_it() {
-    let source = one_section(
-        "
-        local ok, err = pcall(function() return store.read('mount/secret.txt') end)
-        assert(ok == false, 'the mounted path is not in the store')
-        assert(err.reason == 'not_found', 'the mounted file is simply absent: ' .. tostring(err))
-        return 'ok'",
-    );
-    let vfs = runvil_vfs::VfsRef::builder()
-        .store("/", runvil_vfs::MemoryBackend::new())
-        .mount("/mount", runvil_vfs::MemoryBackend::new())
-        .build();
-    // The mount holds the file; the store view reads only its own
-    // mount.
-    vfs.acquire(runvil_vfs::Origin::new("mount seeding"))
-        .expect("the handle acquires")
-        .write("/mount/secret.txt", b"secret")
-        .expect("the mount seeds");
-    let trace = Scenario::new(source).vfs(vfs).run();
-    assert_eq!(
-        trace.text(),
-        "ok",
-        "the store view is confined to its own mount"
     );
 }
 

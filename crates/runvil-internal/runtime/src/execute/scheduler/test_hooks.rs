@@ -1,16 +1,16 @@
 //! Test-only hooks over the scheduler's private state: the seams the
 //! `execute::tests` suites drive the scheduler's edge paths through
 //! (overflow bounds, the effect table, task entries, answer delivery, and
-//! a store dispatch with no store) and the turn counter and tool set they
-//! read. Compiled only under test; nothing here
-//! exists in a shipped Engine.
+//! a store dispatch past the end of the run's scope) and the turn
+//! counter, tool set, and store they read. Compiled only under test;
+//! nothing here exists in a shipped Engine.
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use runvil_types::ids::{ChainId, TaskId};
-use runvil_vfs::{MemoryBackend, Origin, VfsRef};
+use runvil_vfs::Origin;
 
 use crate::Result;
 use crate::execute::run::EffectId;
@@ -116,6 +116,11 @@ impl Scheduler {
         self.ctx.turns().load(Ordering::Relaxed)
     }
 
+    /// The run's store: the one every chain's `store` calls operate on.
+    pub(crate) fn store_for_test(&self) -> runvil_vfs::Store {
+        self.ctx.store().clone()
+    }
+
     /// Starts a chain over the top-level slice at `index`, as a `call` or
     /// a spawn starts its chain at its target, and returns the section
     /// name the chain reports before its first entry.
@@ -164,26 +169,21 @@ impl Scheduler {
         ([first, second], holds_first)
     }
 
-    /// Dispatches `op` again for the chain at arena index 0, whose block
-    /// is suspended on a store request, through an access from a handle
-    /// that declares no store: the store-view failure the run's start
-    /// probe otherwise rules out. The access's own scope handle replaces
-    /// the run's, since a scope handle derives store views for its own
-    /// scope alone.
+    /// Ends the run's scope, then dispatches `op` again for the chain at
+    /// arena index 0, whose block is suspended on a store request: the
+    /// store-view failure no step of a run reaches, since a run ends its
+    /// scope at `Done` or at its drop and never under a chain that still
+    /// runs.
     ///
     /// # Errors
     /// Returns the dispatch's store failure.
-    pub(crate) fn dispatch_store_without_a_store_for_test(&mut self, op: VfsOp) -> Result<()> {
+    pub(crate) fn dispatch_store_past_the_scopes_end_for_test(&mut self, op: VfsOp) -> Result<()> {
         let (id, _) = self
             .chains
             .iter()
             .next()
             .expect("the run has started a chain");
-        let (access, scope) = VfsRef::new(MemoryBackend::new())
-            .acquire_scope(Origin::new("no store"))
-            .expect("a memory backend acquires");
-        self.chains[id].access = Some(Arc::new(access));
-        self.scope = Some(scope);
+        self.end_scope();
         self.dispatch(id, Request::Store { op })
     }
 }
@@ -199,7 +199,7 @@ fn start_probe_chain(scheduler: &mut Scheduler, index: usize) -> Result<ChainInd
             scheduler.ctx.prompt().frontmatter().name(),
             1,
         ))
-        .map_err(|cause| crate::error::make_store_error(&cause))?;
+        .map_err(|cause| crate::error::make_files_error(&cause))?;
     scheduler.start_chain(ChainStart {
         lineage: ChainId::root(),
         counters: Counters::default(),

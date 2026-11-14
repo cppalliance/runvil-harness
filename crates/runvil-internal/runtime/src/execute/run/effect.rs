@@ -191,8 +191,9 @@ pub enum Effect {
         /// access when the call is issued and joined back into it when the
         /// answer is applied or the call is aborted, so the chain's earlier
         /// work happens before the tool's and the tool's before the chain's
-        /// next step. It is rooted at `/`. Once the answer is applied or the
-        /// call is aborted, every operation through it is refused.
+        /// next step. It is rooted at `/` of the filesystem the caller gave
+        /// the run, and it reaches no store. Once the answer is applied or
+        /// the call is aborted, every operation through it is refused.
         access: Arc<Access>,
         /// Whether a stop leaves the call in flight, from the binding the
         /// call resolved to: the run catalog's flag for a catalog tool, and
@@ -200,23 +201,26 @@ pub enum Effect {
         /// sees.
         survives_stop: bool,
     },
-    /// One operation on the run's store view, issued for one of the eight
+    /// One operation on the run's store, issued for one of the eight
     /// `store.*` calls a prompt can make.
     ///
-    /// `access` is an ordinary access that the Engine derives from the
-    /// chain's capability at dispatch. It is rooted at the store declared
-    /// by the handle that the chain's access came from. A tool reaches
-    /// files through the access its [`ToolCall`](Effect::ToolCall) effect
-    /// carries.
+    /// The store is the run's own: the Engine makes it empty with the
+    /// run, in memory, and it is gone when the run ends. It is no part of
+    /// the filesystem the caller gave the run, so no path of that
+    /// filesystem reaches it, and a tool, which reaches files through the
+    /// access of its [`ToolCall`](Effect::ToolCall) effect, sees
+    /// none of it. `access` is a view of the store under the chain's
+    /// identity, which the Engine makes at dispatch, and it is the
+    /// caller's one way to the store.
     ///
-    /// The caller must use the access exactly as given and within the
-    /// scope it carries. When the caller drops the access does not affect
+    /// The caller must use the access exactly as given, for this one
+    /// operation. When the caller drops the access does not affect
     /// the run's correctness. Store claims follow happens-before order
     /// within the run's scope. The run ends that scope at `Done` or when
     /// the run is dropped, and after that the view refuses every operation.
     Vfs {
         /// The chain's store view: an access with the chain's identity
-        /// that reaches only the store root.
+        /// that reaches only the run's store.
         access: Arc<Access>,
         /// The validated operation.
         op: VfsOp,

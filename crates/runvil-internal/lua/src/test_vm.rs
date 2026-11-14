@@ -19,7 +19,7 @@ use runvil_types::error::place;
 use runvil_types::seed::RunSeed;
 use runvil_types::tools::{ToolCatalog, ToolId, ToolInfo};
 use runvil_types::untrusted::GuardNonce;
-use runvil_vfs::{Access, Origin, ScopeHandle, VfsRef};
+use runvil_vfs::{Access, Origin, Store, VfsRef};
 use serde_json::{Value as Json, json};
 
 use crate::error::{Result, UNNAMED_FILE, make_lua_runtime_error};
@@ -42,47 +42,47 @@ pub(crate) fn test_nonce() -> GuardNonce {
     GuardNonce::from_seed(&TEST_SEED)
 }
 
-/// The access capability the block driver answers a test VM's store
-/// requests through, beside the handle on its scope, which derives the
-/// access's store view.
+/// What the block driver answers a test VM's store requests with: a
+/// store, and the access capability whose identity views it.
 #[derive(Clone)]
 pub(crate) struct ScopedAccess {
-    /// The capability whose store view the driver operates through.
+    /// The capability under whose identity the driver views the store.
     pub(crate) access: Arc<Access>,
-    /// The handle on the capability's scope.
-    pub(crate) scope: ScopeHandle,
+    /// The store the driver's views operate on.
+    pub(crate) store: Store,
 }
 
 impl ScopedAccess {
-    /// The root capability `vfs` acquires under `origin`, beside the handle
-    /// on the scope it starts.
+    /// A new, empty store, beside the root capability a fresh default
+    /// handle acquires under `origin`.
     #[track_caller]
-    pub(crate) fn acquire(vfs: &VfsRef, origin: Origin) -> ScopedAccess {
-        let (access, scope) = vfs.acquire_scope(origin).expect("the test handle acquires");
+    pub(crate) fn acquire(origin: Origin) -> ScopedAccess {
+        let access = VfsRef::default()
+            .acquire(origin)
+            .expect("the test handle acquires");
         ScopedAccess {
             access: Arc::new(access),
-            scope,
+            store: Store::new(),
         }
     }
 
-    /// The store view of this access: the view the block driver performs
-    /// each store request through, and the one a test seeds and reads
-    /// through under the same identity.
+    /// A view of the store under this access: the view the block driver
+    /// performs each store request through, and the one a test seeds and
+    /// reads through under the same identity.
     #[track_caller]
     pub(crate) fn store_view(&self) -> Access {
-        self.scope
-            .store_view(&self.access)
-            .expect("the handle declares a store")
+        self.store
+            .view(&self.access)
+            .expect("a live access views the store")
     }
 }
 
-/// A fresh default handle's access capability: the store is declared at
-/// the root and the vended identity is the test's own, so seeding through
-/// the store view and the driver's store ops never meet a second live
-/// identity.
+/// A fresh store beside a fresh access capability: the vended identity is
+/// the test's own, so seeding through the store view and the driver's
+/// store ops never meet a second live identity.
 #[track_caller]
 pub(crate) fn fresh_access() -> ScopedAccess {
-    ScopedAccess::acquire(&VfsRef::default(), Origin::new("lua test fixture"))
+    ScopedAccess::acquire(Origin::new("lua test fixture"))
 }
 
 /// Runs `program` as a block on `vm` to its end, answering each store
@@ -404,8 +404,8 @@ impl<'a> TestVm<'a> {
         self
     }
 
-    /// The VFS access the block driver answers the VM's store requests
-    /// through, beside the handle on its scope.
+    /// The store the block driver answers the VM's store requests in,
+    /// beside the access whose identity views it.
     #[track_caller]
     pub(crate) fn access(mut self, access: ScopedAccess) -> Self {
         self.access = Some(access);
@@ -559,8 +559,8 @@ pub(crate) struct BuiltVm {
     vm: SectionVm,
     /// The section's current-model selection, which injection received.
     pub(crate) selection: Selection,
-    /// The access the block driver answers the VM's store requests
-    /// through, beside the handle on its scope.
+    /// The store the block driver answers the VM's store requests in,
+    /// beside the access whose identity views it.
     pub(crate) access: ScopedAccess,
     emitter: Emitter,
     section: String,

@@ -268,9 +268,8 @@ local function models_compact(...)
 end
 
 -- store.*: every store operation is a leaf yield, answered by the driver
--- against the sync VFS uniformly for all backends - no inline fast path,
--- so interleaving behavior never depends on which backend serves the
--- mount. The Engine installs the table of them as the `store` global of
+-- against the run's store, with no inline fast path. The Engine installs
+-- the table of them as the `store` global of
 -- every section VM with the other shims, ahead of the Pack preludes, so a
 -- store function only ever runs inside a block. `end` is a keyword, so
 -- the read bounds travel under bracket keys.

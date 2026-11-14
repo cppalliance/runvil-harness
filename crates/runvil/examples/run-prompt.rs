@@ -84,7 +84,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prompt = host.parse(GREET_NAME)?;
 
     // 3. Give this run its recorder, its broker, and the operator's name;
-    //    every other field keeps its default, such as a fresh store.
+    //    every other field keeps its default, such as an empty memory
+    //    filesystem for the run's tool calls.
     let recorder = Arc::new(MemoryRecorder::new());
     let setup = RunSetup {
         args: r#"{"text":"desk"}"#.to_owned(),

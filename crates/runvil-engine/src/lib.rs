@@ -131,8 +131,11 @@ pub mod prompt {
 }
 
 pub mod vfs {
-    //! A run's files: the store every section shares, real directories
-    //! beside it, and the policy that decides what the run may change.
+    //! A run's files: the virtual filesystem the caller gives a run for
+    //! its tool calls, the policy that decides what they may change, and
+    //! the operations of the run's own store, which sits outside that
+    //! filesystem and which the caller reaches only through the view of
+    //! a store effect.
 
     pub use runvil_lua::VfsOp;
     pub use runvil_lua::VfsOutcome;

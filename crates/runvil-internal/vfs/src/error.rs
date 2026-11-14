@@ -118,8 +118,6 @@ pub enum VfsError {
         /// The root the operation would have replaced or removed.
         path: String,
     },
-    /// A store view was requested from a handle that declares no store.
-    NoStore,
     /// A two-path operation named paths that different mounts serve.
     CrossMount {
         /// The canonical source path.
@@ -194,7 +192,6 @@ impl VfsError {
             Self::ReadOnly { .. } => "read_only",
             Self::OutsideRoot { .. } => "outside_root",
             Self::RootProtected { .. } => "root_protected",
-            Self::NoStore => "no_store",
             Self::CrossMount { .. } => "cross_mount",
             Self::Io { .. } => "io",
             Self::Unsupported { .. } => "unsupported",
@@ -253,7 +250,6 @@ impl fmt::Display for VfsError {
                 f,
                 "root protected: the mounted root {path} cannot be removed, renamed, or replaced"
             ),
-            Self::NoStore => f.write_str("no store: the handle declares no store"),
             Self::CrossMount { detail, .. } => write!(f, "across mounts: {detail}"),
             Self::Io { path, message, .. } => write!(f, "I/O failure on {path}: {message}"),
             Self::Unsupported { detail, .. } => write!(f, "unsupported operation: {detail}"),
@@ -462,11 +458,6 @@ mod tests {
                 },
                 "root_protected",
                 "root protected: the mounted root / cannot be removed, renamed, or replaced",
-            ),
-            (
-                VfsError::NoStore,
-                "no_store",
-                "no store: the handle declares no store",
             ),
             (
                 VfsError::CrossMount {

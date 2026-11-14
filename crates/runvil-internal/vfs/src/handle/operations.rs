@@ -94,7 +94,7 @@ impl Access {
     pub fn str_replace(&self, path: &str, old: &str, new: &str) -> Result<(), VfsError> {
         // The store view validates the path before the anchor, in the
         // store contract's order.
-        if self.store_root.is_some() {
+        if self.store_view {
             validate_store_path(path)?;
         }
         if old.is_empty() {
@@ -159,8 +159,8 @@ impl Access {
     ///
     /// A pattern that ends in `/` matches only directories. Any other
     /// pattern matches only files. A pattern that starts with `/` is
-    /// absolute. Any other pattern is joined onto the access's root, and
-    /// its results come back relative to that root.
+    /// absolute. Any other pattern is relative to `/`, and its results
+    /// come back relative too, without their leading `/`.
     ///
     /// The raw pattern is validated before it is canonicalized. Because
     /// of this, a backslash or a control character is refused, and a
@@ -169,9 +169,9 @@ impl Access {
     /// # Errors
     /// Returns an error when the pattern is malformed: empty, too long,
     /// containing a control character or a backslash, or breaking the
-    /// glob grammar. On a store view, an access from
-    /// `VfsRef::acquire_store`, the pattern is also malformed when the
-    /// store's strict path rules refuse it. Each malformed pattern
+    /// glob grammar. On a store view, an access from `Store::view`, the
+    /// pattern is also malformed when the store's strict path rules
+    /// refuse it. Each malformed pattern
     /// reports the rule it broke as a [`PathReason`] in the
     /// [`VfsError::InvalidPath`]. It also returns an error when the
     /// policy denies the glob, when another access holds a conflicting
@@ -216,7 +216,7 @@ impl Access {
         let mut matches = self.inner().glob_kind(claimed.as_str(), dirs_only)?;
         if relative {
             for matched in &mut matches {
-                if let Some(rest) = strip_root(self.root.as_str(), matched) {
+                if let Some(rest) = strip_root(matched) {
                     *matched = rest;
                 }
             }

@@ -4,16 +4,16 @@
 //! recorder that refuses the run's first record fails the run naming it;
 //! each run's begin draws a fresh seed and reads its start from the
 //! Host's timer, both handed to the recorder; the setup's limits reach
-//! the prepared run; each run makes its own instance of each of its Packs
-//! and drops it by the time `Harness::run` returns, handing its factory
-//! nothing but the Pack id; and the run's tool performer sends a
-//! `ToolCall` effect to the Pack its id names. The setup's arguments
-//! reaching the prepared run sit in the `args` child module, a Pack's
-//! prelude reaching the prepared run sits in the `prelude` child module,
-//! the files a Host seeds in the store sit in the `files` child module, the
-//! wait for each Pack to be ready sits in the `ready` child module, and
-//! the built-in `runvil/user`, which only a run with a user holds, sits
-//! in the `user` child module.
+//! the prepared run; each run starts with an empty store, which shares no
+//! file with the setup's filesystem; each run makes its own instance of
+//! each of its Packs and drops it by the time `Harness::run` returns,
+//! handing its factory nothing but the Pack id; and the run's tool
+//! performer sends a `ToolCall` effect to the Pack its id names. The
+//! setup's arguments reaching the prepared run sit in the `args` child
+//! module, a Pack's prelude reaching the prepared run sits in the
+//! `prelude` child module, the wait for each Pack to be ready sits in the
+//! `ready` child module, and the built-in `runvil/user`, which only a run
+//! with a user holds, sits in the `user` child module.
 
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -25,6 +25,7 @@ use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunMet
 use harness_runner::{Harness, Packs, RunReport, RunSetup};
 use runvil_engine::make_tool_error;
 use runvil_engine::model::{Completion, CompletionResult, ToolCall};
+use runvil_engine::vfs::{Origin, VfsRef};
 use runvil_engine::{Error, ErrorCode, ErrorFact, RunLimits, Timestamp};
 use runvil_plugin::{
     BoxFuture, Pack, PackFactory, PackId, PackInfo, ToolContext, ToolId, ToolInfo, ToolOutput,
@@ -37,8 +38,6 @@ use crate::support::{Make, Unused, host_over, parsed, registry};
 
 #[path = "prepare-args.rs"]
 mod args;
-#[path = "prepare-files.rs"]
-mod files;
 #[path = "prepare-prelude.rs"]
 mod prelude;
 #[path = "prepare-ready.rs"]
@@ -90,7 +89,7 @@ pub(crate) fn building(pack: (PackInfo, Make)) -> Packs {
 
 /// The setup of a run recorded through `recorder` and served by the
 /// scripted broker. It selects no model, so the run binds the broker's
-/// one model, and it holds a fresh memory store.
+/// one model, and it holds an empty memory filesystem.
 pub(crate) fn setup_over(recorder: &Arc<MemoryRecorder>) -> RunSetup {
     RunSetup::new(recorder.clone(), Arc::new(ScriptedBroker::replying()))
 }
@@ -350,6 +349,71 @@ async fn the_setups_limits_reach_the_run() {
         rounds.lock().unwrap().len(),
         2,
         "the setup's ceiling ends the loop after two rounds"
+    );
+}
+
+/// A prompt that asks whether its store holds `a.md`, writes it, asks
+/// again, and returns both answers.
+const ASKS_AROUND_A_WRITE: &str = "---\nname: asks\ndescription: d\nrunvil: 0\n---\n\n\
+    ## Only\n\n```lua\n\
+    local before = store.exists('a.md')\n\
+    store.write('a.md', 'kept')\n\
+    return tostring(before) .. '|' .. tostring(store.exists('a.md'))\n```\n";
+
+#[tokio::test]
+async fn two_runs_over_one_setup_filesystem_each_start_with_an_empty_store() {
+    let recorder = recorder();
+    let vfs = VfsRef::default();
+    for run in 1..=2 {
+        let setup = RunSetup {
+            vfs: vfs.clone(),
+            ..setup_over(&recorder)
+        };
+        let report = report_of(ASKS_AROUND_A_WRITE, bare(), setup).await;
+        assert_eq!(
+            completed(report.result),
+            "false|true",
+            "run {run} starts without `a.md` and holds the one it wrote"
+        );
+    }
+}
+
+/// A prompt that writes `report.md` to its store and returns whether the
+/// store holds `paper.md`.
+const STORES_A_REPORT: &str = "---\nname: stores-report\ndescription: d\nrunvil: 0\n---\n\n\
+    ## Only\n\n```lua\n\
+    store.write('report.md', 'stored')\n\
+    return tostring(store.exists('paper.md'))\n```\n";
+
+#[tokio::test]
+async fn the_setups_filesystem_and_the_runs_store_share_no_file() {
+    let vfs = VfsRef::default();
+    let files = vfs.acquire(Origin::new("prepare test")).unwrap();
+    files.write("/paper.md", b"# Paper").unwrap();
+    drop(files);
+
+    let setup = RunSetup {
+        vfs: vfs.clone(),
+        ..setup_over(&recorder())
+    };
+    let report = report_of(STORES_A_REPORT, bare(), setup).await;
+    assert_eq!(
+        completed(report.result),
+        "false",
+        "the store holds no file the Host put in the setup's filesystem"
+    );
+
+    let files = vfs.acquire(Origin::new("prepare test")).unwrap();
+    let names: Vec<String> = files
+        .list("/")
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    assert_eq!(
+        names,
+        ["paper.md"],
+        "the setup's filesystem holds the Host's file and no file the store wrote"
     );
 }
 

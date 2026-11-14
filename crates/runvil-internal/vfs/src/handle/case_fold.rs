@@ -59,8 +59,7 @@ impl CaseFolds {
 
     /// The claim key of `path`: the path itself, or, when the mount
     /// serving it folds case, the path with its part below the mount
-    /// prefix lowercased. The prefix keeps its spelling, so a store
-    /// view still re-spells the key relative to its root.
+    /// prefix lowercased. The prefix keeps its spelling.
     pub(crate) fn key(&self, path: &VfsPath) -> VfsPath {
         if !self.any {
             return path.clone();

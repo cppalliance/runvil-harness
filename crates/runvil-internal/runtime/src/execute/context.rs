@@ -21,7 +21,7 @@ use runvil_types::ids::{ChainId, TaskId};
 use runvil_types::packs::{PackId, Prelude};
 use runvil_types::tools::ToolCatalog;
 use runvil_types::untrusted::GuardNonce;
-use runvil_vfs::VfsRef;
+use runvil_vfs::{Store, VfsRef};
 
 use crate::Error;
 use crate::lua::{RosterEntry, ToolSet};
@@ -56,10 +56,14 @@ struct SharedState {
     /// The untrusted-envelope nonce, derived once here from the run's seed
     /// so every wrap in the run shares it.
     nonce: GuardNonce,
-    /// The run's VFS handle: the run's whole filesystem, the declared
-    /// store backing every section's Lua `store` table included. Chain
+    /// The run's VFS handle: the files the run's tool calls work in. Chain
     /// steps acquire or spawn their access capabilities from it.
     vfs: VfsRef,
+    /// The run's store: the files every section's Lua `store` table
+    /// operates on. It is made empty with the run, sits outside `vfs`,
+    /// and never leaves the run, so the caller reaches it only through
+    /// the store view of a `Vfs` effect.
+    store: Store,
     /// The run's resource limits.
     limits: RunLimits,
     /// The run's event buffer, shared by every chain's emitter, spawned
@@ -183,6 +187,7 @@ impl ChainState {
                 prompt,
                 nonce: GuardNonce::from_seed(&seed),
                 vfs,
+                store: Store::new(),
                 limits,
                 events,
                 cancel,
@@ -252,6 +257,13 @@ impl ChainState {
     /// The run's VFS handle.
     pub(super) fn vfs(&self) -> &VfsRef {
         &self.shared.vfs
+    }
+
+    /// The store this chain's `store` calls operate on: the run's one
+    /// store, which every chain of the run shares. Every store view the
+    /// Engine makes derives from it.
+    pub(super) fn store(&self) -> &Store {
+        &self.shared.store
     }
 
     /// The chain's arguments, a JSON object.
@@ -439,6 +451,7 @@ impl fmt::Debug for SharedState {
             .field("prompt", &self.prompt)
             .field("nonce", &self.nonce)
             .field("vfs", &"<VfsRef>")
+            .field("store", &self.store)
             .field("limits", &self.limits)
             .field("events", &self.events)
             .field("cancel", &self.cancel)

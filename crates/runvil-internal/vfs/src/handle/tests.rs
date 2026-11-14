@@ -1,6 +1,6 @@
-//! Tests for the handle, the capability, and the claims ledger, split by
-//! topic. The flipping policy and the conflict helper live here because
-//! every topic module uses them.
+//! Tests for the handle, the capability, the claims ledger, and the
+//! store, split by topic. The flipping policy and the conflict helper
+//! live here because every topic module uses them.
 
 use std::fmt;
 use std::sync::atomic::Ordering;
@@ -24,6 +24,7 @@ mod regions;
 /// the public capability, exercised over the memory backend.
 mod semantics;
 mod sink;
+mod store;
 
 /// A policy whose verdict flips through shared state mid-run.
 struct FlipPolicy {

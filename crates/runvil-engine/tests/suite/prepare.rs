@@ -1,12 +1,12 @@
 //! A run's start: real-file claims, the caller's tool catalog, and model
-//! roles, whose requirements the run's first step checks. The store-mount
-//! isolation case and the start-check refusals that reach engine-only
-//! items sit in `runvil-runtime`'s own suite.
+//! roles, whose requirements the run's first step checks. The start-check
+//! refusals that reach Engine-only items sit in `runvil-runtime`'s own
+//! suite.
 
 use runvil_engine::ErrorCode;
 use runvil_engine::event::Event;
 use runvil_engine::model::{ModelRole, ThinkingMode};
-use runvil_engine::vfs::{MemoryBackend, Origin, RealBackend, VfsError, VfsRef};
+use runvil_engine::vfs::{Origin, RealBackend, VfsError, VfsRef};
 use runvil_engine::{ToolCatalog, ToolInfo, ToolOutput};
 
 use super::support::{Scenario, TempRoot, TestResult, Tool, Trace, model, prompt, text, tool_info};
@@ -45,7 +45,6 @@ fn two_runs_writing_the_same_real_file_through_the_shared_base_conflict() -> Tes
         TempRoot::new("two_runs_writing_the_same_real_file_through_the_shared_base_conflict");
     let vfs = VfsRef::builder()
         .mount("/", RealBackend::rooted(temp.path())?)
-        .store("/my/store", MemoryBackend::new())
         .build();
     let (run_a, run_b) = (vfs.clone(), vfs);
     let access_a = run_a.acquire(Origin::new("run-a"))?;

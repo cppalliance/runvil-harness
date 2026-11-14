@@ -281,11 +281,6 @@ fn each_error_reads_as_its_kind_and_a_text_a_model_can_read() {
             RV_FILE_ERROR_OTHER,
             "the backend is gone",
         ),
-        (
-            VfsError::NoStore,
-            RV_FILE_ERROR_OTHER,
-            "the handle declares no store",
-        ),
     ] {
         assert_eq!(describe(&error), (kind, text.to_owned()), "{error:?}");
     }

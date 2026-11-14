@@ -4,7 +4,8 @@
 //! failures end a run with their own code and text, a located one's
 //! ending with where it failed; the parser's failures end theirs with the
 //! prompt's name and position, a frontmatter failure's with its position
-//! alone; and the store probe names a missing store.
+//! alone; and a store failure with no operation to render takes one fixed
+//! text.
 
 use runvil_types::error::ErrorCode;
 use runvil_vfs::VfsError;
@@ -236,13 +237,7 @@ fn a_parse_failure_run_raises_names_the_prompt_and_its_file() {
 }
 
 #[test]
-fn a_store_probe_failure_names_a_missing_store_and_keeps_the_fixed_text_otherwise() {
-    let missing = make_store_error(&VfsError::NoStore);
-    assert_eq!(missing.code, ErrorCode::NoStore);
-    assert_eq!(
-        missing.message,
-        "this run declares no store, so no store operation can run"
-    );
+fn a_store_failure_with_no_operation_takes_the_stores_code_and_fields_under_one_fixed_text() {
     let backend = VfsError::Backend {
         message: "the disk is gone".to_owned(),
     };

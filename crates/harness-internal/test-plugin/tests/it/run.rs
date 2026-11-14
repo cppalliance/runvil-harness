@@ -234,7 +234,7 @@ async fn a_read_the_policy_denies_or_panics_on_is_a_file_error_and_the_run_goes_
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     let vfs = VfsRef::builder()
-        .store("/", MemoryBackend::new())
+        .mount("/", MemoryBackend::new())
         .policy(Guard)
         .build();
     let seed = vfs

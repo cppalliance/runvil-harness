@@ -1,78 +1,13 @@
-//! What a run starts with: its store handle, default params, and the
+//! What a run starts with: its own empty store, default params, and the
 //! tool and model bindings its frontmatter declares.
-
-use std::sync::Arc;
 
 use super::*;
 
-use crate::execute::tests::context::test_params;
+use crate::execute::run::EffectRecord;
 use crate::execute::tests::fixtures::echo_tool;
 use runvil_types::error::ErrorCode;
-use runvil_vfs::{VfsError, VfsRef};
-
-/// A hand-built `VfsRef` that declares no store fails the run up front
-/// with a `NoStore` error, saying what is missing: every run needs a
-/// declared store. (Nothing replaces the handle, so the raw handle's
-/// declaration is what the run sees.)
-#[test]
-fn a_handle_without_a_declared_store_fails_the_run() {
-    let source = one_section("store.write('overlay.txt', 'overlaid')");
-    let vfs = VfsRef::new(runvil_vfs::MemoryBackend::new());
-    let trace = Scenario::new(source).vfs(vfs).run();
-    let error = trace.error();
-    assert_eq!(
-        error.code,
-        ErrorCode::NoStore,
-        "the run fails as a store error: {error}"
-    );
-    assert_eq!(
-        error.to_string(),
-        "this run declares no store, so no store operation can run"
-    );
-}
-
-/// A store backend that refuses every session.
-struct RefusingStore;
-
-impl runvil_vfs::Vfs for RefusingStore {
-    fn acquire(
-        &mut self,
-        _cx: &runvil_vfs::AcquireContext,
-    ) -> std::result::Result<Box<dyn runvil_vfs::VfsAccess>, VfsError> {
-        Err(VfsError::Backend {
-            message: "the store backend refuses every session".to_owned(),
-        })
-    }
-
-    fn release(&mut self, _id: runvil_vfs::ExecId) -> std::result::Result<(), VfsError> {
-        Ok(())
-    }
-}
-
-#[test]
-fn a_store_backend_that_refuses_its_session_fails_the_run_at_the_first_step() {
-    let source = one_section("return 'never runs'");
-    let prompt = crate::prompt::Prompt::parse(&|_: &str| Ok(source.clone()), "prompt");
-    let vfs = VfsRef::builder().store("/", RefusingStore).build();
-    let mut run = crate::execute::run::Run::new(
-        Arc::new(prompt.expect("the fixture parses")),
-        "{}",
-        test_params().with_vfs(vfs),
-    );
-    match run.step() {
-        crate::execute::run::Step::Done {
-            result: Err(error), ..
-        } => assert_eq!(
-            (error.code, error.located_message()),
-            (
-                ErrorCode::Backend,
-                "store operation failed: backend failure: the store backend refuses every session"
-                    .to_owned()
-            )
-        ),
-        other => panic!("expected the first step to fail the run, got {other:?}"),
-    }
-}
+use runvil_types::event::Event;
+use runvil_vfs::VfsRef;
 
 #[test]
 fn default_params_run_a_pack_free_prompt() {
@@ -83,10 +18,10 @@ fn default_params_run_a_pack_free_prompt() {
 }
 
 #[test]
-fn default_run_params_store_handle_declares_a_fresh_store() {
-    // `RunParams` absorbs the filesystem handle with a `VfsRef::default()`
-    // (a fresh memory store at `/`) default: a store-using run needs no
-    // caller-supplied handle.
+fn a_run_under_default_params_writes_and_reads_its_store() {
+    // The Engine makes every run a store of its own, so a run that uses
+    // the store needs nothing set up for it: one section's write is the
+    // next section's read.
     let source = prompt(
         "",
         &[
@@ -95,6 +30,179 @@ fn default_run_params_store_handle_declares_a_fresh_store() {
         ],
     );
     assert_eq!(Scenario::new(source).run().text(), "stock");
+}
+
+#[test]
+fn every_run_starts_with_an_empty_store() {
+    // Two runs of one prompt over one handle: each counts no file in its
+    // store at its start, so the second run sees nothing of the file the
+    // first run wrote.
+    let source = one_section(
+        "
+        local found = store.glob('**')
+        store.write('left.txt', 'written by this run')
+        return #found .. ' at the start, ' .. #store.glob('**') .. ' at the end'",
+    );
+    let vfs = VfsRef::default();
+    for run in ["first", "second"] {
+        let trace = Scenario::new(&source).vfs(vfs.clone()).run();
+        assert_eq!(
+            trace.text(),
+            "0 at the start, 1 at the end",
+            "the {run} run over the one handle"
+        );
+    }
+}
+
+/// A filesystem that refuses every access.
+struct RefusingFiles;
+
+impl runvil_vfs::Vfs for RefusingFiles {
+    fn acquire(
+        &mut self,
+        _cx: &runvil_vfs::AcquireContext,
+    ) -> Result<Box<dyn runvil_vfs::VfsAccess>, runvil_vfs::VfsError> {
+        Err(runvil_vfs::VfsError::Backend {
+            message: "the files are down".to_owned(),
+        })
+    }
+
+    fn release(&mut self, _id: runvil_vfs::ExecId) -> Result<(), runvil_vfs::VfsError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_run_whose_files_refuse_its_root_access_ends_with_the_files_failure() {
+    // The root chain takes its access from the files the caller gave the
+    // run. A refusal ends the run with the files' own failure, which names
+    // no store: the run's store is its own, and nothing asked it.
+    let trace = Scenario::new(one_section("return 'unreachable'"))
+        .vfs(VfsRef::new(RefusingFiles))
+        .run();
+    let error = trace.error();
+    assert_eq!(error.code, ErrorCode::Backend, "{error:?}");
+    assert_eq!(
+        error.message,
+        "file access failed: backend failure: the files are down"
+    );
+}
+
+/// A filesystem that serves its first access, the run's own, and refuses
+/// every access after it.
+struct RefusingForks {
+    files: runvil_vfs::MemoryBackend,
+    served: bool,
+}
+
+impl RefusingForks {
+    fn handle() -> VfsRef {
+        VfsRef::new(RefusingForks {
+            files: runvil_vfs::MemoryBackend::new(),
+            served: false,
+        })
+    }
+}
+
+impl runvil_vfs::Vfs for RefusingForks {
+    fn acquire(
+        &mut self,
+        cx: &runvil_vfs::AcquireContext,
+    ) -> Result<Box<dyn runvil_vfs::VfsAccess>, runvil_vfs::VfsError> {
+        if self.served {
+            return Err(runvil_vfs::VfsError::Backend {
+                message: "the files serve one access".to_owned(),
+            });
+        }
+        self.served = true;
+        self.files.acquire(cx)
+    }
+
+    fn release(&mut self, id: runvil_vfs::ExecId) -> Result<(), runvil_vfs::VfsError> {
+        self.files.release(id)
+    }
+}
+
+/// The text a block returns for a caught failure `err`: its kind, its
+/// code, and whether a store call still works after it.
+const DESCRIBE_CAUGHT: &str = "
+    store.write('after.txt', 'the store still works')
+    return tostring(ok) .. '|' .. err.kind .. '|' .. err.code .. '|' .. store.read('after.txt')";
+
+#[test]
+fn a_task_whose_files_refuse_its_fork_fails_the_spawn_and_starts_no_task() {
+    // A task works under an access forked from its spawner's. Files that
+    // refuse the fork fail the spawn at its call, with the files' own
+    // failure, and the run's store, which no file backs, is untouched.
+    let main = format!("local ok, err = pcall(tasks.spawn, '../Child'){DESCRIBE_CAUGHT}");
+    let caught = prompt(
+        "",
+        &[("Main", main.as_str()), ("Child", "return 'unreachable'")],
+    );
+    let trace = Scenario::new(caught).vfs(RefusingForks::handle()).run();
+    assert_eq!(trace.text(), "false|store|backend|the store still works");
+    assert!(
+        !trace
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::TaskStarted { .. })),
+        "a refused spawn starts no task: {:?}",
+        trace.events()
+    );
+
+    let uncaught = prompt(
+        "",
+        &[
+            ("Main", "tasks.spawn('../Child')"),
+            ("Child", "return 'unreachable'"),
+        ],
+    );
+    let trace = Scenario::new(uncaught).vfs(RefusingForks::handle()).run();
+    let error = trace.error();
+    assert_eq!(error.code, ErrorCode::Backend, "{error:?}");
+    assert_eq!(
+        error.message,
+        "file access failed: backend failure: the files serve one access"
+    );
+}
+
+#[test]
+fn a_tool_call_whose_files_refuse_its_fork_fails_the_call_and_issues_no_effect() {
+    // A tool call works under an access forked from its chain's. Files
+    // that refuse the fork fail the call at its caller before any effect
+    // is issued for it.
+    let main = format!(
+        "local ok, err = pcall(tools.call, 'tools/echo', {{ value = 'x' }}){DESCRIBE_CAUGHT}"
+    );
+    let caught = prompt("uses: [tools]", &[("Main", main.as_str())]);
+    let trace = Scenario::new(caught)
+        .tool(echo_tool())
+        .vfs(RefusingForks::handle())
+        .run();
+    assert_eq!(trace.text(), "false|store|backend|the store still works");
+    assert!(
+        !trace
+            .effects()
+            .iter()
+            .any(|(effect, _)| matches!(effect, EffectRecord::ToolCall { .. })),
+        "a refused fork issues no tool call: {:?}",
+        trace.effects()
+    );
+
+    let uncaught = prompt(
+        "uses: [tools]",
+        &[("Main", "return tools.call('tools/echo', { value = 'x' })")],
+    );
+    let trace = Scenario::new(uncaught)
+        .tool(echo_tool())
+        .vfs(RefusingForks::handle())
+        .run();
+    let error = trace.error();
+    assert_eq!(error.code, ErrorCode::Backend, "{error:?}");
+    assert_eq!(
+        error.message,
+        "file access failed: backend failure: the files serve one access"
+    );
 }
 
 #[test]

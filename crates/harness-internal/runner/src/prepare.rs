@@ -5,8 +5,8 @@
 //! recorder with the start time the caller read, so the record holds both
 //! verbatim. `Harness::run_to_end` begins the run before anything else, so
 //! every run has a record. Then [`prepare`] takes the steps that build the
-//! run: hand the run's whole filesystem, real directories and the
-//! declared store, to the params as given; make the run's instance of
+//! run: hand the filesystem the run's tool calls work in to the params as
+//! given; make the run's instance of
 //! each of its Packs, and take the run's snapshot of them once each is
 //! ready, or the run's cancel fires, which yields the catalog, the
 //! roster, the preludes, and the tool performer; set the first three, the
@@ -76,8 +76,8 @@ pub(crate) async fn prepare(
     model: Option<ModelInfo>,
     cancel: &CancelHandle,
 ) -> (Run, RunPacks) {
-    // The run's whole filesystem, the real directories and the declared
-    // store, goes to the params as given. The run makes its instance of
+    // The filesystem the run's tool calls work in goes to the params as
+    // given. The run makes its instance of
     // each of its Packs, and the snapshot of them is taken once each is
     // ready or the run is canceled: its catalog is what the run offers,
     // its roster gives each Pack's object in the run's Lua and is what the

@@ -181,7 +181,7 @@ pub(crate) struct Scheduler {
     phase: Phase,
     /// The handle on the run's scope, which the acquisition of the run's
     /// root identity returns: every fork, join, and end of the run's
-    /// identities and every store view of their accesses goes through it,
+    /// identities goes through it,
     /// and it closes the scope when the run reaches `Done` or is dropped
     /// before it, so a store view the caller still holds never outlives the
     /// run. The root start (`walk::start_root_walk`) is its only writer in

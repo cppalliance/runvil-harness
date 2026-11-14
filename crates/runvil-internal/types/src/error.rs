@@ -405,8 +405,6 @@ pub enum ErrorCode {
     OutsideRoot = 614,
     /// The operation would remove or replace the mounted root.
     RootProtected = 615,
-    /// The run declares no store.
-    NoStore = 616,
     /// A two-path operation named paths that different mounts serve.
     CrossMount = 617,
     /// An operating-system I/O call failed.
@@ -508,7 +506,6 @@ impl ErrorCode {
             ErrorCode::ReadOnly => "read_only",
             ErrorCode::OutsideRoot => "outside_root",
             ErrorCode::RootProtected => "root_protected",
-            ErrorCode::NoStore => "no_store",
             ErrorCode::CrossMount => "cross_mount",
             ErrorCode::Io => "io",
             ErrorCode::Unsupported => "unsupported",
@@ -584,7 +581,6 @@ impl ErrorCode {
             "read_only" => ErrorCode::ReadOnly,
             "outside_root" => ErrorCode::OutsideRoot,
             "root_protected" => ErrorCode::RootProtected,
-            "no_store" => ErrorCode::NoStore,
             "cross_mount" => ErrorCode::CrossMount,
             "io" => ErrorCode::Io,
             "unsupported" => ErrorCode::Unsupported,
@@ -783,7 +779,6 @@ impl ErrorCode {
                 "That path leads outside the allowed directory, so it will never work."
             }
             ErrorCode::RootProtected => "The root directory cannot be removed or replaced.",
-            ErrorCode::NoStore => "This run has no store, so file operations will not work.",
             ErrorCode::CrossMount => {
                 "Those paths are on different mounts, so this will never work. Use paths on the same \
                  mount."

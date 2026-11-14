@@ -64,20 +64,20 @@ use crate::lua::{VfsOp, VfsOutcome};
 
 /// Performs the store operation of an [`Effect::Vfs`] and returns its answer.
 ///
-/// `access` is the store view the effect carries. It is derived from the
-/// chain's capability when the effect is dispatched. Each [`VfsOp`] maps
-/// onto one `Access` call on that view, so the caller answers a `Vfs`
-/// effect exactly as the Engine's own test drivers do. Line bounds arrive
-/// as `i64` and convert to `usize`. A read that gives an `end` and omits
-/// `start` is refused as an invalid range.
+/// `access` is the store view the effect carries: a view of the run's
+/// store under the chain's identity, made when the effect is dispatched.
+/// Each [`VfsOp`] maps onto one `Access` call on that view, so the caller
+/// answers a `Vfs` effect exactly as the Engine's own test drivers do.
+/// Line bounds arrive as `i64` and convert to `usize`. A read that gives
+/// an `end` and omits `start` is refused as an invalid range.
 ///
-/// The function is synchronous because the store is synchronous by
-/// design. The caller can run it inline, on the thread that runs its
+/// The function is synchronous because the store is memory, with nothing
+/// to wait on. The caller can run it inline, on the thread that runs its
 /// effect loop.
 ///
 /// # Errors
 /// Returns the store's own structured failure for the operation (path
-/// validation, not-found, anchor, range, conflict, or backend failure).
+/// validation, not-found, anchor, range, or conflict).
 /// When the caller resumes the run with that answer, the Engine raises
 /// the failure at the prompt author's call site.
 pub fn perform_vfs_op(

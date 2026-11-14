@@ -1,24 +1,22 @@
-//! The store view: the store's strict logical-path rules, the
-//! re-spelling of error paths into the caller's logical form, and the
-//! access rooted at the declared store root.
+//! The store: [`Store`], an empty set of files in memory under a claims
+//! ledger of its own, and a view of one, with its strict logical-path
+//! rules and the re-spelling of error paths into the caller's logical
+//! form.
 
+use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use super::forward::{StoreMount, StoreScoped};
-use super::{Access, Volume};
+use super::forward::StoreScoped;
+use super::{Access, VfsRef};
 use crate::error::{PathReason, VfsError};
-use crate::router::{Mounts, Router};
-use crate::traits::{AcquireContext, Vfs};
+use crate::memory::MemoryBackend;
+use crate::traits::AcquireContext;
 
-/// Re-spells a namespace-absolute result relative to the access's root,
-/// or `None` when the result does not sit under it (never, for results
-/// of a pattern that joined onto the root).
-pub(super) fn strip_root(root: &str, matched: &str) -> Option<String> {
-    if root == "/" {
-        return matched.strip_prefix('/').map(str::to_owned);
-    }
-    let prefix = format!("{root}/");
-    matched.strip_prefix(&prefix).map(str::to_owned)
+/// Re-spells a namespace-absolute result relative to `/`, by dropping
+/// its leading `/`, or `None` when the result has none (never, for a
+/// canonical path).
+pub(super) fn strip_root(matched: &str) -> Option<String> {
+    matched.strip_prefix('/').map(str::to_owned)
 }
 
 /// The largest logical store path, in bytes, accepted by the store
@@ -103,19 +101,13 @@ fn is_numbered_device(name: &str, prefix: &str) -> bool {
 }
 
 /// Re-spells an error's canonical paths for a store view's caller: a
-/// path under the store root becomes the logical form the caller
+/// path without its leading `/` is the logical form the caller
 /// supplied. A logical path is never absolute, so one already in that
 /// form passes unchanged.
-pub(super) fn relativize_error(err: VfsError, root: &str) -> VfsError {
+pub(super) fn relativize_error(err: VfsError) -> VfsError {
     respell_error(err, |path| {
-        strip_root(root, path).unwrap_or_else(|| path.trim_start_matches('/').to_owned())
+        strip_root(path).unwrap_or_else(|| path.to_owned())
     })
-}
-
-/// Re-spells a store mount's mount-relative error paths into the
-/// logical form: only the leading `/` goes.
-pub(super) fn trim_mount_error(err: VfsError) -> VfsError {
-    respell_error(err, |path| path.trim_start_matches('/').to_owned())
 }
 
 /// Re-spells every path in `err` through `logical`; prose fields that
@@ -179,7 +171,6 @@ fn respell_error(err: VfsError, logical: impl Fn(&str) -> String) -> VfsError {
         VfsError::RootProtected { path } => VfsError::RootProtected {
             path: logical(&path),
         },
-        VfsError::NoStore => VfsError::NoStore,
         VfsError::CrossMount { path, detail } => VfsError::CrossMount {
             detail: detail.replace(&path, &logical(&path)),
             path: logical(&path),
@@ -207,81 +198,81 @@ fn respell_error(err: VfsError, logical: impl Fn(&str) -> String) -> VfsError {
     }
 }
 
-impl Access {
-    /// The store view: an access rooted at the declared store root
-    /// whose operations reach the store's own mount alone, sharing
-    /// this access's identity, scope, claims table, policy, and op
-    /// sink. The view applies the store's strict logical-path rules
-    /// and reports error paths in the caller's logical form.
-    /// Crate-internal: backs [`crate::ScopeHandle::store_view`] and
-    /// [`crate::VfsRef::acquire_store`].
+/// A store: an empty set of files in memory, under a claims ledger of its
+/// own.
+///
+/// A store sits outside every [`VfsRef`]. No path of a handle reaches a
+/// store's files, and a view of a store reaches nothing else. Each store
+/// has its own files and its own claims, so two stores share no path and
+/// no claim, even when one identity views both. A clone is the same
+/// store.
+///
+/// A store has no policy and no operation observer: every operation that
+/// the claims rules admit runs.
+#[derive(Clone)]
+pub struct Store(VfsRef);
+
+impl fmt::Debug for Store {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Store").finish_non_exhaustive()
+    }
+}
+
+impl Default for Store {
+    fn default() -> Store {
+        Store::new()
+    }
+}
+
+impl Store {
+    /// Returns a new, empty store.
+    #[must_use]
+    pub fn new() -> Store {
+        Store(VfsRef::builder().mount("/", MemoryBackend::new()).build())
+    }
+
+    /// Returns a view of this store under `access`'s identity and scope.
+    ///
+    /// The view is an [`Access`] whose operations reach this store alone.
+    /// It holds `access`'s identity, so the forks, joins, and ends of
+    /// `access`'s scope order the store's operations as they order the
+    /// operations of `access` itself, and one identity never conflicts
+    /// with itself through its views. The view records its claims in this
+    /// store's ledger, never in the ledger of the handle `access` came
+    /// from.
+    ///
+    /// Paths are relative to the store and follow strict rules. A path
+    /// must be 1 to 1024 bytes long and free of control characters,
+    /// backslashes, and colons. No segment may be empty, `.`, or `..`,
+    /// end in a dot or a space, or be a reserved device name such as
+    /// `CON` or `COM0`. Error paths come back in the form the caller
+    /// supplied.
     ///
     /// # Errors
-    /// Returns [`VfsError::NoStore`] when the handle declares no store,
-    /// or [`VfsError::ScopeEnded`], before any backend call, when the run
-    /// or the tool call that owned this access has ended.
-    pub(crate) fn store_view(&self) -> Result<Access, VfsError> {
-        self.scope
-            .refuse_if_closed(&self.root)
-            .map_err(|err| self.relativize(err))?;
-        let Some(store) = &self.volume.store else {
-            return Err(VfsError::NoStore);
-        };
-        // One mount - the store's own - behind a fresh router:
-        // operations are confined to the store mount, so a store at
-        // `/` never reaches a real directory mounted beneath it.
-        let mut mounts = Mounts::new();
-        mounts.insert(
-            store.root.to_buf(),
-            Arc::new(Mutex::new(Box::new(StoreMount(Arc::clone(&store.mount))))),
-        );
-        let mut router = Router::new(mounts);
-        // The view holds one more reference to the identity, like a
-        // mount forward: the identity - and its scope - ends with its
-        // last access, the view included.
-        self.scope
-            .attach(self.id, &self.root)
-            .map_err(|err| self.relativize(err))?;
-        let inner = match router.acquire(&AcquireContext::new(self.id, Arc::clone(&self.scope))) {
+    /// Returns [`VfsError::ScopeEnded`] when `access`'s scope has ended,
+    /// or when the tool call that owned `access` has.
+    pub fn view(&self, access: &Access) -> Result<Access, VfsError> {
+        let cx = AcquireContext::new(access.id, Arc::clone(&access.scope));
+        // The view holds one more reference to the identity, like a mount
+        // forward: the identity, and its scope, ends with its last access,
+        // the view included.
+        let scope = self.0.join_scope(&cx)?;
+        let inner = match self.0.backend().acquire(&cx) {
             Ok(inner) => inner,
             Err(err) => {
-                self.scope.release(self.id);
+                scope.release(cx.id());
                 return Err(err);
             }
         };
         Ok(Access {
-            id: self.id,
-            // The view keeps the chain's origin: store operations fire
-            // the op sink under the chain's label.
-            origin: self.origin.clone(),
-            root: store.root.clone(),
-            store_root: Some(store.root.clone()),
-            volume: Arc::new(Volume {
-                backend: Arc::new(Mutex::new(Box::new(router))),
-                claims: Arc::clone(&self.volume.claims),
-                sink: self.volume.sink.clone(),
-                store: None,
-                folds: store.folds.clone(),
-            }),
-            policy: Arc::clone(&self.policy),
-            scope: Arc::clone(&self.scope),
-            inner: Mutex::new(Box::new(StoreScoped {
-                root: store.root.as_str().to_owned(),
-                inner,
-            })),
+            id: access.id,
+            origin: access.origin.clone(),
+            store_view: true,
+            volume: Arc::clone(&self.0.volume),
+            policy: Arc::clone(&self.0.policy),
+            scope,
+            inner: Mutex::new(Box::new(StoreScoped { inner })),
             released: false,
         })
-    }
-
-    /// Stats this access's root straight through its backend session,
-    /// with no policy check, claim, or event, so a lazily acquiring
-    /// router opens the serving mount's session. A root the backend
-    /// reports missing passes. Crate-internal: backs
-    /// [`crate::ScopeHandle::probe_store`].
-    pub(crate) fn probe_root(&self) -> Result<(), VfsError> {
-        match self.inner().stat(&self.root) {
-            Ok(_) | Err(VfsError::NotFound { .. }) => Ok(()),
-            Err(err) => Err(err),
-        }
     }
 }

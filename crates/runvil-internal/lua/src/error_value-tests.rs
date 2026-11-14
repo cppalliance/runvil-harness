@@ -154,7 +154,6 @@ fn every_store_failure() -> Vec<(VfsError, ErrorCode)> {
             VfsError::RootProtected { path: path() },
             ErrorCode::RootProtected,
         ),
-        (VfsError::NoStore, ErrorCode::NoStore),
         (
             VfsError::CrossMount {
                 path: path(),
@@ -238,7 +237,6 @@ fn a_store_failure_keeps_the_lua_table_fields_as_facts() {
             anchor: "x".to_owned(),
             count: 2,
         },
-        VfsError::NoStore,
         VfsError::Backend {
             message: "down".to_owned(),
         },

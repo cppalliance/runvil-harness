@@ -18,13 +18,12 @@ use harness_runner::effect_loop::drive_run;
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder};
 use runvil_engine::Step;
 use runvil_engine::cancel::CancelHandle;
-use runvil_engine::vfs::{MemoryBackend, Origin, VfsRef};
 use runvil_engine::{Error, ErrorCode, Timestamp};
 use serde_json::json;
 
 use crate::support::{
     ClosingTool, PanickingTool, PendingTimer, PendingTool, TEST_SEED, TIMED_MAIN, TextTool, Unused,
-    WAITS, assert_canceled, loop_setup, run, run_over, run_with_cancel, run_with_child,
+    WAITS, assert_canceled, loop_setup, run, run_with_cancel, run_with_child,
     run_with_child_and_cancel,
 };
 
@@ -99,13 +98,9 @@ fn assert_one_answer_per_effect(records: &[Record]) {
 #[tokio::test]
 async fn records_are_events_then_effects_then_answers_per_step() {
     let (recorder, run_id) = begun_log().await;
-    let vfs = VfsRef::builder().store("/", MemoryBackend::new()).build();
 
     let result = drive_run(
-        run_over(
-            &format!("store.write('notes.md', 'kept')\n{WAITS}"),
-            vfs.clone(),
-        ),
+        run(&format!("store.write('notes.md', 'kept')\n{WAITS}")),
         &loop_setup(recorder.clone()),
         Arc::new(Unused),
         Arc::new(TextTool("hi")),
@@ -114,12 +109,6 @@ async fn records_are_events_then_effects_then_answers_per_step() {
     )
     .await;
     assert_eq!(result, Ok("hi".to_owned()));
-    let store = vfs.acquire_store(Origin::new("effect loop test")).unwrap();
-    assert_eq!(
-        store.read("notes.md").unwrap(),
-        b"kept",
-        "the inline answer performed the write on the run's store"
-    );
 
     let records = recorder.records(run_id);
     let kinds = kinds(&records);
@@ -154,7 +143,8 @@ async fn records_are_events_then_effects_then_answers_per_step() {
     );
     assert_eq!(
         payload(effect_positions[0] + 1),
-        json!({ "Vfs": { "Ok": "Unit" } })
+        json!({ "Vfs": { "Ok": "Unit" } }),
+        "the inline answer is the outcome of the write the loop performed"
     );
     assert_eq!(
         payload(effect_positions[1]),

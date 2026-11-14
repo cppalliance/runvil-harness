@@ -5,7 +5,7 @@ use crate::error::VfsError;
 use crate::handle::VfsRef;
 use crate::memory::MemoryBackend;
 use crate::stat::FileType;
-use crate::test_support::{Call, TestFs, access, context, handle, path, test_origin};
+use crate::test_support::{Call, TestFs, access, context, handle, path};
 use crate::traits::{Op, Vfs};
 
 #[test]
@@ -212,27 +212,6 @@ fn closing_an_access_reports_a_release_failure_inside_a_mounted_handle() -> Resu
     closed.write("/m/f.txt", b"x")?;
     assert_eq!(closed.close(), Err(release_refusal()));
     Ok(())
-}
-
-/// Writes one file through a store view of a handle whose store is
-/// `store`, then closes the view.
-fn write_and_close_a_store_view(store: impl Vfs + 'static) -> Result<(), VfsError> {
-    let vfs = VfsRef::builder().store("/s", store).build();
-    let view = vfs.acquire_store(test_origin())?;
-    view.write("f.txt", b"x")?;
-    view.close()
-}
-
-#[test]
-fn closing_a_store_view_reports_a_store_release_failure() {
-    // The store's own release fails, or the release of a mount inside a
-    // handle that serves as the store does.
-    assert_eq!(
-        write_and_close_a_store_view(failing_release()),
-        Err(release_refusal())
-    );
-    let store = VfsRef::builder().mount("/", failing_release()).build();
-    assert_eq!(write_and_close_a_store_view(store), Err(release_refusal()));
 }
 
 #[test]
@@ -468,15 +447,9 @@ fn the_builder_rejects_a_relative_mount_prefix() {
 }
 
 #[test]
-#[should_panic(expected = "invalid store root")]
-fn the_builder_rejects_a_relative_store_root() {
-    let _ = VfsRef::builder().store("relative", TestFs::default());
-}
-
-#[test]
 #[should_panic(expected = "a mount already sits at")]
-fn the_builder_rejects_a_store_root_that_already_has_a_mount() {
+fn the_builder_rejects_a_second_mount_at_one_prefix() {
     let _ = VfsRef::builder()
         .mount("/s", TestFs::default())
-        .store("/s", TestFs::default());
+        .mount("/s", TestFs::default());
 }

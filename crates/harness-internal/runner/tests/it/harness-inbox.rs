@@ -15,19 +15,17 @@
 //! asks again; and every message a run never read comes back on its
 //! report, the ones the loop never delivered last.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
 
-use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder};
-use harness_runner::{RunControl, RunSetup};
-use runvil_engine::vfs::VfsRef;
-use runvil_engine::{BoxFuture, Error, ErrorCode};
+use harness_runner::recorder::{MemoryRecorder, Record, RecordKind};
+use runvil_engine::ErrorCode;
 use serde_json::json;
 use tokio::sync::Notify;
 
 use super::{
-    FIRST_RUN, HookedBackend, PendingTimer, answers_to, is_event, launch, main_waits, no_packs,
-    plain_harness, run_beside, setup, until,
+    FIRST_RUN, PendingTimer, answers_to, hooked_recorder, is_event, is_store_write, launch,
+    main_waits, no_packs, plain_harness, run_beside, setup, until,
 };
 use crate::scripted::{Held, ScriptedBroker, calls_hold_once, held_broker, hold_host, reply};
 use crate::support::{FailingRecorder, assert_canceled};
@@ -132,74 +130,6 @@ fn position(records: &[Record], what: &str, wanted: impl Fn(&Record) -> bool) ->
         .iter()
         .position(wanted)
         .unwrap_or_else(|| panic!("the record holds {what}: {records:?}"))
-}
-
-/// A store whose every write sends `text` through the control the
-/// returned slot holds, once the test puts the run's control there.
-fn sending_store(text: &'static str) -> (VfsRef, Arc<OnceLock<RunControl>>) {
-    let slot = Arc::new(OnceLock::<RunControl>::new());
-    let control = Arc::clone(&slot);
-    let vfs = VfsRef::builder()
-        .store(
-            "/",
-            HookedBackend::new(move || {
-                if let Some(control) = control.get() {
-                    assert!(control.send(text.to_owned()), "the live run accepts {text}");
-                }
-            }),
-        )
-        .build();
-    (vfs, slot)
-}
-
-/// What a [`HookedRecorder`] runs on each record the loop appends, beside
-/// the run's control.
-type Hook = dyn Fn(&Record, &RunControl) + Send + Sync;
-
-/// A recorder that keeps every record in `records` and, once the test
-/// puts the run's control in `control`, hands `hook` each record beside
-/// that control as the loop appends it.
-struct HookedRecorder {
-    records: Arc<MemoryRecorder>,
-    control: Arc<OnceLock<RunControl>>,
-    hook: Box<Hook>,
-}
-
-impl RunRecorder for HookedRecorder {
-    fn begin_run(&self, meta: RunMeta) -> BoxFuture<'_, Result<RunId, Error>> {
-        self.records.begin_run(meta)
-    }
-
-    fn append(&self, run: RunId, record: Record) -> BoxFuture<'_, Result<(), Error>> {
-        if let Some(control) = self.control.get() {
-            (self.hook)(&record, control);
-        }
-        self.records.append(run, record)
-    }
-
-    fn end_run(
-        &self,
-        run: RunId,
-        result: Result<String, Error>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        self.records.end_run(run, result)
-    }
-}
-
-/// A recorder over `records` that runs `hook` on each record the loop
-/// appends, beside the run's control, once the test puts the control in
-/// the returned slot.
-fn hooked_recorder(
-    records: &Arc<MemoryRecorder>,
-    hook: impl Fn(&Record, &RunControl) + Send + Sync + 'static,
-) -> (Arc<HookedRecorder>, Arc<OnceLock<RunControl>>) {
-    let slot = Arc::new(OnceLock::new());
-    let recorder = HookedRecorder {
-        records: Arc::clone(records),
-        control: Arc::clone(&slot),
-        hook: Box::new(hook),
-    };
-    (Arc::new(recorder), slot)
 }
 
 /// A broker whose first round replies `first` once `gate` opens, and whose
@@ -813,16 +743,20 @@ async fn a_send_as_the_final_reply_lands_is_recorded_after_that_replys_assistant
 
 #[tokio::test]
 async fn a_run_that_ends_with_messages_it_never_read_reports_them_unread_oldest_first() {
-    let recorder = Arc::new(MemoryRecorder::new());
-    let (vfs, slot) = sending_store("three");
+    let records = Arc::new(MemoryRecorder::new());
+    let (recorder, slot) = hooked_recorder(&records, |record, control| {
+        if is_store_write(record) {
+            assert!(
+                control.send("three".to_owned()),
+                "the live run accepts three"
+            );
+        }
+    });
     let harness = launch(
         no_packs(),
         PendingTimer::default(),
         RECEIVES_THEN_WRITES,
-        RunSetup {
-            vfs,
-            ..setup(recorder.clone(), ScriptedBroker::replying())
-        },
+        setup(recorder, ScriptedBroker::replying()),
     );
     let control = harness.control();
     slot.set(control.clone()).unwrap();
@@ -831,8 +765,9 @@ async fn a_run_that_ends_with_messages_it_never_read_reports_them_unread_oldest_
     }
 
     // The two messages are delivered before the first step, which reads
-    // the first. The write runs inline and sends the third, and the run
-    // ends before the loop waits again, so it never delivers the third.
+    // the first. The write's effect record sends the third before the loop
+    // performs the write, and the run ends before the loop waits again, so
+    // it never delivers the third.
     let report = harness.run().await.expect("the run is reported");
 
     assert_eq!(report.result, Ok("one".to_owned()));
@@ -842,7 +777,7 @@ async fn a_run_that_ends_with_messages_it_never_read_reports_them_unread_oldest_
         "the message left in the inbox, then the one the loop never delivered"
     );
     assert_eq!(
-        messages(&recorder.records(report.run_id)),
+        messages(&records.records(report.run_id)),
         ["one", "two"],
         "only the delivered messages are recorded"
     );

@@ -18,7 +18,6 @@
 use runvil_types::error::{ErrorCode, make_failure_error, place};
 use runvil_types::event_lifecycle;
 use runvil_types::ids::AbandonReason;
-use runvil_vfs::Origin;
 
 use crate::execute::run::{EffectAnswer, EffectId, Step};
 use crate::{Error, Result, error};
@@ -165,16 +164,14 @@ impl Scheduler {
     }
 
     /// Checks that the run can start: the version gate, then the caller's
-    /// arguments, then the declared store, then what the prompt requires
-    /// of the params.
+    /// arguments, then what the prompt requires of the params.
     ///
     /// # Errors
     /// Returns an `UnsupportedVersion` failure on the `runvil:` line, or a
     /// structural parse failure for a prompt with no `runvil:` key, either
     /// naming the prompt; an `ArgsInvalid` failure with no location when
     /// the arguments are not a JSON object or do not match the prompt's
-    /// `args` declaration; a store failure when the handle declares no store
-    /// or the store's backend fails the probe; or `RequirementsUnmet` with
+    /// `args` declaration; or `RequirementsUnmet` with
     /// the refusal notice when the params lack a declared Pack or a model
     /// the prompt's roles require, or names a Pack id the Engine reserves,
     /// placed on the frontmatter key of the first gap the prompt caused.
@@ -205,18 +202,6 @@ impl Scheduler {
         if let Some(refusal) = self.ctx.args_refusal() {
             return Err(refusal.clone());
         }
-        // Every run and every store call needs a declared store: the probe
-        // stats the store root through a throwaway capability, so a handle
-        // with no declaration fails here rather than on the first store call,
-        // and a declared-but-failing backend's error fails the run.
-        let (probe, scope) = self
-            .ctx
-            .vfs()
-            .acquire_scope(Origin::new("store mount probe"))
-            .map_err(|cause| error::make_store_error(&cause))?;
-        scope
-            .probe_store(&probe)
-            .map_err(|cause| error::make_store_error(&cause))?;
         if let Some(refusal) = self.ctx.refusal() {
             return Err(refusal.clone());
         }

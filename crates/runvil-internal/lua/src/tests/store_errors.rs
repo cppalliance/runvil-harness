@@ -231,12 +231,6 @@ fn store_error_values_carry_reason_fields_and_message_for_each_reason() {
             message: "the store's mounted root cannot be removed, renamed, or replaced: d",
         },
         Case {
-            error: VfsError::NoStore,
-            reason: "no_store",
-            fields: Vec::new(),
-            message: "this run declares no store, so no store operation can run",
-        },
-        Case {
             error: VfsError::CrossMount {
                 path: "d".to_owned(),
                 detail: "rename needs one mount".to_owned(),

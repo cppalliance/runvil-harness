@@ -432,22 +432,7 @@ pub struct VfsRefBuilder {
     mounts: Mounts,
     policy: Option<Arc<dyn Policy + Sync>>,
     sink: Option<OpSink>,
-    store: Option<StoreDecl>,
     folds: CaseFolds,
-}
-
-/// The handle's declared store: the mount serving the run's store,
-/// when the builder declared one. `root` is the canonical store root
-/// the store view joins logical paths onto; `mount` is the store's
-/// backend, shared with the mount table; `folds` is whether its claim
-/// keys fold case. Only the declaration of the handle a builder builds
-/// counts: an overlay inherits its base's, while a handle mounted as a
-/// backend keeps its declaration to itself.
-#[derive(Clone)]
-pub(crate) struct StoreDecl {
-    pub(crate) root: VfsPath,
-    pub(crate) mount: Mounted,
-    pub(crate) folds: CaseFolds,
 }
 
 impl fmt::Debug for VfsRefBuilder {
@@ -462,7 +447,6 @@ impl VfsRefBuilder {
             mounts: BTreeMap::new(),
             policy: None,
             sink: None,
-            store: None,
             folds: CaseFolds::default(),
         }
     }
@@ -480,50 +464,20 @@ impl VfsRefBuilder {
     #[must_use]
     #[track_caller]
     pub fn mount(mut self, prefix: &str, backend: impl Vfs + 'static) -> VfsRefBuilder {
-        let canonical = self.free_prefix(prefix, "mount prefix");
+        let canonical = self.free_prefix(prefix);
         self.folds = self.folds.with(&CaseFolds::of(&canonical, &backend));
         self.mounts
             .insert(canonical.to_buf(), Arc::new(Mutex::new(Box::new(backend))));
         self
     }
 
-    /// Mounts `backend` at `root` and declares that mount the handle's
-    /// store, consuming and returning the builder.
-    ///
-    /// A store view, such as the access that `VfsRef::acquire_store`
-    /// returns, reaches only this mount, and its paths are relative to
-    /// `root`.
-    ///
-    /// Only the outermost handle's declaration counts. A handle made
-    /// with `VfsRef::overlay` inherits the declaration of its base. A
-    /// handle mounted as a backend keeps its declaration to itself.
-    ///
-    /// # Panics
-    /// Panics when `root` is not an absolute virtual path or a mount
-    /// already sits at `root`: both are construction-time bugs.
-    #[must_use]
+    /// Canonicalizes the mount prefix `prefix` and checks that no mount
+    /// sits there yet.
     #[track_caller]
-    pub fn store(mut self, root: &str, backend: impl Vfs + 'static) -> VfsRefBuilder {
-        let canonical = self.free_prefix(root, "store root");
-        let folds = CaseFolds::of(&canonical, &backend);
-        self.folds = self.folds.with(&folds);
-        let mount: Mounted = Arc::new(Mutex::new(Box::new(backend)));
-        self.mounts.insert(canonical.to_buf(), Arc::clone(&mount));
-        self.store = Some(StoreDecl {
-            root: canonical,
-            mount,
-            folds,
-        });
-        self
-    }
-
-    /// Canonicalizes `prefix`, a mount prefix or store root (`what`),
-    /// and checks that no mount sits there yet.
-    #[track_caller]
-    fn free_prefix(&self, prefix: &str, what: &str) -> VfsPath {
+    fn free_prefix(&self, prefix: &str) -> VfsPath {
         let canonical = match canonicalize_absolute(prefix) {
             Ok(canonical) => canonical,
-            Err(err) => panic!("invalid {what} {prefix:?}: {err}"),
+            Err(err) => panic!("invalid mount prefix {prefix:?}: {err}"),
         };
         assert!(
             !self.mounts.contains_key(&canonical.to_buf()),
@@ -572,13 +526,7 @@ impl VfsRefBuilder {
     #[must_use]
     pub fn build(self) -> VfsRef {
         let policy = self.policy.unwrap_or_else(|| Arc::new(AllowAll));
-        VfsRef::from_router(
-            Router::new(self.mounts),
-            policy,
-            self.sink,
-            self.store,
-            self.folds,
-        )
+        VfsRef::from_router(Router::new(self.mounts), policy, self.sink, self.folds)
     }
 }
 

@@ -602,7 +602,7 @@ impl ChainOps<'_> {
                 chain.access()?,
                 prompt_origin(&prompt, &binding.id().to_string(), chain.blocks(&prompt)),
             )
-            .map_err(|cause| error::make_store_error(&cause))?;
+            .map_err(|cause| error::make_files_error(&cause))?;
         let exec = access.id();
         let effect = Effect::ToolCall {
             tool: binding.id().clone(),

@@ -285,7 +285,6 @@ fn kind_of(code: ErrorCode) -> ErrorKind {
         | ErrorCode::ReadOnly
         | ErrorCode::OutsideRoot
         | ErrorCode::RootProtected
-        | ErrorCode::NoStore
         | ErrorCode::CrossMount
         | ErrorCode::Io
         | ErrorCode::Unsupported
@@ -459,9 +458,8 @@ fn store_error_fields(error: &runvil_vfs::VfsError) -> Vec<(String, ErrorField)>
             ("anchor".to_owned(), ErrorField::String(anchor.clone())),
             ("count".to_owned(), integer(*count)),
         ],
-        // `NoStore` and `Backend` name no path, and `VfsError` is
-        // `#[non_exhaustive]`: a variant added later reports no fields
-        // until it is named here.
+        // `Backend` names no path, and `VfsError` is `#[non_exhaustive]`:
+        // a variant added later reports no fields until it is named here.
         _ => Vec::new(),
     }
 }
@@ -566,7 +564,6 @@ fn store_error_code(error: &runvil_vfs::VfsError) -> ErrorCode {
         VfsError::ReadOnly { .. } => ErrorCode::ReadOnly,
         VfsError::OutsideRoot { .. } => ErrorCode::OutsideRoot,
         VfsError::RootProtected { .. } => ErrorCode::RootProtected,
-        VfsError::NoStore => ErrorCode::NoStore,
         VfsError::CrossMount { .. } => ErrorCode::CrossMount,
         VfsError::Io { .. } => ErrorCode::Io,
         VfsError::Unsupported { .. } => ErrorCode::Unsupported,

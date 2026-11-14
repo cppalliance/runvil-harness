@@ -86,7 +86,7 @@ fn a_backend_refusal_fails_spawn_and_releases_the_refused_child() -> Result<(), 
 }
 
 #[test]
-fn an_ended_identity_refuses_operations_spawns_and_views_while_the_scope_stays_open()
+fn an_ended_identity_refuses_operations_and_spawns_while_the_scope_stays_open()
 -> Result<(), VfsError> {
     fn refused<T: fmt::Debug>(result: Result<T, VfsError>, expected: &str) {
         match result {
@@ -95,27 +95,19 @@ fn an_ended_identity_refuses_operations_spawns_and_views_while_the_scope_stays_o
         }
     }
 
-    let vfs = VfsRef::builder()
-        .mount("/", MemoryBackend::new())
-        .store("/my/store", MemoryBackend::new())
-        .build();
+    let vfs = VfsRef::builder().mount("/", MemoryBackend::new()).build();
     let (owner, scope) = vfs.acquire_scope(test_origin())?;
     let call = scope.spawn(&owner, test_origin())?;
     call.write("/a.txt", b"call")?;
-    let view = scope.store_view(&call)?;
     scope.end_access(Some(owner.id()), call.id());
     refused(call.read("/a.txt"), "/a.txt");
     refused(call.write("/b.txt", b"late"), "/b.txt");
-    refused(view.write("b.md", b"late"), "b.md");
     refused(call.spawn(test_origin()), "/");
-    refused(call.store_view(), "/");
     // The scope stays open: the end joined the call's write into the
-    // owner, and the owner still spawns and derives views.
+    // owner, and the owner still spawns.
     assert!(!owner.scope.ended());
     assert_eq!(owner.read("/a.txt")?, b"call");
     assert!(!owner.exists("/b.txt")?);
-    assert!(!owner.exists("/my/store/b.md")?);
     owner.spawn(test_origin())?.write("/c.txt", b"arm")?;
-    owner.store_view()?.write("c.md", b"view")?;
     Ok(())
 }

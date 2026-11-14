@@ -30,8 +30,12 @@
 //!   Host's own runtime. The crate's async needs come from `futures-util`,
 //!   and `tokio` and `tokio-util` appear only under `[dev-dependencies]`
 //!   (enforced by the Harness tokio ban in `cargo test -p build-xtask`).
-//! - The Harness reads each [`RunSetup`] field once per run: the run works
-//!   in the one filesystem the setup holds.
+//! - The Harness reads each [`RunSetup`] field once per run: the run's
+//!   tool calls work in the one filesystem the setup holds.
+//! - The Harness reaches a run's store only to perform the one operation
+//!   of a Vfs effect, through that effect's view. It puts
+//!   nothing in the store before a run and reads nothing from it after:
+//!   a run takes its input as arguments and hands back its result.
 //! - The recorder is written in loop order: a step's events before the
 //!   step's effects are issued, each effect before its performer starts,
 //!   each answer before the run resumes with it, and each sent message's

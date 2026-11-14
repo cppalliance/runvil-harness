@@ -219,9 +219,7 @@ pub enum Request {
         binding: Option<ModelBinding>,
     },
     /// `store.*(...)`: one run-scoped store operation as a leaf yield.
-    /// Every operation takes this path, memory- and real-file-backed
-    /// alike, with no inline fast path, so interleaving behavior never
-    /// depends on the backend.
+    /// Every operation takes this path, with no inline fast path.
     Store {
         /// The validated operation and its author-supplied arguments.
         op: VfsOp,
