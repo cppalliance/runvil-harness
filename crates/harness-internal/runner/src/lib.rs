@@ -2,7 +2,11 @@
 //! Host builds one [`Host`] at startup, holding its installed [`Packs`],
 //! how it finds prompts, and its timer, and [`Host::parse`] finds a prompt
 //! by its name, parses it, and checks its `uses:` list against those
-//! Packs. A launcher hands each run a [`RunSetup`] with everything that
+//! Packs. Three stock finders serve a Host that writes none of
+//! its own: [`FindTextPrompt`] one prompt from text,
+//! [`FindFilePrompt`] one from a file, and [`PromptSet`] the prompts
+//! a Host inserts as text, as files, and as directories.
+//! A launcher hands each run a [`RunSetup`] with everything that
 //! run gets on top of the Host. A [`Harness`] over the Host, the parsed
 //! prompt, and the setup begins the run at the setup's recorder with the
 //! inputs the Engine refuses to draw itself, resolves the run's model
@@ -66,6 +70,9 @@
 //! - A factory that refuses or panics leaves its Pack unavailable to that
 //!   run alone: a refusal is logged at debug and a panic at error, and the
 //!   next run calls the factory again.
+//! - A stock finder reads a file only inside a find, and the Harness calls
+//!   a finder only from [`Host::parse`], before the run exists. So no file
+//!   read happens inside a run's future.
 
 mod display_chain;
 pub mod effect_loop;
@@ -75,6 +82,7 @@ mod host;
 mod packs;
 pub mod performers;
 mod prepare;
+mod prompt_finders;
 pub mod recorder;
 mod recorder_memory;
 mod setup;
@@ -83,6 +91,7 @@ pub use display_chain::display_chain;
 pub use harness::{Harness, RunControl, RunReport};
 pub use host::Host;
 pub use packs::Packs;
+pub use prompt_finders::{FindFilePrompt, FindTextPrompt, PromptSet};
 pub use recorder::{
     MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder, make_recorder_error,
 };

@@ -70,11 +70,14 @@ auto runvil::effect::ToolCallOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, U
 auto runvil::effect::ToolCaller: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::event::Event: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::event::ReplyOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::harness::FindFilePrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::harness::FindTextPrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::MemoryRecorder: !Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::Packs: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::Plugin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::PluginReport: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::PluginSource: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::harness::PromptSet: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::Record: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::RecordKind: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::RunId: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
@@ -167,11 +170,14 @@ derives runvil::effect::ToolCallOrigin: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil::effect::ToolCaller: Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize
 derives runvil::event::Event: Clone, Debug, Deserialize, PartialEq, Serialize
 derives runvil::event::ReplyOrigin: Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize
+derives runvil::harness::FindFilePrompt: Debug
+derives runvil::harness::FindTextPrompt: Debug
 derives runvil::harness::MemoryRecorder: Debug, Default
 derives runvil::harness::Packs: Debug
 derives runvil::harness::Plugin: Debug
 derives runvil::harness::PluginReport: Debug
 derives runvil::harness::PluginSource: Clone, Debug, Eq, PartialEq
+derives runvil::harness::PromptSet: Debug, Default
 derives runvil::harness::Record: Clone, Debug, Eq, PartialEq
 derives runvil::harness::RecordKind: Clone, Copy, Debug, Eq, Hash, PartialEq
 derives runvil::harness::RunId: Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd
@@ -274,6 +280,9 @@ impl core::str::traits::FromStr for runvil::packs::GlobalName
 impl core::str::traits::FromStr for runvil::packs::GlobalName { type Err = runvil::Error }
 impl core::str::traits::FromStr for runvil::packs::PackId
 impl core::str::traits::FromStr for runvil::packs::PackId { type Err = runvil::Error }
+impl runvil::PromptFinder for runvil::harness::FindFilePrompt
+impl runvil::PromptFinder for runvil::harness::FindTextPrompt
+impl runvil::PromptFinder for runvil::harness::PromptSet
 impl runvil::harness::RunRecorder for runvil::harness::MemoryRecorder
 impl runvil::vfs::Policy for runvil::vfs::AllowAll
 impl runvil::vfs::Policy for runvil::vfs::ModePolicy
@@ -364,6 +373,8 @@ pub fn runvil::effect::ToolCallOrigin::with_entry(self, entry: impl core::conver
 pub fn runvil::effect::ToolCallOrigin::with_model(self, model: impl core::convert::Into<alloc::string::String>) -> runvil::effect::ToolCallOrigin
 pub fn runvil::event::Event::provenance(&self) -> &runvil::ids::Provenance
 pub fn runvil::event::Event::section(&self) -> &str
+pub fn runvil::harness::FindFilePrompt::new(name: impl core::convert::Into<alloc::string::String>, path: impl core::convert::Into<std::path::PathBuf>) -> runvil::harness::FindFilePrompt
+pub fn runvil::harness::FindTextPrompt::new(name: impl core::convert::Into<alloc::string::String>, text: impl core::convert::Into<alloc::string::String>) -> runvil::harness::FindTextPrompt
 pub fn runvil::harness::InferenceBroker::chat(&self, binding: runvil::model::ModelBinding, messages: alloc::vec::Vec<runvil::model::Message>, tools: alloc::vec::Vec<runvil::model::ToolSchema>, options: runvil::model::CompletionOptions, round: runvil::effect::Round) -> runvil::BoxFuture<'static, core::result::Result<alloc::boxed::Box<runvil::model::Completion>, runvil::Error>>
 pub fn runvil::harness::InferenceBroker::models(&self) -> runvil::BoxFuture<'static, core::result::Result<runvil::model::ModelCatalog, runvil::Error>>
 pub fn runvil::harness::MemoryRecorder::meta(&self, run: runvil::harness::RunId) -> core::option::Option<runvil::harness::RunMeta>
@@ -376,6 +387,12 @@ pub fn runvil::harness::Plugin::source(&self) -> &runvil::harness::PluginSource
 pub fn runvil::harness::Plugin::version(&self) -> &str
 pub fn runvil::harness::PluginReport::failures(&self) -> &[runvil::Error]
 pub fn runvil::harness::PluginReport::plugins(&self) -> &[alloc::sync::Arc<runvil::harness::Plugin>]
+pub fn runvil::harness::PromptSet::insert(&mut self, name: impl core::convert::Into<alloc::string::String>, text: impl core::convert::Into<alloc::string::String>)
+pub fn runvil::harness::PromptSet::insert_dir(&mut self, directory: impl core::convert::Into<std::path::PathBuf>) -> core::result::Result<(), runvil::Error>
+pub fn runvil::harness::PromptSet::insert_file(&mut self, name: impl core::convert::Into<alloc::string::String>, path: impl core::convert::Into<std::path::PathBuf>)
+pub fn runvil::harness::PromptSet::names(&self) -> alloc::vec::Vec<alloc::string::String>
+pub fn runvil::harness::PromptSet::new() -> runvil::harness::PromptSet
+pub fn runvil::harness::PromptSet::rescan(&self) -> alloc::vec::Vec<runvil::Error>
 pub fn runvil::harness::RecordKind::parse(text: &str) -> core::option::Option<Self>
 pub fn runvil::harness::RunRecorder::append(&self, run: runvil::harness::RunId, record: runvil::harness::Record) -> runvil::BoxFuture<'_, core::result::Result<(), runvil::Error>>
 pub fn runvil::harness::RunRecorder::begin_run(&self, meta: runvil::harness::RunMeta) -> runvil::BoxFuture<'_, core::result::Result<runvil::harness::RunId, runvil::Error>>
@@ -1144,10 +1161,13 @@ pub struct runvil::RunSeed(/* private fields */)
 pub struct runvil::RunSetup { .. }
 pub struct runvil::SourceLoc { .. }
 pub struct runvil::Timestamp(/* private fields */)
+pub struct runvil::harness::FindFilePrompt { /* private fields */ }
+pub struct runvil::harness::FindTextPrompt { /* private fields */ }
 pub struct runvil::harness::MemoryRecorder { /* private fields */ }
 pub struct runvil::harness::Packs { /* private fields */ }
 pub struct runvil::harness::Plugin { /* private fields */ }
 pub struct runvil::harness::PluginReport { /* private fields */ }
+pub struct runvil::harness::PromptSet { /* private fields */ }
 pub struct runvil::harness::Record { .. }
 pub struct runvil::harness::RunId(/* private fields */)
 pub struct runvil::harness::RunMeta { .. }

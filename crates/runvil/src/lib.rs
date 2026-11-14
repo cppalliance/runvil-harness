@@ -10,8 +10,9 @@
 //! which inserts its Packs into the registry, and builds one
 //! [`harness::Packs`] over it, which keeps each Pack's factory.
 //! It builds one [`Host`] at startup over those Packs, a
-//! [`PromptFinder`], and its [`harness::Timer`], which also stamps each
-//! run's start as a [`Timestamp`], and shares it behind an `Arc`.
+//! [`PromptFinder`], its own or a stock one such as
+//! [`harness::PromptSet`], and its [`harness::Timer`], which also stamps
+//! each run's start as a [`Timestamp`], and shares it behind an `Arc`.
 //! [`Host::parse`] finds a prompt by its name and parses it. For each run
 //! the launcher builds a [`RunSetup`] with the run's recorder, inference
 //! broker, filesystem, model selection, workspace roots, [`RunLimits`],
@@ -76,14 +77,19 @@ pub mod harness {
     //! registry, from the dynamic libraries in a Plugin directory or
     //! linked into the Host, with what each insert loaded, and the
     //! recorder that receives every effect, answer, and event of a run
-    //! and the result each run ends with, beside an in-memory recorder.
+    //! and the result each run ends with, beside an in-memory recorder,
+    //! and three stock prompt finders: one prompt from text, one from a
+    //! file, and a set a Host fills from text, files, and directories.
 
     pub use harness_plugin_loader::Plugin;
     pub use harness_plugin_loader::PluginReport;
     pub use harness_plugin_loader::PluginSource;
     pub use harness_plugin_loader::insert_plugin;
     pub use harness_plugin_loader::insert_plugin_dir;
+    pub use harness_runner::FindFilePrompt;
+    pub use harness_runner::FindTextPrompt;
     pub use harness_runner::Packs;
+    pub use harness_runner::PromptSet;
     pub use harness_runner::display_chain;
     pub use harness_runner::performers::InferenceBroker;
     pub use harness_runner::performers::Timer;
