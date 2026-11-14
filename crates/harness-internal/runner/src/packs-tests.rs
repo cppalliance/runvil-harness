@@ -257,9 +257,8 @@ fn refusal(run: &RunPacks, prompt: &Prompt) -> String {
 }
 
 #[test]
-fn the_roster_hands_each_usable_pack_with_the_vendor_the_run_picked() {
+fn the_roster_hands_each_usable_pack_with_the_vendor_of_its_fqn() {
     let host = host(&[
-        (info("runvil/kit"), offering(&["kit/a"])),
         (info("acme/kit"), offering(&["kit/b"])),
         (info("runvil/web"), offering(&["web/fetch"])),
         (info("acme/poop"), Value::Null),
@@ -269,12 +268,13 @@ fn the_roster_hands_each_usable_pack_with_the_vendor_the_run_picked() {
         run.roster(),
         BTreeMap::from([
             (name("kit"), usable_from("acme")),
+            (name("poop"), usable_from("acme")),
             (name("subagents"), usable_from("runvil")),
             (name("user"), unavailable_for("this run has no user")),
             (name("web"), usable_from("runvil")),
         ]),
-        "the declared acme/kit reports acme, every undeclared usable Pack reports runvil, and \
-         a run with no user cannot use runvil/user"
+        "each usable Pack reports its own vendor, declared or not, and a run with no user \
+         cannot use runvil/user"
     );
 }
 
@@ -286,7 +286,7 @@ fn each_snapshot_makes_each_pack_the_run_holds_once_and_each_run_gets_its_own_in
     let host = host_with(
         &wide,
         &[
-            (info("runvil/kit"), listed, offering(&["kit/a"])),
+            (info("acme/kit"), listed, offering(&["kit/a"])),
             (info("runvil/web"), listed, offering(&["web/fetch"])),
         ],
     );
@@ -299,7 +299,7 @@ fn each_snapshot_makes_each_pack_the_run_holds_once_and_each_run_gets_its_own_in
     assert_eq!(
         *built.lock().unwrap(),
         ["kit", "web"],
-        "the snapshot makes each Pack the run holds once"
+        "the snapshot makes each installed Pack once, though the prompt declares none"
     );
     let second = snapshot(&host, &plain).unwrap();
     assert_eq!(
@@ -317,18 +317,13 @@ fn each_snapshot_makes_each_pack_the_run_holds_once_and_each_run_gets_its_own_in
     }
     assert_eq!(snapshot_ids(&first), ["kit/a", "web/fetch"]);
     let shown = format!("{host:?}");
-    for fqn in [
-        "runvil/kit",
-        "runvil/subagents",
-        "runvil/user",
-        "runvil/web",
-    ] {
+    for fqn in ["acme/kit", "runvil/subagents", "runvil/user", "runvil/web"] {
         assert!(shown.contains(fqn), "{fqn} is installed: {shown}");
     }
 }
 
 #[test]
-fn a_pack_the_run_does_not_hold_is_never_made() {
+fn a_pack_whose_id_an_unresolved_entry_names_is_never_made() {
     let built = Arc::new(Mutex::new(Vec::new()));
     let mut wide = HostServices::new();
     wide.provide(&BUILT, Arc::clone(&built)).unwrap();
@@ -336,21 +331,23 @@ fn a_pack_the_run_does_not_hold_is_never_made() {
         &wide,
         &[
             (info("runvil/kit"), listed, offering(&["kit/a"])),
-            (info("acme/kit"), listed, offering(&["kit/b"])),
-            (info("acme/poop"), listed, Value::Null),
+            (info("acme/poop"), listed, offering(&["poop/b"])),
         ],
     );
     let run = snapshot(&host, &prompt("uses:\n  - acme/kit\n")).unwrap();
     assert_eq!(
         *built.lock().unwrap(),
-        ["kit"],
-        "only one Pack is made: neither the runvil/kit the declaration replaces nor the \
-         undeclared acme/poop"
+        ["poop"],
+        "the run holds no kit Pack, so runvil/kit is not made, and the undeclared acme/poop is"
+    );
+    assert_eq!(
+        run.roster().get(&name("kit")),
+        Some(&unavailable_for("acme/kit is not installed"))
     );
     assert_eq!(
         snapshot_ids(&run),
-        ["kit/b"],
-        "the one Pack made is the declared acme/kit, from its own config"
+        ["poop/b"],
+        "the catalog holds no tool of the Pack id the roster calls unavailable"
     );
 }
 
@@ -609,15 +606,21 @@ fn a_pack_whose_factory_refuses_the_run_offers_it_no_tools() {
 }
 
 #[test]
-fn an_undeclared_runvil_packs_tools_reach_the_catalog_but_its_prelude_does_not() {
+fn an_undeclared_packs_tools_reach_the_catalog_but_its_prelude_does_not() {
     let declared = info("runvil/declared").prelude("declared = {}\n");
     let extra = info("runvil/extra").prelude("extra = {}\n");
+    let other = info("acme/other").prelude("other = {}\n");
     let host = host(&[
         (declared, offering(&["declared/a"])),
         (extra, offering(&["extra/b"])),
+        (other, offering(&["other/c"])),
     ]);
     let prompt = prompt("uses:\n  - declared\n");
-    assert_eq!(catalog_ids(&host, &prompt), ["declared/a", "extra/b"]);
+    assert_eq!(
+        catalog_ids(&host, &prompt),
+        ["declared/a", "extra/b", "other/c"],
+        "the catalog holds the tools of each undeclared Pack, whatever its vendor"
+    );
     let run = begin(&host, BTreeMap::new(), &prompt);
     let preludes: Vec<String> = run
         .preludes(&prompt)

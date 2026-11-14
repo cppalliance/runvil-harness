@@ -19,7 +19,7 @@ mod tests;
 
 /// Every Pack a Host's Plugins insert, by fully qualified name, each
 /// with its Pack id and its factory, or the reason it was inserted
-/// unavailable.
+/// unavailable. It holds one Pack per Pack id, whatever the vendor.
 ///
 /// The Host owns the registry; a Plugin only inserts its Packs into it,
 /// by calling [`insert`](PackRegistry::insert) or
@@ -29,8 +29,9 @@ mod tests;
 /// `runvil/subagents` and `runvil/user` from the start, and calls each
 /// Plugin it links. Then it hands the registry to `Packs::new`, which
 /// reads it through [`into_entries`](PackRegistry::into_entries) and keeps
-/// each Pack's factory. Each run calls the factory of each Pack it holds
-/// to make that run's instance.
+/// each Pack's factory. Every run that starts holds every Pack of the
+/// registry, and each run calls the factory of each Pack it holds to make
+/// that run's instance.
 pub struct PackRegistry {
     entries: BTreeMap<&'static str, Registered>,
 }
@@ -89,9 +90,10 @@ impl PackRegistry {
 
     /// Adds the Pack `info` names as a Plugin's Pack, made by `factory`.
     ///
-    /// The Pack id is the FQN's second segment, so `runvil/web` is `web`,
-    /// and the registry may hold Packs of different vendors with the same
-    /// Pack id, such as `runvil/web` and `acme/web`.
+    /// The Pack id is the FQN's second segment, so `runvil/web` is `web`.
+    /// The registry holds one Pack per Pack id, so it holds `runvil/web`
+    /// or `acme/web` and never both: the first one inserted keeps the
+    /// Pack id.
     ///
     /// # Errors
     /// Returns an [`InvalidValue`](ErrorCode::InvalidValue) error that names
@@ -104,7 +106,9 @@ impl PackRegistry {
     ///   holds each built-in's from the start;
     /// - `reserved_pack_id` when the Pack id is
     ///   [reserved](PackId::is_reserved), such as `adhoc`;
-    /// - `reserved_name` when the Pack id is a built-in's.
+    /// - `pack_id_taken` when the registry holds a Pack of that Pack id
+    ///   under another FQN, a built-in or any other Pack, which the
+    ///   message names.
     ///
     /// A Pack whose factory refuses a run is not refused here; that run
     /// holds the Pack as unavailable instead.
@@ -156,13 +160,10 @@ impl PackRegistry {
                 fqn,
             ));
         }
-        if self.reserves(&id) {
+        if let Some(holder) = self.holder(&id) {
             return Err(make_refusal_error(
-                "reserved_name",
-                format!(
-                    "Pack `{fqn}` cannot take the Pack id {id}, which the built-in runvil/{id} \
-                     reserves"
-                ),
+                "pack_id_taken",
+                format!("Pack `{fqn}` cannot take the Pack id {id}, which `{holder}` holds"),
                 fqn,
             ));
         }
@@ -197,12 +198,13 @@ impl PackRegistry {
             .map(|registered| (registered.info, registered.id, registered.factory))
     }
 
-    /// Whether `id` is a built-in's Pack id, which no other Pack may
-    /// take.
-    fn reserves(&self, id: &PackId) -> bool {
+    /// The FQN of the Pack that holds the Pack id `id`, which no other
+    /// Pack may take.
+    fn holder(&self, id: &PackId) -> Option<&'static str> {
         self.entries
-            .values()
-            .any(|registered| registered.origin == PackOrigin::Builtin && registered.id == *id)
+            .iter()
+            .find(|(_, registered)| registered.id == *id)
+            .map(|(fqn, _)| *fqn)
     }
 }
 
@@ -244,9 +246,9 @@ fn make_refusal_error(reason: &'static str, message: String, fqn: &str) -> Error
 /// the Pack. Its `call` is unreachable, because the Engine never issues a
 /// call under a built-in's id: a built-in lists no tools, so no section
 /// offers one of its tools and no render of it adds one. A built-in never
-/// takes a [reserved](PackId::is_reserved) Pack id: the Harness puts every
-/// `runvil` Pack no `uses:` entry replaces into every run's roster, so a
-/// reserved one would refuse every run.
+/// takes a [reserved](PackId::is_reserved) Pack id: every run's roster
+/// names every Pack of the registry, so a reserved one would refuse every
+/// run.
 const BUILTIN: [PackInfo; 2] = [
     PackInfo::new("runvil/subagents").description(
         "Reserves the subagents name for the Engine's subagent tools, which are not built yet",

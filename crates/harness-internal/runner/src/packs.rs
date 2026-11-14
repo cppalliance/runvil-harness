@@ -7,12 +7,15 @@
 //! factory or unavailable for a reason, and every run that declares a
 //! Pack inserted unavailable is refused naming that reason.
 //!
-//! A run's Packs are the Packs its prompt declares under `uses:`, plus
-//! every `runvil` Pack whose Pack id no declaration takes, so a declared
-//! `acme/web` stands in for `runvil/web` and an undeclared third-party
-//! Pack is in no run and is never made. Before each run, the Harness's
-//! preparation picks those Packs and makes the run's instance of each
-//! through its factory. A factory's refusal or panic is not an error: the
+//! A run's Packs are every Pack the Host installed, whatever each one's
+//! vendor and whatever the run's prompt declares under `uses:`. A declared
+//! Pack is required, and every other Pack is in the run for a section to
+//! offer or call. The registry holds one Pack per Pack id, so when a
+//! `uses:` entry names a Pack id under a vendor the Host did not install
+//! it from, that Pack id is unavailable to the run, and the run leaves out
+//! the Pack another vendor installed under it. Before each run, the
+//! Harness's preparation picks those Packs and makes the run's instance of
+//! each through its factory. A factory's refusal or panic is not an error: the
 //! Pack is unavailable to that run alone, with the refusal or "the Pack's
 //! factory panicked" as its reason, and the next run calls the factory
 //! again. The built-in `runvil/user` is made only for a run whose setup
@@ -55,8 +58,7 @@ use serde_json::Value;
 
 use crate::performers::ToolPerformer;
 
-/// The vendor whose Packs every run holds unless a declared Pack takes
-/// their id, and the vendor a bare `uses:` entry means.
+/// The vendor a bare `uses:` entry means.
 const RUNVIL: &str = "runvil";
 
 /// The reason a Pack is unavailable to a run whose call of its factory
@@ -69,10 +71,10 @@ const USER: &str = "runvil/user";
 /// The reason [`USER`] is unavailable to a run with no user.
 const NO_USER: &str = "this run has no user";
 
-/// Every Pack a Host installed in its registry, each with its factory or
-/// the reason it was inserted unavailable. Built once and shared by every
-/// run of that Host; each run makes its own instance of each Pack it
-/// holds.
+/// Every Pack a Host installed in its registry, one per Pack id, each
+/// with its factory or the reason it was inserted unavailable. Built once
+/// and shared by every run of that Host; each run makes its own instance
+/// of each Pack it holds.
 pub struct Packs {
     installed: BTreeMap<&'static str, Installed>,
 }
@@ -85,15 +87,17 @@ struct Installed {
     factory: Result<Arc<dyn PackFactory>, String>,
 }
 
-/// The Packs one run holds, picked by `Packs::pick` from its
-/// prompt's `uses:` entries, and what the pick cannot resolve.
+/// The Packs one run holds, picked by `Packs::pick`, and each of its
+/// prompt's `uses:` entries the pick cannot resolve.
 #[derive(Debug)]
 pub(crate) struct Picked {
-    /// The FQN of each of the run's Packs: the declared ones the Host
-    /// installed, then every `runvil` Pack whose Pack id no entry takes.
+    /// The FQN of each of the run's Packs: the declared ones, in
+    /// declaration order, then every other installed Pack whose Pack id
+    /// no unresolved entry names.
     fqns: Vec<&'static str>,
-    /// Each declared Pack id the Host installed no Pack for, with the
-    /// reason it is unavailable, or `None` when it is simply missing.
+    /// Each declared Pack id the Host installed no Pack for under the
+    /// vendor its entry names, with the reason it is unavailable, or
+    /// `None` when it is simply missing.
     unresolved: BTreeMap<PackId, Option<String>>,
 }
 
@@ -150,19 +154,20 @@ impl Packs {
         RunPacks::snapshot(made, failures, &picked.unresolved)
     }
 
-    /// Picks the Packs a run of `prompt` holds: each Pack its `uses:`
-    /// entries name, plus every `runvil` Pack whose Pack id no entry
-    /// takes.
+    /// Picks the Packs a run of `prompt` holds: every installed Pack, the
+    /// ones its `uses:` entries name first, less a Pack whose Pack id an
+    /// entry the pick cannot resolve names.
     ///
     /// A bare entry means the `runvil` Pack of that id. One the Host did
-    /// not install is missing, or unavailable naming each other vendor's
+    /// not install is missing, or unavailable naming the other vendor's
     /// Pack of that id; a `vendor/name` the Host did not install is
-    /// unavailable.
+    /// unavailable. The run holds an unresolved entry's Pack id as
+    /// unavailable or missing, so the Pack another vendor installed under
+    /// that Pack id stays out of the run.
     fn pick(&self, prompt: &Prompt) -> Picked {
-        let uses = prompt.frontmatter().uses();
         let mut fqns = Vec::new();
         let mut unresolved = BTreeMap::new();
-        for entry in uses {
+        for entry in prompt.frontmatter().uses() {
             match self.find(entry) {
                 Ok((fqn, _)) => fqns.push(fqn),
                 Err(reason) => {
@@ -170,14 +175,15 @@ impl Packs {
                 }
             }
         }
-        for (fqn, installed) in &self.installed {
-            let runvil = fqn
-                .split_once('/')
-                .is_some_and(|(vendor, _)| vendor == RUNVIL);
-            if runvil && !uses.iter().any(|entry| *entry.id() == installed.id) {
-                fqns.push(*fqn);
-            }
-        }
+        let others: Vec<&'static str> = self
+            .installed
+            .iter()
+            .filter(|(fqn, installed)| {
+                !fqns.contains(fqn) && !unresolved.contains_key(&installed.id)
+            })
+            .map(|(fqn, _)| *fqn)
+            .collect();
+        fqns.extend(others);
         Picked { fqns, unresolved }
     }
 
@@ -237,7 +243,7 @@ impl Packs {
     /// the Host installed none.
     ///
     /// A bare entry means the `runvil` Pack of that id. One the Host did
-    /// not install is unavailable naming each other vendor's Pack of that
+    /// not install is unavailable naming the other vendor's Pack of that
     /// id, or simply missing, with no reason, when no vendor has one; a
     /// `vendor/name` the Host did not install is unavailable.
     fn find(&self, entry: &PackRef) -> Result<(&'static str, &Installed), Option<String>> {
@@ -248,16 +254,16 @@ impl Packs {
         if entry.vendor() != RUNVIL {
             return Err(Some(format!("{wanted} is not installed")));
         }
-        let others: Vec<&str> = self
+        // The registry holds one Pack per Pack id, so at most one other
+        // vendor's Pack has this one.
+        let other = self
             .installed
             .iter()
-            .filter(|(_, installed)| installed.id == *entry.id())
-            .map(|(fqn, _)| *fqn)
-            .collect();
-        Err((!others.is_empty()).then(|| {
+            .find(|(_, installed)| installed.id == *entry.id())
+            .map(|(fqn, _)| *fqn);
+        Err(other.map(|other| {
             format!(
-                "{id} means {wanted}, which is not installed; write {} to use that Pack",
-                others.join(" or "),
+                "{id} means {wanted}, which is not installed; write {other} to use that Pack",
                 id = entry.id(),
             )
         }))

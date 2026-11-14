@@ -2,11 +2,12 @@
 //! the run's Packs before the run's snapshot, asking each one before any
 //! answers, so a Pack still starting has its tools in the run once it is
 //! ready, a Pack whose `ready` fails is unavailable to that run and
-//! offering it raises its reason, an undeclared third-party Pack that
-//! never gets ready holds no run up, a built-in Pack with no tools still
-//! reaches the prompt's Lua, a cancel during the wait ends the run as
-//! canceled in both the report and the record, even when the run's first
-//! step would refuse it, a cancel that lands while a refusal is recorded
+//! offering it raises its reason, a run waits on a Pack its prompt does
+//! not declare, whatever the Pack's vendor, a built-in Pack with no tools
+//! still reaches the prompt's Lua, a cancel during the wait ends the run
+//! as canceled in both the report and the record, even when the run's
+//! first step would refuse it, a cancel that lands while a refusal is
+//! recorded
 //! leaves the report holding what the record holds, and a Pack that keeps
 //! the default `ready` serves as before.
 
@@ -44,12 +45,16 @@ type StartupHandle = (watch::Sender<Phase>, Arc<Startup>);
 
 /// The fixture Pack `slow`: the echo tool, offered once its startup
 /// leaves [`Phase::Starting`], ready or failed, so only the Harness keeps
-/// a failed one's tool out of a run. It is a `runvil` Pack, so every run
-/// holds it, as every run holds [`SLOWER`].
+/// a failed one's tool out of a run. Every run of a Host that installed
+/// it holds it, as every run holds [`SLOWER`].
 const SLOW: &str = "runvil/slow";
 
-/// A second [`Starting`] Pack beside [`SLOW`].
-const SLOWER: &str = "runvil/slower";
+/// The fixture Pack `slow` of another vendor, which a Host installs in
+/// the place of [`SLOW`].
+const OTHER_SLOW: &str = "tests/slow";
+
+/// A second [`Starting`] Pack, of another vendor, beside [`SLOW`].
+const SLOWER: &str = "tests/slower";
 
 /// A prompt declaring `slow` and calling its tool once by id.
 const CALLS_SLOW: &str = "---\nname: calls-slow\ndescription: d\nrunvil: 0\n\
@@ -145,7 +150,14 @@ fn starting_host(fqns: &[&'static str], phase: Phase) -> (Packs, Vec<StartupHand
 /// A Host that installed [`SLOW`], whose startup stands at `phase`, beside
 /// the sender that moves it and the startup the Pack shares.
 fn slow_host(phase: Phase) -> (Packs, watch::Sender<Phase>, Arc<Startup>) {
-    let (host, mut handles) = starting_host(&[SLOW], phase);
+    slow_host_of(SLOW, phase)
+}
+
+/// A Host that installed the one [`Starting`] Pack `fqn`, whose startup
+/// stands at `phase`, beside the sender that moves it and the startup the
+/// Pack shares.
+fn slow_host_of(fqn: &'static str, phase: Phase) -> (Packs, watch::Sender<Phase>, Arc<Startup>) {
+    let (host, mut handles) = starting_host(&[fqn], phase);
     let (moves, startup) = handles.pop().unwrap();
     (host, moves, startup)
 }
@@ -246,48 +258,83 @@ async fn a_declared_pack_whose_ready_fails_refuses_the_run_naming_its_reason() {
 
 #[tokio::test]
 async fn an_undeclared_pack_whose_ready_fails_leaves_the_run_going_without_its_tools() {
-    let (host, _moves, _startup) = slow_host(Phase::Failed("the fixture server is down"));
-    assert_eq!(
-        completed(drive_over(COUNTS_OFFERED, host).await),
-        "0 offered",
-        "the failed Pack's listed tool stays out of the run's offering"
-    );
+    for fqn in [SLOW, OTHER_SLOW] {
+        let (host, _moves, _startup) =
+            slow_host_of(fqn, Phase::Failed("the fixture server is down"));
+        assert_eq!(
+            completed(drive_over(COUNTS_OFFERED, host).await),
+            "0 offered",
+            "the failed {fqn}'s listed tool stays out of the run's offering"
+        );
+    }
 }
 
 #[tokio::test]
 async fn an_undeclared_pack_whose_ready_fails_raises_its_reason_when_the_prompt_offers_it() {
     let offers_slow = "---\nname: offers-slow\ndescription: d\nrunvil: 0\n---\n\n\
         ## Only\n\n```lua\ntools.offer('slow')\nreturn 'offered'\n```\n";
-    let (host, _moves, _startup) = slow_host(Phase::Failed("the fixture server is down"));
-    let message = drive_over(offers_slow, host)
-        .await
-        .expect_err("offering an unavailable Pack fails the run")
-        .located_message();
-    assert!(
-        message.contains(
-            "tools.offer: the slow Pack is unavailable in this run: \
-             the fixture server is down"
-        ),
-        "the failure names the Pack and its ready failure: {message}"
+    for fqn in [SLOW, OTHER_SLOW] {
+        let (host, _moves, _startup) =
+            slow_host_of(fqn, Phase::Failed("the fixture server is down"));
+        let message = drive_over(offers_slow, host)
+            .await
+            .expect_err("offering an unavailable Pack fails the run")
+            .located_message();
+        assert!(
+            message.contains(
+                "tools.offer: the slow Pack is unavailable in this run: \
+                 the fixture server is down"
+            ),
+            "the failure names the Pack and the ready failure of {fqn}: {message}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_undeclared_pack_of_another_vendor_that_starts_late_has_its_tools_in_the_run() {
+    let (host, moves, startup) = slow_host_of(OTHER_SLOW, Phase::Starting);
+    let recorder = recorder();
+    let (report, ()) = tokio::time::timeout(PATIENCE, async {
+        tokio::join!(
+            report_of(COUNTS_OFFERED, host, setup_over(&recorder)),
+            async {
+                startup.asked.notified().await;
+                moves.send(Phase::Ready).unwrap();
+            }
+        )
+    })
+    .await
+    .expect("the Harness waits on the ready of a Pack the prompt does not declare");
+    assert_eq!(
+        completed(report.result),
+        "1 offered",
+        "the snapshot after the wait offers the undeclared Pack's tool"
     );
 }
 
 #[tokio::test]
-async fn an_undeclared_third_party_pack_that_never_gets_ready_holds_no_run_up() {
-    let (_moves, watched) = watch::channel(Phase::Starting);
-    let startup = Arc::new(Startup {
-        phase: watched,
-        asked: Notify::new(),
-    });
-    let mut packs = registry(&[]);
-    packs
-        .insert(PackInfo::new("tests/stuck"), starting(startup))
-        .unwrap();
-    let host = Packs::new(packs);
-    let result = tokio::time::timeout(PATIENCE, drive_over(COUNTS_OFFERED, host))
-        .await
-        .expect("no run waits on a Pack it does not hold");
-    assert_eq!(completed(result), "0 offered");
+async fn a_cancel_while_an_undeclared_pack_of_another_vendor_is_still_starting_ends_the_run_canceled()
+ {
+    let (host, _moves, startup) = slow_host_of(OTHER_SLOW, Phase::Starting);
+    let recorder = recorder();
+    let harness = launch(host, Unused, COUNTS_OFFERED, setup_over(&recorder));
+    let control = harness.control();
+    let (report, ()) = tokio::time::timeout(PATIENCE, async {
+        tokio::join!(harness.run(), async {
+            startup.asked.notified().await;
+            control.cancel();
+        })
+    })
+    .await
+    .expect("the cancel ends the wait on a Pack the prompt does not declare");
+
+    let report = report.expect("a canceled run is reported");
+    crate::support::assert_canceled(&report.result);
+    assert_eq!(
+        recorder.result(report.run_id),
+        Some(report.result),
+        "the recorder holds the cancel"
+    );
 }
 
 #[tokio::test]
