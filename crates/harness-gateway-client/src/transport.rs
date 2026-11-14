@@ -24,12 +24,20 @@ use crate::wire::read::{ChunkSource, read_body_capped, read_completion_stream};
 use crate::wire::request::build_request_body;
 use crate::wire::stream::escape_controls;
 
+/// Header a Host-supplied plan proof is sent in.
+///
+/// A client that holds no proof omits the header, so the request bytes are
+/// the ones this client sent before a proof existed.
+pub const PLAN_PROOF_HEADER: &str = "X-Runvil-Plan-Proof";
+
 /// A client that sends chat completion requests to one gateway URL.
 ///
 /// The client usually presents the gateway's shared bearer key on every
 /// request. The key is optional: by default, a gateway on the same machine
 /// admits keyless loopback callers. A keyless client
 /// ([`GatewayChat::keyless`]) omits the `Authorization` header entirely.
+/// A Host may also pass a plan proof. That value is not a bearer: it is
+/// sent only as [`PLAN_PROOF_HEADER`], and only when the Host passed one.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct GatewayChat {
@@ -37,6 +45,8 @@ pub struct GatewayChat {
     base_url: String,
     /// The bearer presented on every request, or `None` to present nothing.
     key: Option<SecretString>,
+    /// The plan proof a Host passed, or `None` to send no plan-proof header.
+    plan_proof: Option<SecretString>,
     /// Longest wait for the response headers, and then for each next body
     /// chunk; a stream that keeps arriving is never cut off.
     receive_timeout: Duration,
@@ -48,6 +58,28 @@ pub struct GatewayChat {
 const DEFAULT_RECEIVE_TIMEOUT: Duration = Duration::from_secs(120);
 /// Default response-body ceiling.
 const DEFAULT_MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
+
+/// The HTTP client for one Gateway.
+///
+/// A loopback Gateway is reached directly and a redirect is returned as
+/// its own status. Any other address keeps reqwest's defaults, including a
+/// proxy when the process has one.
+pub(crate) fn http_client(loopback: bool) -> reqwest::Client {
+    if !loopback {
+        return reqwest::Client::new();
+    }
+    // A failed build must not fall back to a client that follows
+    // redirects or uses a proxy. `Client::new` panics on the same TLS
+    // failure this build can hit.
+    match reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => panic!("the loopback gateway client builds: {error}"),
+    }
+}
 
 #[derive(Clone)]
 enum GatewayTransport {
@@ -81,6 +113,7 @@ impl fmt::Debug for GatewayChat {
         f.debug_struct("GatewayChat")
             .field("base_url", &self.base_url)
             .field("key", &"<redacted>")
+            .field("plan_proof", &"<redacted>")
             .finish_non_exhaustive()
     }
 }
@@ -91,13 +124,16 @@ impl GatewayChat {
     ///
     /// The endpoint is a validated [`GatewayEndpoint`], and the key is a
     /// [`SecretString`], which keeps it redacted. [`GatewayChat::from_env`]
-    /// builds its client this way when a key is set.
+    /// builds its client this way when a key is set. A loopback endpoint
+    /// is contacted directly and a redirect is not followed.
     #[must_use]
     pub fn new(endpoint: GatewayEndpoint, key: SecretString) -> GatewayChat {
+        let transport = GatewayTransport::Http(http_client(endpoint.is_loopback()));
         GatewayChat {
-            transport: GatewayTransport::Http(reqwest::Client::new()),
+            transport,
             base_url: endpoint.url,
             key: Some(key),
+            plan_proof: None,
             receive_timeout: DEFAULT_RECEIVE_TIMEOUT,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         }
@@ -117,10 +153,12 @@ impl GatewayChat {
     /// [`GatewayChat::from_env`] decides by [`GatewayEndpoint::is_loopback`].
     #[must_use]
     pub fn keyless(endpoint: GatewayEndpoint) -> GatewayChat {
+        let transport = GatewayTransport::Http(http_client(endpoint.is_loopback()));
         GatewayChat {
-            transport: GatewayTransport::Http(reqwest::Client::new()),
+            transport,
             base_url: endpoint.url,
             key: None,
+            plan_proof: None,
             receive_timeout: DEFAULT_RECEIVE_TIMEOUT,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         }
@@ -138,6 +176,7 @@ impl GatewayChat {
             transport: GatewayTransport::Disabled,
             base_url: String::new(),
             key: None,
+            plan_proof: None,
             receive_timeout: DEFAULT_RECEIVE_TIMEOUT,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         }
@@ -168,6 +207,18 @@ impl GatewayChat {
     ) -> GatewayChat {
         self.receive_timeout = receive_timeout;
         self.max_response_bytes = max_response_bytes.get();
+        self
+    }
+
+    /// Sends `plan_proof` as [`PLAN_PROOF_HEADER`] on this client's model
+    /// rounds.
+    ///
+    /// A Host passes the proof explicitly. The client does not read a file
+    /// or an environment variable to obtain it, and a client without this
+    /// call sends no such header.
+    #[must_use]
+    pub fn with_plan_proof(mut self, plan_proof: SecretString) -> GatewayChat {
+        self.plan_proof = Some(plan_proof);
         self
     }
 
@@ -273,6 +324,9 @@ impl GatewayChat {
             .json(&request_body);
         if let Some(key) = &self.key {
             request = request.bearer_auth(key.expose());
+        }
+        if let Some(proof) = &self.plan_proof {
+            request = request.header(PLAN_PROOF_HEADER, proof.expose());
         }
         let response = tokio::time::timeout(self.receive_timeout, request.send())
             .await

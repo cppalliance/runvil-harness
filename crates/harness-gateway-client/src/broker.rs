@@ -19,7 +19,7 @@ use runvil::model::{
 };
 use runvil::{BoxFuture, Error};
 
-use crate::catalog::fetch_model_catalog;
+use crate::catalog::{fetch_model_catalog, fetch_model_catalog_with_plan_proof};
 use crate::config::{GatewayEndpoint, SecretString};
 use crate::transport::GatewayChat;
 use crate::wire::delta::StreamDelta;
@@ -31,7 +31,10 @@ use crate::wire::delta::StreamDelta;
 /// The broker performs each `Chat` effect from the Engine as one model
 /// round on a [`GatewayChat`]. It lists the Gateway's models through
 /// [`fetch_model_catalog`]. Both kinds of request go to the same API root
-/// and authenticate with the same bearer key.
+/// and authenticate with the same bearer key. A Host may also pass a plan
+/// proof. That value is not a bearer: it is sent as
+/// `X-Runvil-Plan-Proof` on those same requests, and only when the Host
+/// passed one.
 ///
 /// Every round uses the client's own request limits: a 120 second wait for
 /// each receive and a 16 MiB cap on each reply.
@@ -45,6 +48,9 @@ pub struct GatewayBroker {
     client: GatewayChat,
     endpoint: GatewayEndpoint,
     key: SecretString,
+    /// The plan proof a Host passed, or `None` when the model list sends
+    /// no plan-proof header. Model rounds read the copy on `client`.
+    plan_proof: Option<SecretString>,
 }
 
 impl fmt::Debug for GatewayBroker {
@@ -55,6 +61,7 @@ impl fmt::Debug for GatewayBroker {
             .field("client", &self.client)
             .field("api_root", &self.endpoint.url())
             .field("key", &"<redacted>")
+            .field("plan_proof", &"<redacted>")
             .finish()
     }
 }
@@ -72,7 +79,21 @@ impl GatewayBroker {
             client,
             endpoint,
             key,
+            plan_proof: None,
         }
+    }
+
+    /// Sends `plan_proof` as `X-Runvil-Plan-Proof` on this broker's model
+    /// rounds and on its model list.
+    ///
+    /// A Host passes the proof explicitly. The client does not read a file
+    /// or an environment variable to obtain it, and a broker without this
+    /// call sends no such header.
+    #[must_use]
+    pub fn with_plan_proof(mut self, plan_proof: SecretString) -> Self {
+        self.client = self.client.with_plan_proof(plan_proof.clone());
+        self.plan_proof = Some(plan_proof);
+        self
     }
 
     /// Runs one model round and passes each piece of the reply to
@@ -120,7 +141,15 @@ impl InferenceBroker for GatewayBroker {
     fn models(&self) -> BoxFuture<'static, Result<ModelCatalog, Error>> {
         let api_root = self.endpoint.url().to_owned();
         let key = self.key.clone();
-        Box::pin(async move { fetch_model_catalog(&api_root, key.expose()).await })
+        let plan_proof = self.plan_proof.clone();
+        Box::pin(async move {
+            match &plan_proof {
+                Some(proof) => {
+                    fetch_model_catalog_with_plan_proof(&api_root, key.expose(), proof).await
+                }
+                None => fetch_model_catalog(&api_root, key.expose()).await,
+            }
+        })
     }
 
     fn chat(

@@ -113,12 +113,19 @@ fn from_env_missing_gateway_key_is_fine_for_a_loopback_gateway() {
     );
 }
 
-/// Spawns a gateway that records the `Authorization` header of each
-/// completion request (as `Some(value)` or `None`) and answers a minimal
-/// stop-finished stream, returning its `/v1` base and the capture slot.
+/// The headers one completion request presented.
+#[derive(Clone, Debug)]
+struct SeenHeaders {
+    authorization: Option<String>,
+    plan_proof: Option<String>,
+}
+
+/// Spawns a gateway that records the `Authorization` and plan-proof headers
+/// of each completion request and answers a minimal stop-finished stream,
+/// returning its `/v1` base and the capture slot.
 async fn spawn_auth_capturing_gateway() -> (
     String,
-    std::sync::Arc<std::sync::Mutex<Option<Option<String>>>>,
+    std::sync::Arc<std::sync::Mutex<Option<SeenHeaders>>>,
 ) {
     use std::sync::{Arc, Mutex};
 
@@ -126,18 +133,25 @@ async fn spawn_auth_capturing_gateway() -> (
     use axum::http::HeaderMap;
     use axum::routing::post;
 
-    let captured: Arc<Mutex<Option<Option<String>>>> = Arc::new(Mutex::new(None));
+    let captured: Arc<Mutex<Option<SeenHeaders>>> = Arc::new(Mutex::new(None));
     let slot = Arc::clone(&captured);
     let app = Router::new().route(
         "/v1/chat/completions",
         post(move |headers: HeaderMap| {
             let slot = Arc::clone(&slot);
             async move {
-                let auth = headers
+                let authorization = headers
                     .get(axum::http::header::AUTHORIZATION)
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_owned);
-                *slot.lock().expect("capture lock") = Some(auth);
+                let plan_proof = headers
+                    .get(crate::PLAN_PROOF_HEADER)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned);
+                *slot.lock().expect("capture lock") = Some(SeenHeaders {
+                    authorization,
+                    plan_proof,
+                });
                 (
                     [(axum::http::header::CONTENT_TYPE, "text/event-stream")],
                     ok_stream(),
@@ -170,8 +184,12 @@ async fn keyless_client_sends_no_authorization_header() {
         .clone()
         .expect("the gateway saw the request");
     assert_eq!(
-        seen, None,
+        seen.authorization, None,
         "a keyless client must send no Authorization header, got {seen:?}"
+    );
+    assert_eq!(
+        seen.plan_proof, None,
+        "a client with no plan proof sends no plan-proof header, got {seen:?}"
     );
 }
 
@@ -188,7 +206,11 @@ async fn keyed_client_still_sends_the_bearer_header() {
         .expect("capture lock")
         .clone()
         .expect("the gateway saw the request");
-    assert_eq!(seen.as_deref(), Some("Bearer tok"));
+    assert_eq!(seen.authorization.as_deref(), Some("Bearer tok"));
+    assert_eq!(
+        seen.plan_proof, None,
+        "a keyed client with no plan proof sends no plan-proof header, got {seen:?}"
+    );
 }
 
 #[test]

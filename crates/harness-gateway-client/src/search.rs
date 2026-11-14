@@ -139,8 +139,9 @@ impl GatewaySearch {
         key: SecretString,
         timeout: Duration,
     ) -> GatewaySearch {
+        let http = crate::transport::http_client(endpoint.is_loopback());
         GatewaySearch {
-            http: reqwest::Client::new(),
+            http,
             base_url: endpoint.url,
             key,
             timeout,
