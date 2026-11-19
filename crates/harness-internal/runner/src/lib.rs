@@ -91,12 +91,14 @@ pub mod effect_loop;
 mod environment;
 mod harness;
 mod host;
+mod offline;
 mod packs;
 pub mod performers;
 mod prepare;
 mod prompt_finders;
 pub mod recorder;
 mod recorder_memory;
+mod run_builder;
 mod setup;
 mod tool_files;
 
@@ -108,4 +110,5 @@ pub use prompt_finders::{FindFilePrompt, FindTextPrompt, PromptSet};
 pub use recorder::{
     MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder, make_recorder_error,
 };
+pub use run_builder::RunBuilder;
 pub use setup::RunSetup;

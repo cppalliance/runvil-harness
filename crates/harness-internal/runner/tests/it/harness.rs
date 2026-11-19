@@ -86,7 +86,11 @@ pub(crate) fn launch(
     source: &str,
     setup: RunSetup,
 ) -> Harness {
-    Harness::new(host_over(packs, timer), parsed(source), setup)
+    Harness::new(
+        host_over(packs, timer).as_ref().clone(),
+        parsed(source),
+        setup,
+    )
 }
 
 /// A Host's Packs with none but the built-ins.
@@ -437,20 +441,21 @@ async fn a_vfs_effects_answer_record_directly_follows_its_effect_record() {
 async fn two_runs_in_flight_at_once_share_the_prompt_one_parse_returned() {
     let finds = Arc::new(AtomicUsize::new(0));
     let found = Arc::clone(&finds);
-    let host = Arc::new(Host {
-        packs: no_packs(),
-        prompts: Arc::new(move |_: &str| -> Result<String, Error> {
-            found.fetch_add(1, Ordering::SeqCst);
-            Ok(RETURNS_A_MESSAGE.to_owned())
-        }),
-        timer: Arc::new(PendingTimer::default()),
-    });
+    let host = Arc::new(
+        Host::new(".")
+            .with_packs(no_packs())
+            .with_prompt_finder(move |_: &str| -> Result<String, Error> {
+                found.fetch_add(1, Ordering::SeqCst);
+                Ok(RETURNS_A_MESSAGE.to_owned())
+            })
+            .with_timer(PendingTimer::default()),
+    );
     let prompt = host.parse("message.md").expect("the prompt parses");
 
     // Each run gets a clone of the one handle and a recorder of its own.
     let over = |recorder: &Arc<MemoryRecorder>| {
         Harness::new(
-            Arc::clone(&host),
+            host.as_ref().clone(),
             Arc::clone(&prompt),
             setup(recorder.clone(), ScriptedBroker::replying()),
         )

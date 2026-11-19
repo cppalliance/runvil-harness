@@ -81,6 +81,12 @@ pub struct Packs {
     installed: BTreeMap<&'static str, Installed>,
 }
 
+impl From<PackRegistry> for Packs {
+    fn from(registry: PackRegistry) -> Self {
+        Self::new(registry)
+    }
+}
+
 /// One installed Pack: its Pack id, its `PackInfo`, and its factory or
 /// the reason it was inserted unavailable.
 struct Installed {

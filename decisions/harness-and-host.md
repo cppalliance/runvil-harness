@@ -1,6 +1,6 @@
 # The Harness and the Host API: design decisions
 
-This page covers the `runvil` crate, `Host`, `RunSetup`, one Harness for each run, the effect loop, inference brokers, Host services, the recorder and run events, the run inbox from the Host's side, and stop and cancel. A Host is an application that runs prompts, and it depends on one crate, `runvil`. At startup it builds one `Host` struct: its installed Packs, a prompt finder, and a timer. For each run it fills a `RunSetup` with a recorder, an inference broker, a file system, and the run's settings, and creates one `Harness`. `Harness::run` is one future. It steps the Engine, performs each effect, writes every event, effect, and answer to the recorder, and returns a `RunReport`. A `RunControl` sends messages to the run, stops the work in flight, or cancels the run.
+This page covers the `runvil` crate, `Host`, `RunSetup`, one Harness for each run, the effect loop, inference brokers, Host services, the recorder and run events, the run inbox from the Host's side, and stop and cancel. A Host is an application that runs prompts, and it depends on one crate, `runvil`. At startup it configures one `Host` with Packs, a prompt finder, a timer, and optional broker and recorder overrides. `Host::run` builds each named run with its arguments and settings; a Host may also construct a `Harness` from a shared parsed prompt and an explicit `RunSetup`. `Harness::run` is one future. It steps the Engine, performs each effect, writes every event, effect, and answer to the recorder, and returns a `RunReport`. A `RunControl` sends messages to the run, stops the work in flight, or cancels the run.
 
 ## 1. The three layers and the `runvil` crate
 
@@ -16,7 +16,7 @@ A prompt file names a model by a role, such as `strong`, and a set of tools by a
 
 ### A Host depends on one crate, `runvil`
 
-`runvil` re-exports the Harness, the Engine items a Host reads and builds, and the Rust Plugin API. `Harness`, `Host`, `RunSetup`, `RunReport`, and `RunControl` are at the crate root, and the rest of the Harness is in `runvil::harness`, which includes the loader of the C contract and the stock prompt finders. `runvil::plugin` has the Rust Plugin API of the crate `runvil-plugin`, such as `PackRegistry`, `Pack`, and `HostServices`. The types of the C contract are in `runvil-plugin-sys`, outside `runvil`. Each re-export is at one path.
+`runvil` re-exports the Harness, the Engine items a Host reads and builds, and the Rust Plugin API. `Harness`, `Host`, `RunBuilder`, `RunSetup`, `RunReport`, and `RunControl` are at the crate root, and the rest of the Harness is in `runvil::harness`, which includes the loader of the C contract and the stock prompt finders. `runvil::plugin` has the Rust Plugin API of the crate `runvil-plugin`, such as `PackRegistry`, `Pack`, and `HostServices`. The types of the C contract are in `runvil-plugin-sys`, outside `runvil`. Each re-export is at one path.
 
 A Host fills its `PackRegistry` in two ways. A Plugin that follows the C contract enters through the loader: `insert_plugin_dir` loads each library Plugin of a directory and returns a `PluginReport`, and `insert_plugin` loads a Plugin that is compiled into the Host. The Plugins `plugin-web` and `plugin-mcp` are each a Rust function named `install`, which the Host calls with the registry, a configuration value, and the Host's services.
 
@@ -42,13 +42,17 @@ A Host's own parts may still need a runtime: the docs of `GatewayBroker` state t
 
 ### A Host builds one `Host` at startup and one `RunSetup` for each run
 
-`Host` is a struct with the public fields `packs`, `prompts`, and `timer`. A Host builds one and shares it behind an `Arc`. `RunSetup` is a struct of public fields that the Host fills for each run.
+`Host::new(folder)` finds prompts relative to a folder, installs the built-in Packs, uses an executor-independent timer, and starts without models. Its `with_packs`, `with_prompt_finder`, `with_timer`, `with_broker`, and `with_recorder` methods replace those services. A clone shares the services and Pack factories. `RunSetup` keeps public fields for explicit per-run control.
+
+`Host::run(name)` returns a `RunBuilder` that owns a snapshot of that configuration. `args` passes a JSON object as text, `model` selects a model, `interactive` enables the user inbox, and `configure` adjusts any setup field. Awaiting the builder yields a full report; `text` returns the prompt's result and attaches its run id to an execution error. `prepare` parses synchronously and returns an unstarted Harness whose control the Host can take. Dropping an unprepared builder reads no prompt and starts no record.
+
+These defaults let a model-free prompt run without custom service implementations. A model call without a configured broker fails as unavailable, and a Host that needs persistent history configures a recorder. Each default run has its own memory recorder, released when the run ends.
 
 The two structs sort every input by lifetime: `Host` contains what every run of one Host shares, and `RunSetup` contains what one run gets on top of the Host.
 
 ### `Harness::new` takes the `Host`, a parsed `Prompt`, and the `RunSetup`, and `run` consumes the Harness
 
-`Harness::new(host, prompt, setup)` creates the Harness for one run. `Harness::control()` returns a `RunControl`. `Harness::run()` takes the Harness by value and returns a `Send` future, so the Host takes the control first. A chat conversation is Workshop's own code around one run; see [Workshop: how the app is built](https://github.com/cppalliance/runvil-design/blob/master/decisions/workshop-app.md).
+`Harness::new(host, prompt, setup)` takes an owned Host snapshot and a shared parsed prompt to create the Harness for one run. `Harness::control()` returns a `RunControl`. `Harness::run()` takes the Harness by value and returns a `Send` future, so the Host takes the control first. A chat conversation is Workshop's own code around one run; see [Workshop: how the app is built](https://github.com/cppalliance/runvil-design/blob/master/decisions/workshop-app.md).
 
 ### `Host::parse` parses the prompt before a run exists, and a parse failure returns to the caller unrecorded
 
@@ -70,15 +74,15 @@ The Harness calls the Host's finder only inside `Host::parse`. One parse finds t
 
 A run that has started holds its parsed prompt and every prompt that one links, and an `execute` runs one of those. `PromptSet::rescan` lists the set's directories again, which affects what later parses find and affects no run in progress.
 
-Every find happens in `Host::parse` because a stock finder reads a file with a blocking call, and a parse runs before the run's future exists. The rule holds for a prompt that executes others because the parse has read them all.
+Every find happens in `Host::parse` because a stock finder reads a file with a blocking call. An awaited named builder parses synchronously at its first poll before executing the Harness. A Host that needs to keep parsing off its executor calls `prepare` or `Host::parse` on its blocking pool. The rule holds for a prompt that executes others because the parse has read them all.
 
 ### `RunSetup::new` takes the recorder and the broker, and every other field has a default
 
-`RunSetup::new(recorder, broker)` sets the required fields. Every other field starts at a default: an empty in-memory file system in `vfs`, empty values in `selected_model` and `workspace_roots`, the empty object `{}` in `args`, the default `RunLimits` in `limits`, 10 in `max_tool_calls_in_flight`, and `false` in `has_user`. The default limits include 24 loop rounds and 8 concurrent tasks.
+`RunSetup::new(recorder, broker)` accepts concrete services or shared `Arc` values and sets those fields. `RunSetup::default()` supplies an offline broker and a fresh memory recorder. Every other field starts at a default: an empty in-memory file system in `vfs`, empty values in `selected_model` and `workspace_roots`, the empty object `{}` in `args`, the default `RunLimits` in `limits`, 10 in `max_tool_calls_in_flight`, and `false` in `has_user`. The default limits include 24 loop rounds and 8 concurrent tasks.
 
 The default of `args` is `{}`, which is what a caller with nothing to pass sends. A Host that leaves the field alone therefore starts a valid run of every prompt that requires no argument.
 
-The broker is a required argument because every run needs inference. A Host that leaves it out fails to compile. With an optional broker, the Harness would refuse each run of such a Host as it prepares the run.
+A model-free run needs no inference service. The default broker lists no models and refuses model calls, so a Host only provides a broker when its prompts need one.
 
 ### The Harness reads each `RunSetup` field once, and the run's tool calls work in the one file system that the setup holds
 
@@ -158,7 +162,7 @@ The Host supplies inference so that the Host's broker owns the Gateway's URL, it
 
 ### The Harness picks the run's model once, and that model fills every role
 
-Before it prepares the run, the Harness awaits `models()` until the broker answers or the Host cancels the run, so a broker may wait until it has a model. The Harness picks the model that `RunSetup.selected_model` names, or the first listed model when the field is `None`. A selection absent from the list ends the run with `RequirementsUnmet` and the reason `model_absent`. The Harness passes the Engine a role map with one entry, `default`, so the picked model fills every role. Workshop's broker uses the wait: it answers once its catalog has a chat-capable model.
+Before it prepares the run, the Harness awaits `models()` until the broker answers or the Host cancels the run, so a broker may wait until it has a model. The Harness picks the model that `RunSetup.selected_model` names, or the first listed model when the field is `None`. An empty selection or one containing control characters ends the run with `InvalidValue` before fetching the catalog. A selection absent from the list ends the run with `RequirementsUnmet` and the reason `model_absent`. The Harness passes the Engine a role map with one entry, `default`, so the picked model fills every role. Workshop's broker uses the wait: it answers once its catalog has a chat-capable model.
 
 The map has one entry because `RunSetup` has one `selected_model`. A model for each role is planned work.
 
@@ -176,7 +180,7 @@ The timer is a required field of `Host`. As an entry of `HostServices` it could 
 
 ### The Host fills one `HostServices` map, and the `install` of each Rust Plugin reads it
 
-`HostServices` is a map from a two-segment id, such as `runvil/tokio-runtime`, to a typed object. The Host fills one map at startup and passes it to the `install` function of each Rust Plugin, and a Pack factory stores what its instances need. The C contract lacks Host services: a contract Plugin receives the contract's version and the functions of its load call, so the bashkit Plugin owns a tokio runtime of its own. Services for contract Plugins are planned work. The recorder, the broker, and the timer are required values outside the map.
+`HostServices` is a map from a two-segment id, such as `runvil/tokio-runtime`, to a typed object. The Host fills one map at startup and passes it to the `install` function of each Rust Plugin, and a Pack factory stores what its instances need. The C contract lacks Host services: a contract Plugin receives the contract's version and the functions of its load call, so the bashkit Plugin owns a tokio runtime of its own. Services for contract Plugins are planned work. The recorder, the broker, and the timer are services outside the map; the Host can replace their defaults.
 
 A `ServiceKey` binds each id to the type of its object, so a Host provides only an object of that type under the key. [Tools and Packs](tools-and-packs.md) covers a Pack's side.
 

@@ -32,7 +32,25 @@ harness-gateway-client = { version = "0.3.0", git = "https://github.com/cppallia
 
 The Harness loads library Plugins through the C contract in [runvil-plugin-api](https://github.com/cppalliance/runvil-plugin-api), which this workspace pins by commit as `runvil-plugin-sys`. That crate sets `links`, so Cargo refuses two commits of the contract in one build. A Host whose build also names `runvil-plugin-sdk`, or a Plugin built on it, pins that same commit.
 
-Two examples show the whole path in one file each:
+Configure a `Host` once, then supply JSON arguments for each named run:
+
+```rust,ignore
+let host = runvil::Host::new("prompts");
+let greeting = host.run("greet.md")
+    .args(r#"{"text":"Ada"}"#)
+    .text().await?;
+```
+
+The [Harness examples](crates/runvil/examples/README.md) include a complete
+greeting prompt, typed Rust tools, a local broker, and interactive controls.
+They run without credentials or a model service. Model-backed prompts use
+`with_broker`; `with_recorder` retains run history beyond the temporary
+per-run memory recorder. Await the builder directly for a full report, or
+call `prepare()` before execution to take its control handle. Finding and
+parsing prompts is synchronous; a Host can call `prepare()` on its blocking
+pool or reuse an `Arc<Prompt>` from `Host::parse` with `Harness::new`.
+
+Examples for each layer:
 
 - `cargo run -p runvil --example run-prompt` runs one prompt through the Harness, as a Host does.
 - `cargo run -p runvil-engine --example greeter` steps a run directly on the Engine.

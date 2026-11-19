@@ -266,6 +266,12 @@ The Host calls `install` with the registry, a configuration, and the Host's serv
 
 The Host owns the registry, and Plugins fill it. The owner's rule: "A host can only install plugins". The `install` function is the Rust-only way into the registry. A library Plugin inserts its Packs through the contract's `insert_pack`, and the loader calls `PackRegistry::insert` for it.
 
+### A Rust Plugin can define a Pack with typed async tools
+
+`PackRegistry::define` registers a factory that fills a `ToolPack` for each run. `tool` accepts an async closure whose arguments implement `Deserialize` and `JsonSchema` and whose result implements `Serialize`. `tool_with_context` also lends the call's context. `ToolPack::add` accepts a `Tool` implementation whose async method borrows its configuration. Raw JSON handlers remain available, and a Pack with dynamic tools or custom rendering implements `Pack` directly.
+
+The argument type supplies both decoding and an object-shaped JSON schema, keeping those descriptions together. Invalid arguments fail with `ToolInvalidArguments` before the handler runs. Trust is explicit: trusted typed results are structured JSON, while untrusted results keep the Engine's envelope. Factories create fresh instances for each run, and context handlers request file operations through `ToolFiles` under the same recording and policy rules as every other tool.
+
 ### The Harness makes one Pack instance for each run
 
 The Harness calls `PackFactory::new_pack` once for each Pack in a run. The instance drops when the run ends, and its `Drop` does the cleanup. The factory owns the state that runs share, such as MCP connections and HTTP clients.
@@ -304,7 +310,7 @@ The owner's rule: "Tools are not allowed to have internal states, and if they do
 
 A tool asks for a file operation and waits for the outcome. A Rust Pack's tool asks through the files of its `ToolContext` and awaits the outcome. A library Pack's tool asks through a file function of the C contract, and the loader makes the same request for it through the files of the call (see The C contract). The Harness reports the request to the Engine, which issues it as a `Vfs` effect that names the call. The Harness performs the operation, records it and its answer, and wakes the call with the outcome ([The Harness and the Host API](harness-and-host.md)). The call stays in progress the whole time, and its one answer is still the tool's result. A request is made when the call first polls it, and it goes out when the Harness takes it, between two polls of the call, so a request that the call drops before then sends nothing. The Harness performs the requests of one call in the order the call made them, and it drops what a call that has ended still asks for. The owner's rule: "every VFS operation that's performed by a tool has to turn into an effect in the engine."
 
-A tool that changes files sets `changes_files` in its `ToolInfo`, and the Engine then runs each of its calls alone, in the order the model listed them (see Tool calls).
+A tool that changes files sets `changes_files` in its `ToolInfo`. A typed `Tool` declares `CHANGES_FILES`, and a handler registered through `ToolPack` is marked with `ToolPack::changes_files`. With that flag set, the Engine runs each of its calls alone, in the order the model listed them (see Tool calls).
 
 The operation itself is synchronous, because the storage underneath is synchronous ([Files and the VFS](files-and-the-vfs.md)): the Harness performs it with one blocking call. The Harness is also independent of any particular async runtime, so each part of the context has to be independent of tokio. A request is a future that the Harness itself wakes, so a tool awaits it on any runtime.
 

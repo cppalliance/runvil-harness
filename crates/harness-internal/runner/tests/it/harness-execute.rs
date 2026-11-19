@@ -45,11 +45,12 @@ impl Drop for Scratch {
 /// A Host over `packs` whose finder is `prompts` and whose timer no test
 /// here reaches.
 fn host_finding(packs: Packs, prompts: Arc<dyn PromptFinder>) -> Arc<Host> {
-    Arc::new(Host {
-        packs,
-        prompts,
-        timer: Arc::new(PendingTimer::default()),
-    })
+    Arc::new(
+        Host::new(".")
+            .with_packs(packs)
+            .with_prompt_finder(move |name: &str| prompts.find(name))
+            .with_timer(PendingTimer::default()),
+    )
 }
 
 /// A finder that serves `plan` as `plan.md` and `greet` as `greet.md`.
@@ -72,7 +73,7 @@ fn two_prompts(plan: &'static str, greet: &'static str) -> Arc<dyn PromptFinder>
 async fn run_plan(host: &Arc<Host>, recorder: &Arc<MemoryRecorder>) -> RunReport {
     let prompt = host.parse("plan.md").expect("the Host parses the plan");
     Harness::new(
-        Arc::clone(host),
+        host.as_ref().clone(),
         prompt,
         setup(recorder.clone(), ScriptedBroker::replying()),
     )
@@ -112,7 +113,7 @@ async fn a_run_executes_the_prompt_its_parse_linked_though_the_set_has_lost_that
 
     let recorder = Arc::new(MemoryRecorder::new());
     let report = Harness::new(
-        host,
+        host.as_ref().clone(),
         prompt,
         setup(recorder.clone(), ScriptedBroker::replying()),
     )
