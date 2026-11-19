@@ -294,6 +294,8 @@ The goal is a minimal surface in which every item is necessary. The owner's rule
 
 `cargo xtask api` reads rustdoc's JSON for the facade and fails when a signature, field, or impl on the surface names anything else. The serde crates are `serde`, `serde_core`, `serde_json`, and `serde_yaml_ng`.
 
+The Harness facade additionally permits `schemars` for typed Rust tool argument schemas; the Engine facade keeps its existing boundary.
+
 The limit applies to the surface only: the internal crates may use many external crates, and the surface is restricted to a few basic ones.
 
 ### An operation reserved for Engine crates is a free function in a module outside the facade

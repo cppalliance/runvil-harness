@@ -43,6 +43,8 @@ runvil-vfs = { path = "crates/runvil-internal/vfs" }
 # never the `html` renderer or the `getopts` binary.
 pulldown-cmark = { version = "0.12", default-features = false }
 serde = { version = "1", features = ["derive"] }
+# Derive tool argument schemas from the same Rust types used to decode calls.
+schemars = "1"
 serde_yaml_ng = "0.10"
 # `float_roundtrip` makes `from_str` reproduce the exact `f64` that
 # `to_string` printed, so a payload a recorder stores reads back
@@ -78,6 +80,8 @@ rmcp = { version = "=3.9.0", default-features = false }
 async-trait = "0.1"
 flate2 = "1"
 futures-util = "0.3"
+# Executor-independent sleeps for the default Host timer.
+futures-timer = "3"
 mlua = { version = "0.12", features = ["lua55", "vendored", "serialize", "send"] }
 # Reads each crate's manifest for build-xtask's structural checks.
 toml = "1"

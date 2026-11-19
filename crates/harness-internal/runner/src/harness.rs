@@ -1,9 +1,8 @@
 //! The per-run Harness: one object per run of a parsed prompt, which
 //! drives that one run as a single future.
 //!
-//! A launcher builds a [`Harness`] from the Host it shares behind an
-//! `Arc`, the prompt `Host::parse` returned, which every run of that
-//! prompt shares behind an `Arc` too, and the run's own
+//! A launcher builds a [`Harness`] from an owned Host snapshot, the
+//! prompt `Host::parse` returned, and the run's own
 //! [`RunSetup`], takes the run's [`RunControl`], and awaits
 //! [`Harness::run`] on whatever executor it likes. The run begins its
 //! record, resolves the run's model through the setup's broker, prepares
@@ -37,11 +36,11 @@ use crate::setup::RunSetup;
 
 /// Drives one run of a prompt for a Host.
 ///
-/// It holds what the run needs: the Host it shares with every other run,
-/// the parsed prompt it shares with every other run of that prompt, and
-/// the run's own setup. [`Harness::run`] consumes it.
+/// It owns what the run needs: its snapshot of the Host configuration,
+/// the parsed prompt, and the run's own setup. [`Harness::run`] consumes
+/// it.
 pub struct Harness {
-    host: Arc<Host>,
+    host: Host,
     prompt: Arc<Prompt>,
     setup: RunSetup,
     control: RunControl,
@@ -117,7 +116,7 @@ impl Harness {
     /// flight; the rest wait and start oldest first. All of this work
     /// happens in [`Harness::run`].
     #[must_use]
-    pub fn new(host: Arc<Host>, prompt: Arc<Prompt>, setup: RunSetup) -> Harness {
+    pub fn new(host: Host, prompt: Arc<Prompt>, setup: RunSetup) -> Harness {
         let control = RunControl::new(CancelHandle::new());
         Harness {
             host,
@@ -155,7 +154,8 @@ impl Harness {
     /// calling `run`, or while the broker lists its models, ends the run
     /// canceled. A model list the broker fails to fetch ends it with the
     /// broker's failure, and a list that omits the selected model with a
-    /// `RequirementsUnmet` failure. An environment that falls short of
+    /// `RequirementsUnmet` failure. An invalid selected model id returns
+    /// `InvalidValue` before querying the broker. An environment that falls short of
     /// the prompt's requirements, which the run's first step finds, ends
     /// it with a `RequirementsUnmet` failure too. An environment that
     /// falls short after a cancel is raised, as when the cancel cuts
@@ -291,8 +291,8 @@ impl RunControl {
     /// message waits for the run's next read of its inbox instead of
     /// steering that round.
     #[must_use]
-    pub fn send(&self, text: String) -> bool {
-        self.sends.push(text)
+    pub fn send(&self, text: impl Into<String>) -> bool {
+        self.sends.push(text.into())
     }
 
     /// Drops the effects in flight, except tool calls that survive stops,

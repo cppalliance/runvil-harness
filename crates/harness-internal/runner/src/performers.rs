@@ -73,6 +73,23 @@ pub trait InferenceBroker: Send + Sync {
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>>;
 }
 
+impl<T: InferenceBroker + ?Sized> InferenceBroker for Arc<T> {
+    fn models(&self) -> BoxFuture<'static, Result<ModelCatalog, Error>> {
+        (**self).models()
+    }
+
+    fn chat(
+        &self,
+        binding: ModelBinding,
+        messages: Vec<Message>,
+        tools: Vec<ToolSchema>,
+        options: CompletionOptions,
+        round: Round,
+    ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
+        (**self).chat(binding, messages, tools, options, round)
+    }
+}
+
 /// Performs a `ToolCall` effect: resolves `tool` to an implementation and
 /// calls it with `args`, lending it the call's `origin` and `files`. Also
 /// performs a `Render` effect: the tools each offered Pack shows the
@@ -118,7 +135,8 @@ pub trait ToolPerformer: Send + Sync {
 /// stamps each run's start.
 ///
 /// The Harness polls each sleep inside the run's own future, so a timer
-/// must not block while polled. It waits on the Host's own runtime.
+/// must not block while polled. A custom timer can wait on the Host's
+/// own runtime; the default uses an executor-independent timer thread.
 pub trait Timer: Send + Sync {
     /// Resolves once `duration` has passed.
     ///
@@ -138,5 +156,15 @@ pub trait Timer: Send + Sync {
             .ok()
             .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok())
             .map_or(Timestamp::UNIX_EPOCH, Timestamp::from_unix_millis)
+    }
+}
+
+impl<T: Timer + ?Sized> Timer for Arc<T> {
+    fn sleep(&self, duration: Duration) -> BoxFuture<'static, ()> {
+        (**self).sleep(duration)
+    }
+
+    fn now(&self) -> Timestamp {
+        (**self).now()
     }
 }

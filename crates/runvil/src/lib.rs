@@ -1,45 +1,110 @@
-//! Runs Runvil prompts for a Host. This is the one crate a Host depends on.
+//! Runs prompts for a Host. This is the one crate an application depends on.
 //!
-//! The crate holds three things: the Harness, which runs one prompt for a
-//! Host and records the run; the Engine's items a Host reads and builds,
-//! such as a [`Prompt`], an [`Error`], the events of a run, and a run's
-//! files; and the Plugin contract. Code that steps a run itself, as the
-//! Harness does, takes the Engine's stepping items from `runvil-engine`.
+//! Save this as `prompts/greet.md`:
 //!
-//! A Host makes a [`plugin::PackRegistry`], calls each Plugin it links,
-//! which inserts its Packs into the registry, and builds one
-//! [`harness::Packs`] over it, which keeps each Pack's factory.
-//! It builds one [`Host`] at startup over those Packs, a
-//! [`PromptFinder`], its own or a stock one such as
-//! [`harness::PromptSet`], and its [`harness::Timer`], which also stamps
-//! each run's start as a [`Timestamp`], and shares it behind an `Arc`.
-//! [`Host::parse`] finds a prompt by its name and parses it, with every
-//! prompt its `prompts:` lists reach, which are the prompts a run of it
-//! may execute, and returns it behind an `Arc` that every run of it
-//! shares. For each run the launcher builds a [`RunSetup`] with the
-//! run's recorder, inference broker, filesystem, model selection,
-//! workspace roots, [`RunLimits`], tool-call cap, arguments, and whether a
-//! user answers it, and
-//! [`Harness::new`] takes the Host, the parsed prompt or a clone of its
-//! `Arc`, and that setup.
-//! [`Harness::run`] runs the prompt to its end and returns its
-//! [`RunReport`]. The run makes its own instance of each Pack it holds
-//! and drops the instances when it ends. While the run goes on, the
-//! launcher sends its main chain messages and steers it through the
-//! [`RunControl`] it took from `Harness::control` before the run started.
+//! ````markdown
+//! ---
+//! name: greet
+//! description: Greets the operator by name
+//! runvil: 0
+//! ---
 //!
-//! Every run gets a record and ends with its result: the final text, or
-//! the error that ended it, where a cancel is the error whose code is
-//! `canceled`. The record begins before anything else, so a run canceled
-//! before it starts, or one whose model cannot be resolved, is recorded
-//! too. The only error [`Harness::run`] returns is a `RecorderFailed`
-//! refusal: a recorder that refuses a write. A prompt that fails to parse
-//! is the caller's error from [`Host::parse`] and leaves no run record.
+//! ## Answer
 //!
-//! The crate's `run-prompt` example runs one prompt from start to end.
+//! ```lua
+//! return 'Hello, ' .. args.text .. '.'
+//! ```
+//! ````
+//!
+//! Configure a [`Host`] once, then supply each run's inputs where you run it:
+//!
+//! ```text
+//! use runvil::{Error, Host};
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> Result<(), Error> {
+//!     let host = Host::new("./prompts");
+//!     let greeting = host.run("greet.md").args(r#"{"text":"Ada"}"#).text().await?;
+//!     assert_eq!(greeting, "Hello, Ada.");
+//!     Ok(())
+//! }
+//! ```
+//!
+//! The Host reads prompt sources from that folder. [`RunBuilder::args`] supplies
+//! a JSON object, validated by the Engine against the prompt's argument schema.
+//! A prompt without an `args:` declaration accepts an optional `text` string.
+//! [`RunBuilder::text`] returns the prompt's result and propagates parse,
+//! recording, and execution failures; execution errors carry the run id.
+//!
+//! Model calls need a broker configured with [`Host::with_broker`]. Install
+//! optional Packs with [`Host::with_packs`], passing a [`plugin::PackRegistry`]:
+//!
+//! ```text
+//! let host = Host::new("./prompts")
+//!     .with_broker(broker)
+//!     .with_packs(packs);
+//! let answer = host.run("research.md")
+//!     .args(r#"{"text":"Explain this code"}"#)
+//!     .model("my-model")
+//!     .text().await?;
+//! ```
+//!
+//! Without a model selection, the run uses the first model in the broker's
+//! catalog. The default timer works on any executor. Each run gets its own
+//! instances of the Packs its prompt holds. To retain history, configure a
+//! recorder once with [`Host::with_recorder`]. These service methods take
+//! ordinary values and also accept shared `Arc` values when needed.
+//!
+//! Awaiting a [`RunBuilder`] gives the full [`RunReport`]: its run id, final
+//! result, and unread messages. A recorded execution failure
+//! stays in [`RunReport::result`]; `await?` alone checks parsing and recording:
+//!
+//! ```text
+//! let report = host.run("research.md").args(r#"{"text":"Explain this code"}"#).await?;
+//! println!("run {}: {:?}", report.run_id, report.result);
+//! ```
+//!
+//! Each builder owns a Host snapshot and can outlive it or move into a
+//! spawned task. Snapshots share services and Pack factories. When a
+//! run needs messages, stop, or cancellation, call [`RunBuilder::prepare`],
+//! take [`Harness::control`], and drive [`Harness::run`]:
+//!
+//! ```text
+//! let run = host.run("chat.md").interactive().prepare()?;
+//! let control = run.control();
+//! assert!(control.send("Hello"));
+//! let report = run.run().await?;
+//! ```
+//!
+//! [`RunBuilder::interactive`] enables the prompt's `user` Pack. Controls can
+//! also send messages, stop a round, or cancel while the run is pending.
+//! [`RunBuilder::configure`] exposes all of [`RunSetup`] for filesystem policy,
+//! resource limits, and other settings. Launchers with an already parsed
+//! [`Prompt`] can construct a [`Harness`] directly with their explicit setup.
+//!
+//! Every executed run is recorded, including a cancel before execution and
+//! a failure to resolve its model. Parsing fails before recording begins.
+//! A recorder's refusal is `RecorderFailed` and stops the run. The Engine's
+//! stepping API is in `runvil-engine`; this crate also exposes the Engine's
+//! readable data and the Plugin contract.
+//!
+//! From the repository, run the complete quickstart with
+//! `cargo run -p runvil --example run-prompt`.
+//!
+//! Install tools with [`plugin::PackRegistry::define`]. Its factory runs
+//! once per run that holds the Pack, and adds typed async functions through
+//! [`plugin::ToolPack::tool`]. Rust argument types supply their JSON schemas
+//! and decoding; Rust results are serialized automatically. Raw JSON and
+//! borrowed-context handlers are available when needed. Stateful tools can
+//! implement [`plugin::Tool`] with an ordinary async method that borrows
+//! their configuration, and register through [`plugin::ToolPack::add`]. Implement
+//! [`plugin::Pack`] directly for dynamic tool lists or custom rendering.
+//!
+//! The `typed-tool` example demonstrates a tool with typed arguments.
 
 pub use harness_runner::Harness;
 pub use harness_runner::Host;
+pub use harness_runner::RunBuilder;
 pub use harness_runner::RunControl;
 pub use harness_runner::RunReport;
 pub use harness_runner::RunSetup;
@@ -125,8 +190,10 @@ pub mod plugin {
     pub use runvil_plugin::ServiceId;
     pub use runvil_plugin::ServiceKey;
     pub use runvil_plugin::TOKIO_RUNTIME;
+    pub use runvil_plugin::Tool;
     pub use runvil_plugin::ToolContext;
     pub use runvil_plugin::ToolFiles;
+    pub use runvil_plugin::ToolPack;
 }
 
 pub mod effect {

@@ -13,12 +13,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use runvil_engine::{BoxFuture, Error, ErrorCode, ErrorFact, PromptFinder};
-use runvil_plugin::PackRegistry;
 use serde_json::json;
 
 use super::{FindFilePrompt, FindTextPrompt, PromptSet};
 use crate::host::Host;
-use crate::packs::Packs;
 use crate::performers::Timer;
 
 /// Tells apart the directories one process makes; nextest runs each test
@@ -492,11 +490,12 @@ fn a_host_parses_a_prompt_added_to_the_set_it_shares_once_its_application_rescan
     // One set behind an `Arc`: the Host holds one handle as its finder,
     // and the application keeps the other to rescan through.
     let prompts = Arc::new(set_over(dir.path()));
-    let host = Host {
-        packs: Packs::new(PackRegistry::new()),
-        prompts: prompts.clone(),
-        timer: Arc::new(NoWait),
-    };
+    let host = Host::new(".")
+        .with_prompt_finder({
+            let prompts = prompts.clone();
+            move |name: &str| prompts.find(name)
+        })
+        .with_timer(NoWait);
     assert_eq!(host.parse("greet.md"), Err(missing("greet.md")));
 
     write(dir.path(), "greet.md", GREET);
@@ -515,11 +514,9 @@ const PLAN: &str =
 
 /// A Host with no Pack but the built-ins, whose finder is `prompts`.
 fn host_over(prompts: Arc<PromptSet>) -> Host {
-    Host {
-        packs: Packs::new(PackRegistry::new()),
-        prompts,
-        timer: Arc::new(NoWait),
-    }
+    Host::new(".")
+        .with_prompt_finder(move |name: &str| prompts.find(name))
+        .with_timer(NoWait)
 }
 
 /// The file name of each prompt `prompt` links, in the order it gives

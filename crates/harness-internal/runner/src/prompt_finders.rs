@@ -11,7 +11,8 @@
 //! A file is read with a blocking `std::fs` call at each find, and
 //! nothing is cached, so an edited prompt shows in the next find. The
 //! Harness calls a finder only from `Host::parse`, before the run
-//! exists, so no read happens inside a run's future.
+//! exists. A named builder parses at its first poll; call `prepare` before
+//! polling when the Host needs to move blocking reads off its executor.
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
