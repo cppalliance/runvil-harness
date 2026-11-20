@@ -246,6 +246,53 @@ The Engine removes base globals, among them `load`, `dofile`, `rawget`, `rawset`
 
 The libraries include `utf8` because it is pure, and an author needs it to cut a string at a character boundary.
 
+### `math.random` draws from the run's seed and the section entry's id
+
+The Engine seeds the generator of each section VM from the run's seed and `sys.id`.
+The draws of `math.random` therefore differ from one run to the next and from one section entry to the next, and they repeat in a run with the same seed.
+`math.randomseed` with one or two integers seeds the generator as stock Lua does, and with no argument it seeds the generator from its own next two draws.
+A Pack prelude and a library that `require` loads draw from the generator of the VM they run in.
+The generator is Lua's own, which is not cryptographic, so a draw is not a secret.
+
+Stock Lua seeds the generator from the clock and a memory address, when the `math` library loads and at each `math.randomseed` with no argument.
+A draw would then differ between a run and a second run with the same prompt, arguments, params, and answers, which the Engine requires to produce the same result ([The Engine](engine.md)).
+The section entry's id is a part of the seed because every VM of a run would otherwise draw the same numbers.
+The Engine derives the seed of a generator with SHA-256, as it derives the nonce, so the draws give back neither the run's seed nor the nonce ([Tools and Packs](tools-and-packs.md)).
+
+### `table.sort` is stable, and its result depends only on the list and the comparison
+
+The Engine supplies its own `table.sort`, a merge sort.
+Elements that compare equal keep the order they had, so two runs sort a list the same way.
+The list must be a table, where stock Lua also takes a value that has the `__index`, `__newindex`, and `__len` metamethods.
+The default order is by `<`, as in stock Lua, and no comparison function raises `invalid order function for sorting`.
+The sort reads every element once, compares, and then writes every element once, so a sort whose comparison fails leaves the list as it was.
+The sort is Lua code, so it is slower than stock Lua's C function, and it holds two more arrays of the list's length while it runs.
+
+Stock Lua's `table.sort` is a quicksort that takes a pivot from the clock and a memory address after an unbalanced partition.
+Elements that compare equal then end in an order that differs between a run and a second run with the same inputs, which the Engine requires to produce the same result ([The Engine](engine.md)).
+A merge sort chooses nothing, and the stable order is the one order that the list and the comparison define by themselves.
+
+### `tostring` and `string.format` print a table, function, thread, or userdata by its name
+
+`tostring` gives a table, a function, a thread, or a userdata that has no `__tostring` as its name alone: `table`, `function`, `thread`, `userdata`, or the `__name` of its metatable.
+A `__name` that holds a zero byte counts up to that byte, as in stock Lua.
+`%s` in `string.format` prints such a value the same way, and `%p` raises an error.
+A `__close` handler receives a failure of an Engine function before `pcall` returns it as a table, and `tostring` and `%s` print it there as the message of that table.
+A failure made from such a raised value reads `error object is a table value`, with the value's name in place of `table`.
+That covers a block that raises the value and does not catch it, and a metamethod that raises it while an Engine function such as `pairs` runs it.
+The Engine recognizes the value by the text Lua made of it, which ends in a name, `: `, and an address.
+A `__name` that is empty, or that holds a `: ` or a line break, keeps its text, and `(address)` takes the place of the address.
+An error string that ends the same way changes too: on Linux and macOS, `error('size: 0x1f', 0)` reads `error object is a size value`, and `error('bad byte: 0x1f')` ends in `bad byte: (address)`.
+A hex number with more digits than a memory address has, 16 on a 64-bit machine, is no address and stays.
+Windows prints an address as uppercase hex digits at the full width with no `0x` in front, so there those two strings stay, and `error('size: 000000000000001F', 0)` reads `error object is a size value`.
+The Engine cannot tell such a string from a raised value, and it changes both so that no address stays in a failure.
+Every other value prints as in stock Lua.
+Two tables therefore print the same text, and code that must tell them apart compares them with `==`.
+
+Stock Lua prints such a value with its address, as in `table: 0x55d0c0a1e2f0`, and `%p` prints nothing else.
+The address is where the allocator put the value, so it differs between a run and a second run with the same inputs, and so does every text that holds it.
+The Lua binding's own text for a failure holds the address of a table that a metamethod raised inside an Engine function, so the failure prints as its message.
+
 ### The Engine installs a fixed set of globals and reserves their names
 
 The Engine globals that are the data of the run are `args`, `item`, `messages`, `prose`, `sys`, and `var`. The tables of operations are `compactors`, `json`, `markdown`, `models`, `prompt`, `store`, `tasks`, and `tools`. The functions are `call`, `execute`, `jump`, `log`, `require`, and `untrusted`. One global exists only in some VMs: `item`, in the first section of a task whose spawn supplied one. The reserved names are these globals, the Lua globals that the sandbox leaves in place, and the keywords of Lua 5.5. A Pack prelude, the Lua that the Engine runs for a Pack in each section VM, fails to install when it defines a reserved name.
@@ -280,9 +327,46 @@ The limits loosen only after examples from real prompt debugging establish a nee
 
 ### `pairs` and `next` visit keys in a fixed order
 
-The Engine supplies its own versions of both functions. Each visits the array part of a table in index order, then the other keys sorted: booleans, then numbers, then strings. Two runs therefore walk a table the same way. Both read through a view, so a walk of a `var` table or of a table inside `args` visits the entries of the data in that order, and the value it yields for a nested table is a view too. A `__pairs` metamethod still applies, on a table and on a userdata.
+The Engine supplies its own versions of both functions.
+Each visits the keys that are whole numbers from 1 up in rising order, then the other keys sorted: booleans, then the other numbers, then strings.
+So a list comes out in index order, before any named field.
+The place of a key depends on the key alone, so two runs walk a table the same way, and a table with a gap in its indices too.
+A loop of `next` may clear keys as it goes: every other key keeps its place, and the loop visits each key that is left once.
+Both raise an error for a table that has a table, a function, a userdata, or a thread as a key.
+The error names the type of such a key, and of several types the first by name.
+Such a table still reads and writes by key, so a set of objects works as a lookup, and a block that must walk the objects keeps them in a list as well.
+Both also raise an error for a weak table, one whose metatable has a `__mode` with `k` or `v` in it, and a weak table still reads and writes by key.
+Both read through a view, so a walk of a `var` table or of a table inside `args` visits the entries of the data in that order, and the value it yields for a nested table is a view too. A `__pairs` metamethod still applies, on a table and on a userdata.
 
 Lua leaves the order of hash keys open, and the Lua binding sets the hash seed itself. The sort makes the order independent of that internal hash state.
+The order does not use the length of the table, because the length of a table with a gap differs between two runs, as the next entry says.
+A key that is a table, a function, a userdata, or a thread has nothing to sort by except its memory address, which differs between a run and a second run with the same inputs.
+A walk in the order of the addresses would give two such runs different results, and a walk that left those keys out would lose data without an error.
+Lua's collector takes an entry out of a weak table at a moment that a walk does not choose, and it keeps the entry that the walk reads at that moment.
+Which entry that is follows the order of Lua's own walk, so two such runs would find different entries.
+
+### The length of a table with a gap in its list differs between runs
+
+`#t` is the number of items of a list, a table that holds a value at every index from 1 up to its last.
+For a table with a gap in those indices, `#t` is an index that holds a value and whose next index holds none, and two runs with the same inputs can get different ones.
+`table.insert`, `table.remove`, `table.concat`, `table.unpack`, and `table.sort` measure a table by `#t`.
+The Engine measures such a table by `#t` too when it converts the table to data, such as the arguments of `tools.call`, the `item` of a spawn, or a global that prose names, and the items past the length are left out.
+A block that needs the same result in every run keeps its lists without a gap.
+`pairs`, `next`, and `ipairs` do not use the length, `json.encode` raises an error that names the missing item, and `tasks.fanout` ends the list at the first gap.
+`tools.offer` refuses such a table for the same key in every run, with one exception: a table with no `__len` whose `__index` gives a value at the gap is measured by `#t`, so one run can accept it and another refuse it.
+
+`#` is an operator of Lua and not a function, so the Engine cannot supply its own version of it as it does for `pairs`.
+Lua finds the end of such a list with a search that starts from the hash seed, and the Lua binding sets that seed itself.
+A list without a gap has one end, so its length is the same in every run.
+
+### An error for one entry of a table names the entry whose key comes first
+
+Some functions check every entry of a table that an author passes: the options of `models.use`, the short form of the parameters of `tools.adhoc`, the array of `tools.offer`, and the keyed part of a `tasks.fanout` collection.
+The Engine checks the globals that a Pack's prelude defines the same way.
+When several entries fail the check, the error is the one for the entry whose key comes first: booleans, then numbers, then strings in byte order, then any other key by the name of its type.
+
+The Engine reads such a table in the order of Lua's own walk, which differs between a run and a second run with the same inputs.
+A check that stopped at the first entry it read would give the two runs different error texts, and a block that catches the error can act on its text.
 
 ### One guard on `_G` answers reads of `args`, `prose`, and `messages`, and `setmetatable` refuses finalizers
 
@@ -316,9 +400,11 @@ When the Host cancels a run, the Engine's `pcall` and `xpcall` raise a caught fa
 
 A stop drops the model round or the tool call in flight and leaves the cancel flag clear. The waiting Lua call raises an error of kind `canceled`, and a `pcall` around it catches the error. The built-in chat prompt wraps `models.loop` in `pcall`, so a stop ends one reply and the chat continues ([The Harness and the Host API](harness-and-host.md)).
 
-### A call that waits raises an error inside a comparator of `table.sort`
+### A call that waits raises an error inside a callback of a C function
 
-A call that waits, such as `tools.call`, yields the block's coroutine, and Lua refuses a yield that would cross a C function. Lua's `table.sort` is a C function, so a waiting call inside its comparator raises Lua's own error, `attempt to yield across a C-call boundary`.
+A call that waits, such as `tools.call`, yields the block's coroutine, and Lua refuses a yield that would cross a C function.
+Lua's `string.gsub` is a C function, so a waiting call inside its replacement function raises Lua's own error, `attempt to yield across a C-call boundary`.
+`table.sort` is the Engine's own Lua function, so a waiting call inside its comparison function works.
 
 ### `call`, `execute`, tasks, and fanout arms nest at most 8 levels
 
