@@ -37,8 +37,8 @@ use serde_json::Value as Json;
 
 use crate::chunk_line::first_prompt_line;
 use crate::error::{
-    accepted_tags, author_line, authored_at, call_line, failure_text, make_internal_error,
-    make_lua_runtime_error, prompt_file, root_cause, root_text,
+    accepted_tags, author_line, authored_at, call_line, failure_text, lua_text,
+    make_internal_error, make_lua_runtime_error, prompt_file, root_cause, root_text,
 };
 
 /// The registry key of the shared error metatable, created on first use per
@@ -740,7 +740,7 @@ fn classified(lua: &Lua, error: &mlua::Error) -> Error {
             | mlua::Error::SerializeError(_)
             | mlua::Error::DeserializeError(_)
             | mlua::Error::ExternalError(_)) => {
-                (make_lua_runtime_error(root.to_string()), root_text(error))
+                (make_lua_runtime_error(lua_text(root)), root_text(error))
             }
             root => return make_internal_error(root.to_string()),
         },

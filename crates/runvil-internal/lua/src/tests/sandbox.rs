@@ -375,6 +375,92 @@ fn the_replacements_answer_as_stock_lua_does() {
 }
 
 #[test]
+fn a_raised_value_with_no_text_fails_the_block_without_its_address() {
+    // A number in the shape this platform prints an address in: the C
+    // runtime of Windows pads uppercase digits to the pointer's width and
+    // puts no `0x` in front.
+    let number = if cfg!(windows) {
+        format!("{:0width$X}", 0x1f, width = 2 * size_of::<usize>())
+    } else {
+        "0x1f".to_owned()
+    };
+    let address_like = format!("error('size: {number}')");
+    for (block, reason) in [
+        ("error({})", "error object is a table value"),
+        ("error(log)", "error object is a function value"),
+        (
+            "error(setmetatable({}, { __name = 'My Thing' }))",
+            "error object is a My Thing value",
+        ),
+        (
+            "error(setmetatable({}, { __tostring = function() return 'rendered' end }))",
+            "rendered",
+        ),
+        // Rust runs each metamethod below, so `mlua` has rendered the
+        // raised table, address and all, before the Engine sees it. The
+        // address is a real one, in the shape this platform prints.
+        (
+            "error(setmetatable({}, { __tostring = function() error({}) end }))",
+            "error object is a table value",
+        ),
+        (
+            "pairs(setmetatable({}, { __pairs = function() error({}) end }))",
+            "error object is a table value",
+        ),
+        (
+            "tools.offer(setmetatable({}, { __len = function() error({}) end }))",
+            "error object is a table value",
+        ),
+        // A `__name` is any string. One that is empty or holds a `: ` stays
+        // as it is, and only the address goes.
+        ("error(setmetatable({}, { __name = '' }))", ": (address)"),
+        (
+            "pairs(setmetatable({}, { __pairs = function()\n\
+               error(setmetatable({}, { __name = 'a: b' }))\n\
+             end }))",
+            "a: b: (address)",
+        ),
+        // A string that ends as such a value does reads the same to the
+        // Engine, and loses its number.
+        (address_like.as_str(), "size: (address)"),
+    ] {
+        let error = run(block, &json!({})).expect_err("the block fails");
+        assert_eq!(error.prose, refused(reason), "{block}");
+    }
+    let caught = run(
+        "local ok, failure = pcall(pairs, setmetatable({}, { __pairs = function() error({}) end }))\n\
+         return failure.message",
+        &json!({}),
+    )
+    .expect("the block catches the failure")
+    .returned;
+    assert_eq!(
+        caught,
+        Some(format!(
+            "prompt:1: {}",
+            refused("error object is a table value")
+        ))
+    );
+    // A `__close` handler gets the failure as `mlua` raised it, before the
+    // `pcall` around it returns. It prints as the message `pcall` gives.
+    let closed = run(
+        "local seen\n\
+         local _, failure = pcall(function()\n\
+           local closing <close> = setmetatable({}, { __close = function(_, raised)\n\
+             seen = { tostring(raised), string.format('%s', raised), table.concat({ raised }) }\n\
+           end })\n\
+           tools.offer(setmetatable({}, { __len = function() error({}) end }))\n\
+         end)\n\
+         return table.concat({ failure.message, seen[1], seen[2], seen[3] }, '\\n')",
+        &json!({}),
+    )
+    .expect("the block catches the failure")
+    .returned;
+    let message = format!("prompt:6: {}", refused("error object is a table value"));
+    assert_eq!(closed, Some([message.as_str(); 4].join("\n")));
+}
+
+#[test]
 fn an_installed_require_is_runvils_and_loads_no_module() {
     let vm = TestVm::new().shims().build();
     vm.install_require(

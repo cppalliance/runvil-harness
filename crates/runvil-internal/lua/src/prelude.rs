@@ -26,7 +26,9 @@ use mlua::chunk::ChunkMode;
 use mlua::{Lua, Table, Value};
 use runvil_types::packs::{PackId, Prelude};
 
-use crate::error::{self, Error, Result, TRACEBACK_HEADING, make_lua_runtime_error};
+use crate::error::{
+    self, Error, Result, TRACEBACK_HEADING, make_lua_runtime_error, without_address,
+};
 use crate::proxy::{key_path, key_text, read_only_proxy};
 
 /// The `_G` names a prelude's environment reads, as bound when it installs.
@@ -226,8 +228,8 @@ fn seal(lua: &Lua, pack: &PackId, name: &str, hidden: Table) -> Result<Table> {
 /// keeping the Lua traceback after it.
 fn make_load_failure_error(pack: &PackId, error: &mlua::Error) -> Error {
     let rendered = match error {
-        mlua::Error::RuntimeError(message) => message.clone(),
-        other => other.to_string(),
+        mlua::Error::RuntimeError(message) => without_address(message).into_owned(),
+        other => error::lua_text(other),
     };
     let (head, traceback) = match rendered.split_once(TRACEBACK_HEADING) {
         Some((head, traceback)) => (head, Some(traceback)),
