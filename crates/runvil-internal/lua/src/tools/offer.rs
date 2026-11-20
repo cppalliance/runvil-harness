@@ -20,6 +20,7 @@ use crate::adhoc::AdhocTools;
 use crate::bindings::{RosterEntry, ToolSet, wire_name_of};
 use crate::error::{self, Result};
 use crate::messages::MessageList;
+use crate::order::FirstRefusal;
 use crate::packs::{LuaPackHandle, is_adhoc, pack_object};
 use crate::proxy::key_text;
 use crate::scope::{OFFERS_POISONED, OfferMode, OfferTarget, Offers};
@@ -205,8 +206,21 @@ impl Offering {
 /// The entries of the array `table`: `#t` of them, honoring `__len`, each
 /// read through `__index`. A `#t` above [`HELD_KEY_LIMIT`] is refused
 /// before any entry is read, since each entry holds a Lua reference until
-/// the offer is recorded. A nil or a table in that range, or a raw key
-/// outside it, is refused.
+/// the offer is recorded.
+///
+/// The array ends at the first nil the read meets. A table before that
+/// nil is refused, then a raw key outside the array, then a `#t` past its
+/// end: of several entries the first, and of several keys the one that
+/// comes first in the shared order of keys.
+///
+/// For a table with a gap `#t` differs from one run to the next, as
+/// [`crate::order::listed`] tells. Such a table is refused for the same
+/// key wherever `#t` puts its end, as long as the read meets a nil at the
+/// first gap. It does not when the table has no `__len` and its `__index`
+/// gives a value there: the read then goes on as far as `#t` allows, so
+/// one run accepts `{ [1] = a, [2] = a, [3] = a, [5] = a }` with an
+/// `__index` of `{ [4] = a }` and another refuses it for the key 5. A
+/// `__len` gives one end in every run.
 fn array(verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
     let len = table.len()?;
     let count = usize::try_from(len).unwrap_or(if len > 0 { usize::MAX } else { 0 });
@@ -218,25 +232,33 @@ fn array(verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
     let mut entries = Vec::with_capacity(count);
     for index in 1..=count {
         let entry: Value = table.get(index)?;
-        if matches!(entry, Value::Nil | Value::Table(_)) {
-            return Err(make_wrong_type_error(verb, &entry, Some(index)));
+        match entry {
+            Value::Nil => break,
+            Value::Table(_) => return Err(make_wrong_type_error(verb, &entry, Some(index))),
+            _ => entries.push(entry),
         }
-        entries.push(entry);
     }
+    let end = entries.len();
+    let mut outside = FirstRefusal::default();
     for pair in table.pairs::<Value, Value>() {
         let (key, _) = pair?;
         let inside = match key {
             Value::Integer(index) => {
-                usize::try_from(index).is_ok_and(|index| (1..=count).contains(&index))
+                usize::try_from(index).is_ok_and(|index| (1..=end).contains(&index))
             }
             _ => false,
         };
         if !inside {
-            return Err(mlua::Error::external(format!(
-                "{verb} takes an array, got a table with the key {}",
-                key_text(&key)
-            )));
+            outside.refuse(&key, key_text(&key));
         }
+    }
+    outside.into_result().map_err(|key| {
+        mlua::Error::external(format!(
+            "{verb} takes an array, got a table with the key {key}"
+        ))
+    })?;
+    if end < count {
+        return Err(make_wrong_type_error(verb, &Value::Nil, Some(end + 1)));
     }
     Ok(entries)
 }

@@ -3,6 +3,7 @@
 //! rendered-list refusal first, and the `tools` table they sit on.
 
 use crate::RenderedTools;
+use crate::error::root_text;
 use crate::test_vm::{catalog_set, lua_over, offer_set, offers, raised, scoped, tool_at};
 
 /// The adhoc tool `grab` the forms below offer as an object.
@@ -204,6 +205,38 @@ fn each_refusal_names_its_verb_and_a_refused_call_records_nothing() {
             offers(&vm).is_empty(),
             "{verb}: a refused call records no entry, its valid ones included"
         );
+    }
+}
+
+#[test]
+fn an_array_with_several_keys_outside_it_is_refused_for_the_same_one_in_every_vm() {
+    // Each VM walks the table under its own hash seed. The refusal names
+    // the first key in the shared order, where a number comes before a
+    // string.
+    for state in 0..16 {
+        let vm = lua_over(offer_set());
+        for (array, key) in [
+            (
+                "{ 'web', zulu = 1, mike = 1, alpha = 1, oscar = 1, [7] = 1 }",
+                "7",
+            ),
+            (
+                "{ 'web', zulu = 1, mike = 1, alpha = 1, oscar = 1 }",
+                "alpha",
+            ),
+            // `#t` is 3 in one VM and 5 in another, which read the nil at
+            // index 4 first.
+            (
+                "{ [1] = 'web', [2] = 'web', [3] = 'web', [5] = 'web' }",
+                "5",
+            ),
+        ] {
+            assert_eq!(
+                root_text(&vm.eval_err(&format!("tools.offer({array})"))),
+                format!("tools.offer takes an array, got a table with the key {key}"),
+                "state {state}"
+            );
+        }
     }
 }
 
