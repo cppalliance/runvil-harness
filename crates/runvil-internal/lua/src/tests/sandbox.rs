@@ -210,6 +210,171 @@ fn table_sort_fails_on_the_callers_line_in_stock_luas_words() {
 }
 
 #[test]
+fn tostring_and_string_format_print_no_address() {
+    let shown = run(
+        "local named = setmetatable({}, { __name = 'Named' })\n\
+         local rendered = setmetatable({}, { __tostring = function() return 'rendered' end })\n\
+         return table.concat({\n\
+           tostring({}), tostring(log), tostring(json.null), tostring(messages),\n\
+           tostring(named), tostring(rendered), tostring(nil), tostring(1.5),\n\
+           string.format('%s %8s %-4s| %d%%', {}, log, rendered, 7),\n\
+           ('%s'):format(named),\n\
+         }, '|')",
+        &json!({}),
+    )
+    .expect("the block runs");
+    assert_eq!(
+        shown.returned.as_deref(),
+        Some(
+            "table|function|userdata|MessageList|Named|rendered|nil|1.5\
+             |table function rendered| 7%|Named"
+        )
+    );
+    // Stock Lua prints a `__name` as a C string, up to its first zero byte.
+    // The whole name would fail a `%s` with a width, which takes no zero.
+    let cut = run(
+        "return string.format('%4s|', setmetatable({}, { __name = 'a\\0b' }))",
+        &json!({}),
+    )
+    .expect("the block runs");
+    assert_eq!(cut.returned.as_deref(), Some("   a|"));
+    let error = run("return string.format('%5p', {})", &json!({})).expect_err("%p is refused");
+    assert_eq!(
+        error.prose,
+        refused("string.format: conversion '%p' is not available, it prints a memory address")
+    );
+    // The stock function's own refusals keep its name and the caller's line.
+    let error = run(
+        "local first_line\nreturn string.format('%d', {})",
+        &json!({}),
+    )
+    .expect_err("the argument is refused");
+    assert_eq!(
+        error.prose,
+        refused("bad argument #2 to 'format' (number expected, got table)")
+    );
+    assert_eq!(error.at.map(|at| at.start_line.get()), Some(2));
+    // A failure a `__tostring` metamethod raises under `%s` is the
+    // metamethod's: a string keeps its line and a table stays the table.
+    let error = run(
+        "local raising = setmetatable({}, { __tostring = function()\n\
+           error('boom')\n\
+         end })\n\
+         return string.format('%s', raising)",
+        &json!({}),
+    )
+    .expect_err("the metamethod fails");
+    assert_eq!(error.prose, refused("boom"));
+    assert_eq!(error.at.map(|at| at.start_line.get()), Some(2));
+    let caught = run(
+        "local raising = setmetatable({}, { __tostring = function() error({ code = 7 }) end })\n\
+         local _, failure = pcall(string.format, '%s', raising)\n\
+         return tostring(failure.code)",
+        &json!({}),
+    )
+    .expect("the block runs");
+    assert_eq!(caught.returned.as_deref(), Some("7"));
+}
+
+#[test]
+fn the_replacements_answer_as_stock_lua_does() {
+    // Each case runs in a section VM and in a stock Lua, and the two must
+    // give the same result or the same failure text. Two things are cut
+    // before the comparison. One is the address a stock Lua prints after
+    // the name of a table or a function. The other is the position of the
+    // case's own chunk in front of a failure: a stock function, which is
+    // C, puts none on a failure Lua raises inside it. Any other position
+    // stays, so a failure that names the Engine's own chunk is a mismatch.
+    const CASES: &[&str] = &[
+        r#"return (string.format('%5.2f|%-5d|%+d|%05d|%x|%c|%g|%i|%q', 1.5, 3, 4, 6, 255, 65, 1.5, 7, 'a"b'))"#,
+        "return (string.format('%s %s %s %10s|%-6s|%.2s', nil, true, 1.5, 'abc', 'abc', 'abc'))",
+        "return (string.format('%s|%.3s|%s|%d', {}, {}, function() end, 3))",
+        "return (string.format('%s %s', setmetatable({}, { __name = 'Named' }), setmetatable({}, { __name = 5 })))",
+        "return (string.format('100%% %%s %s', setmetatable({}, { __tostring = function() return 'T' end })))",
+        "return (string.format('%s', setmetatable({}, { __tostring = function() return {} end })))",
+        "return (string.format('%s', setmetatable({}, { __tostring = function() error('boom', 0) end })))",
+        // A `__tostring` that changes what a later argument prints as: the
+        // argument's own metatable, then another argument's.
+        "local value = setmetatable({}, { __tostring = function(self) setmetatable(self, nil) return 'first' end }) \
+         return (string.format('%s|%s', value, value))",
+        "local later = {} \
+         local first = setmetatable({}, { __tostring = function() \
+           setmetatable(later, { __tostring = function() return 'later' end }) return 'first' end }) \
+         return (string.format('%s|%s', first, later))",
+        // The stock function refuses an argument before it prints a later one.
+        "local calls = 0 \
+         local counted = setmetatable({}, { __tostring = function() calls = calls + 1 return 'x' end }) \
+         pcall(string.format, '%s %d %s', counted, 'x', counted) return calls",
+        "getmetatable('').__tostring = function(text) return '<' .. text .. '>' end \
+         return (string.format('%s %s %s', 'x', {}, setmetatable({}, { __tostring = function() return 't' end })))",
+        // A `__name` is printed up to its first zero byte, as a C string.
+        "local named = setmetatable({}, { __name = 'a\\0b' }) \
+         return (string.format('%s|', named) .. tostring(named))",
+        // A `__tostring` of the string metatable that returns no string. The
+        // case takes it out again, because the comparison prints strings.
+        "local strings = getmetatable('') \
+         strings.__tostring = function() return {} end \
+         local _, failure = pcall(function() return tostring('x') end) \
+         strings.__tostring = nil \
+         error(failure, 0)",
+        "return (string.format('%s %s', 1))",
+        "return (string.format('%d', 'x'))",
+        "return (string.format('%y', 1))",
+        "return (string.format())",
+        "return (string.format(nil))",
+        "return (string.format(5, {}))",
+        "return (tostring())",
+        "return (tostring(nil) .. tostring(2^63) .. tostring(-0.0) .. tostring(3) .. tostring(true))",
+        "return (tostring({}) .. '|' .. tostring(function() end) .. '|' .. tostring(setmetatable({}, { __name = 'Named' })))",
+        "return (tostring(setmetatable({}, { __tostring = function() return {} end })))",
+        "return (tostring(setmetatable({}, { __tostring = 5 })))",
+        "math.randomseed(42) local t = {} for i = 1, 500 do t[i] = math.random(1, 1000000) end \
+         table.sort(t) return table.concat(t, ' ')",
+        "local t = { 'pear', 'fig', 'apple', 'Apple' } table.sort(t, function(a, b) return a > b end) \
+         return table.concat(t, ' ')",
+        "table.sort({ 1, 'x', 2 })",
+        "table.sort()",
+        "table.sort({ 3, 1, 2 }, 5)",
+        "table.sort({ 1 }, 5)",
+        "table.sort({ 3, 1, 2 }, function() error('boom', 0) end)",
+        "local t = setmetatable({ 3, 1, 2 }, { __len = function() return 3.0 end }) table.sort(t) \
+         return table.concat(t, ' ', 1, 3)",
+        "table.sort(setmetatable({}, { __len = function() return 2.5 end }))",
+        "table.sort(setmetatable({}, { __len = function() return 3 end, __index = 5 }))",
+        "local a, b = math.randomseed(7, 9) return a .. ' ' .. b .. ' ' .. math.random(0)",
+        "math.randomseed('5') return math.random(0)",
+        "math.randomseed(1.5)",
+        "math.randomseed(nil)",
+        "math.randomseed(1, 'x')",
+        "return (table.concat({ 1, 2, 3 }, ', ', 2))",
+        "return (table.concat({}, {}))",
+        "return (table.concat({ 1, {}, 3 }))",
+    ];
+    let outcome = |case: &str, chunk: &str| {
+        format!(
+            "local function body()\n{case}\nend\n\
+             local ok, value = pcall(body)\n\
+             local outcome = (ok and 'returned ' or 'failed ') .. type(value) .. ' ' .. tostring(value)\n\
+             return (outcome:gsub('^(failed string ){chunk}:%d+: ', '%1'))"
+        )
+    };
+    for case in CASES {
+        let ours = run(&outcome(case, r#"%[string "line 1"%]"#), &json!({}))
+            .expect("the block runs")
+            .returned;
+        let stock = Lua::new()
+            .load(format!(
+                "local outcome = (function()\n{}\nend)()\nreturn (outcome:gsub('(%a): %w+', '%1'))",
+                outcome(case, "stock")
+            ))
+            .set_name("=stock")
+            .eval::<String>()
+            .expect("the stock Lua runs");
+        assert_eq!(ours.as_deref(), Some(stock.as_str()), "{case}");
+    }
+}
+
+#[test]
 fn an_installed_require_is_runvils_and_loads_no_module() {
     let vm = TestVm::new().shims().build();
     vm.install_require(

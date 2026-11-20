@@ -3,21 +3,35 @@
 -- The Engine runs this chunk while it hardens a fresh VM, after the `_G`
 -- guard and before any other chunk captures a function this one replaces.
 -- A run with the same seed, start time, and answers must produce the same
--- result, and two stock functions break that: `math.randomseed` with no
--- argument and `table.sort` both read the clock and a memory address. Each
--- one is replaced here by a function whose result depends only on its
--- arguments and on the VM's generator.
+-- result, and four stock functions break that: `math.randomseed` with no
+-- argument and `table.sort` both read the clock and a memory address, and
+-- `tostring` and `string.format` print the address of a table, function,
+-- thread, or userdata. Each one is replaced here by a function whose
+-- result depends only on its arguments and on the VM's generator. The
+-- chunk also holds the `table.concat` wrapper, which is no determinism
+-- fix: it lets a value with `__tostring` join like a string.
+--
+-- The one chunk argument is a privileged capture, never a global:
+-- `unaddressed(value)` returns the text Lua prints in front of the address
+-- of a value it prints with one, its `__name` or its type name. For every
+-- value Lua prints without an address it returns nil, and then the value's
+-- `__tostring` when it has one.
+local unaddressed = ...
 
 -- Captured so author code that rebinds a global or a library field cannot
 -- change what a replacement does.
 local error, pcall, select, type = error, pcall, select, type
+local getmetatable, setmetatable = getmetatable, setmetatable
+local base_tostring = tostring
 local tointeger = math.tointeger
-local create = table.create
-local match, sub = string.match, string.sub
+local create, pack, unpack = table.create, table.pack, table.unpack
+local find, gmatch, match, sub = string.find, string.gmatch, string.match, string.sub
 -- These stock functions keep their stock names here. Lua names a function
 -- in its argument error by the variable it was called through, so the
 -- error reads `bad argument #1 to 'randomseed'`, as it does in stock Lua.
 local random, randomseed = math.random, math.randomseed
+local format = string.format
+local concat = table.concat
 
 -- A replacement must fail as the stock function does: with the stock
 -- text, on the line of the author's call. So it runs its work, a stock
@@ -85,6 +99,174 @@ function math.randomseed(...)
   end
   local n1, n2 = from_here(pcall(seeded, ...))
   return n1, n2
+end
+
+-- tostring
+--
+-- Stock Lua prints a table, function, thread, or userdata that has no
+-- `__tostring` as its `__name` or type name and its address, `table:
+-- 0x55d0c0a1e2f0`. The address differs from one run to the next, so only
+-- the name is printed. Every other value goes to the stock function, and
+-- so does a value with `__tostring`, whose metamethod the stock function
+-- calls.
+
+-- The types whose values stock Lua can print with an address.
+local ADDRESSED = { table = true, ["function"] = true, userdata = true, thread = true }
+
+-- The stock function, called from this chunk and not as a tail call, so
+-- its one failure, a `__tostring` that returns no string, carries this
+-- chunk's position.
+local function rendered(value)
+  return (base_tostring(value))
+end
+
+local function tostring(...)
+  local value = ...
+  if value == nil and select("#", ...) == 0 then
+    error("bad argument #1 to 'tostring' (value expected)", 2)
+  end
+  local kind = type(value)
+  if ADDRESSED[kind] then
+    local name = unaddressed(value)
+    if name ~= nil then return name end
+  elseif kind ~= "string" then
+    -- A nil, boolean, or number has no metatable in a section VM, so the
+    -- stock function cannot fail. A string has one, which an author can
+    -- give a `__tostring`.
+    return base_tostring(value)
+  end
+  return (from_here(pcall(rendered, value)))
+end
+_G.tostring = tostring
+
+-- string.format
+--
+-- `%s` prints its argument as stock `tostring` does, address included.
+-- `%p` prints nothing but an address, of a string too, so it is refused.
+--
+-- Whether a `%s` argument prints with an address is known only when the
+-- stock function reaches it: the `__tostring` of an earlier argument is
+-- the author's code, and it can set or clear the metatable of a later
+-- one. So an argument that can print with an address is not looked at
+-- before the call. A stand-in takes its place, and the stock function
+-- asks the stand-in for its text when it reaches that conversion, after
+-- every earlier one, as it would ask the argument.
+--
+-- The pattern takes one conversion the way the stock function reads it:
+-- `%`, any run of flag, digit, and `.` characters, then the conversion
+-- letter, captured. `%%` is the conversion whose letter is `%`, the only
+-- one that takes no argument.
+local CONVERSION = "%%[-+#0-9 .]*(.)"
+
+-- Matches a format that may hold a `%s` or a `%p`. A format with neither
+-- needs no look at its arguments. `%%s` matches too, and the walk below
+-- then finds nothing to do.
+local NEEDS_A_LOOK = "%%[-+#0-9 .]*[sp]"
+
+-- The text of the argument a stand-in holds, as the Engine's `tostring`
+-- gives it. The stock function checks that what comes back is a string,
+-- as it checks what the argument's own `__tostring` returns.
+--
+-- A `__tostring` that is a function is called from here. Going through
+-- the stock `tostring` would cost one more C call for each `string.format`
+-- a `__tostring` is nested in, and Lua allows 200 of them.
+local STAND_IN = {
+  __tostring = function(stand_in)
+    local value = stand_in[1]
+    local name, rendering = unaddressed(value)
+    if name ~= nil then return name end
+    if type(rendering) == "function" then return rendering(value) end
+    -- A `__tostring` that is no function: the stock function calls it or
+    -- refuses it, and the failure carries this chunk's position.
+    return (base_tostring(value))
+  end,
+}
+
+-- The arguments of a call, where a stand-in takes the place of each
+-- argument a `%s` can print with an address. Refuses a `%p`, with a
+-- failure that carries this chunk's position, as every failure of the
+-- stock function does.
+--
+-- The arguments are packed once, so the work is linear in their count;
+-- reading the i-th of them with `select` would cost i steps each time.
+local function with_names(fmt, ...)
+  -- A number is a valid format and holds no conversion; any other type is
+  -- left for the stock function to refuse.
+  if type(fmt) ~= "string" or not find(fmt, NEEDS_A_LOOK) then return fmt, ... end
+  local arguments = pack(...)
+  local index = 0
+  for letter in gmatch(fmt, CONVERSION) do
+    if letter == "p" then
+      error("string.format: conversion '%p' is not available, it prints a memory address")
+    end
+    if letter ~= "%" then
+      index = index + 1
+      if letter == "s" then
+        -- Past the last argument this reads nil, which stays, and the
+        -- stock function then refuses the missing value.
+        local value = arguments[index]
+        if ADDRESSED[type(value)] then arguments[index] = setmetatable({ value }, STAND_IN) end
+      end
+    end
+  end
+  return fmt, unpack(arguments, 1, arguments.n)
+end
+
+-- The whole of a call: the look at the arguments and the stock function,
+-- which is called from this chunk and not as a tail call. Every failure
+-- Lua raises in either carries this chunk's position.
+local function formatted(...)
+  -- With no argument at all, the stock function must see none.
+  if select("#", ...) == 0 then return (format()) end
+  return (format(with_names(...)))
+end
+
+-- The parentheses keep the call to `from_here` from being a tail call.
+function string.format(...)
+  return (from_here(pcall(formatted, ...)))
+end
+
+-- table.concat
+--
+-- Stock `table.concat` takes only strings and numbers. A value with a
+-- `__tostring` metamethod (a fanout result object, an Engine userdata)
+-- joins as `tostring` gives it. A plain table, a boolean, and nil still
+-- raise as stock Lua does.
+local function renders(v)
+  local mt = getmetatable(v)
+  return type(mt) == "table" and mt.__tostring ~= nil
+end
+
+-- Runs under `pcall`, so every failure Lua raises here, the stock
+-- function's refusal of a separator included, is raised from the
+-- caller's line.
+local function joined(list, sep, i, j)
+  i = i or 1
+  j = j or #list
+  local parts = {}
+  for k = i, j do
+    local v = list[k]
+    local ty = type(v)
+    if ty == "string" or ty == "number" then
+      parts[#parts + 1] = v
+    elseif ty == "userdata" then
+      -- Engine userdata with __tostring. mlua metatables are not readable
+      -- via getmetatable, so type-gate here.
+      parts[#parts + 1] = tostring(v)
+    elseif ty == "table" and renders(v) then
+      -- Fanout result objects: plain tables under a __tostring metatable.
+      parts[#parts + 1] = tostring(v)
+    elseif v == nil then
+      error("invalid value (nil) at index " .. k .. " in table for 'concat'")
+    else
+      error("invalid value (" .. ty .. ") at index " .. k .. " in table for 'concat'")
+    end
+  end
+  return (concat(parts, sep))
+end
+
+function table.concat(...)
+  return (from_here(pcall(joined, ...)))
 end
 
 -- table.sort

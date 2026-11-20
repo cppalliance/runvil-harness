@@ -1,6 +1,5 @@
 //! Sandbox hardening for section VMs: the `_G` guard, global removal, the
-//! `table.concat` wrapper, the standard-library replacements, and the
-//! cancellation hook.
+//! standard-library replacements, and the cancellation hook.
 
 use std::sync::{Arc, OnceLock};
 
@@ -20,17 +19,13 @@ const HOOK_INTERVAL: u32 = 10_000;
 /// First installs the `_G` guard with its `setmetatable` and
 /// `getmetatable` replacements ([`crate::globals`]).
 ///
-/// Also wraps `table.concat` so a value with a `__tostring` metamethod
-/// (fanout result objects, Engine userdata) coerces like `tostring`. Plain
-/// tables, booleans, and nil still raise as stock Lua does.
-///
 /// Last replaces the standard-library functions whose result no run input
-/// fixes ([`crate::stdlib`]), so every chunk the VM loads later captures the
-/// replacements.
+/// fixes, and wraps `table.concat` ([`crate::stdlib`]), so every chunk the
+/// VM loads later captures the replacements.
 pub(crate) fn harden(lua: &Lua) -> Result<()> {
     // The guard captures the raw functions removed below, and every later
-    // chunk, the `table.concat` wrapper included, must capture the
-    // replacements rather than the base functions.
+    // chunk, the standard-library replacements included, must capture the
+    // guard's replacements rather than the base functions.
     crate::globals::install(lua)?;
     let globals = lua.globals();
     for name in [
@@ -53,42 +48,6 @@ pub(crate) fn harden(lua: &Lua) -> Result<()> {
             .set(name, Value::Nil)
             .map_err(error::make_lua_error)?;
     }
-    lua.load(
-        r#"
-local orig = table.concat
-local getmetatable = getmetatable
-local function renders(v)
-  local mt = getmetatable(v)
-  return type(mt) == "table" and mt.__tostring ~= nil
-end
-function table.concat(list, sep, i, j)
-  i = i or 1
-  j = j or #list
-  local parts = {}
-  for k = i, j do
-    local v = list[k]
-    local ty = type(v)
-    if ty == "string" or ty == "number" then
-      parts[#parts + 1] = v
-    elseif ty == "userdata" then
-      -- Engine userdata with __tostring. mlua metatables are not readable
-      -- via getmetatable, so type-gate here.
-      parts[#parts + 1] = tostring(v)
-    elseif ty == "table" and renders(v) then
-      -- Fanout result objects: plain tables under a __tostring metatable.
-      parts[#parts + 1] = tostring(v)
-    elseif v == nil then
-      error("invalid value (nil) at index " .. k .. " in table for 'concat'")
-    else
-      error("invalid value (" .. ty .. ") at index " .. k .. " in table for 'concat'")
-    end
-  end
-  return orig(parts, sep)
-end
-"#,
-    )
-    .exec()
-    .map_err(error::make_lua_error)?;
     crate::stdlib::install(lua)
 }
 

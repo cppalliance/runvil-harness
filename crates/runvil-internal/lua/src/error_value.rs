@@ -636,13 +636,7 @@ fn finish_table(lua: &Lua, kind: ErrorKind, code: ErrorCode, fields: Table) -> m
 /// Returns an `mlua` error if the table cannot be created on `lua`.
 pub(crate) fn error_table(lua: &Lua, error: &Error) -> mlua::Result<Table> {
     let table = lua.create_table()?;
-    let message = match &error.at {
-        Some(at) if error.code != ErrorCode::Internal => {
-            format!("{}: {}", coordinates(at), error.prose)
-        }
-        _ => error.prose.clone(),
-    };
-    table.raw_set("message", message)?;
+    table.raw_set("message", message(error))?;
     for (name, value) in error_fields(error) {
         let value = match value {
             ErrorField::String(value) => Value::String(lua.create_string(value)?),
@@ -653,6 +647,16 @@ pub(crate) fn error_table(lua: &Lua, error: &Error) -> mlua::Result<Table> {
     let table = finish_table(lua, error_kind(error), error.code, table)?;
     retained(lua)?.raw_set(table.clone(), lua.create_any_userdata(error.clone())?)?;
     Ok(table)
+}
+
+/// The `message` of the error table of `error`.
+fn message(error: &Error) -> String {
+    match &error.at {
+        Some(at) if error.code != ErrorCode::Internal => {
+            format!("{}: {}", coordinates(at), error.prose)
+        }
+        _ => error.prose.clone(),
+    }
 }
 
 /// Reads back the universal error a raised value was rendered from, when
@@ -758,6 +762,18 @@ fn traceback_line(error: &mlua::Error) -> Option<NonZeroU32> {
         mlua::Error::WithContext { cause, .. } => traceback_line(cause),
         _ => None,
     }
+}
+
+/// The text a Rust callback's failure prints as: the `message` of the
+/// error table [`normalized`] makes of it.
+///
+/// A `__close` handler is the one place an author's code gets such a
+/// failure as `mlua` raised it, a userdata. Lua calls the handler itself,
+/// before the `pcall` that would catch the failure returns, so no
+/// replacement stands between the two. What `mlua` prints the userdata as
+/// can hold the address of a table that a metamethod raised.
+pub(crate) fn failure_message(lua: &Lua, failure: &mlua::Error) -> String {
+    message(&classified(lua, failure))
 }
 
 /// Returns what `normalize_failure` returns for `value`: a Rust callback's
