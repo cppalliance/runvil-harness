@@ -226,6 +226,19 @@ impl Encoder {
         author_refusal(format!("{shown} {failure}"))
     }
 
+    /// The text of an unreadable view's label, whose bytes are spent
+    /// before they are copied: in debug mode each such view of a value
+    /// gets a placeholder with the label in it, and many views can share
+    /// one long label.
+    fn label_text(&mut self, label: Option<LuaString>) -> mlua::Result<Option<String>> {
+        label
+            .map(|label| {
+                self.charge_bytes(label.as_bytes().len())?;
+                Ok(label.to_string_lossy())
+            })
+            .transpose()
+    }
+
     /// `placeholder` in debug mode, or the error for `failure`.
     fn fail(&self, failure: &str, placeholder: String) -> mlua::Result<Json> {
         if self.debug {
@@ -283,6 +296,7 @@ impl Encoder {
         let data = match self.resolve(table)? {
             Unsealed::Data(data) => data,
             Unsealed::Unreadable(label) => {
+                let label = self.label_text(label)?;
                 let placeholder = match &label {
                     Some(label) => format!("[cannot read: {label}]"),
                     None => "[cannot read]".to_owned(),
@@ -399,6 +413,7 @@ impl Encoder {
         let data = match self.resolve(list)? {
             Unsealed::Data(data) => data,
             Unsealed::Unreadable(label) => {
+                let label = self.label_text(label)?;
                 return Err(self.error(&unreadable(label.as_deref())));
             }
             Unsealed::Loop => return Err(self.error(CYCLE)),

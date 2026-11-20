@@ -155,10 +155,14 @@ impl Walk {
         }
         match unsealed {
             Unsealed::Data(data) => Ok(data),
-            Unsealed::Unreadable(Some(label)) => Err(self.refuse(format!(
-                "{} cannot be read ({label}); copy the fields you need into a plain table",
-                name(self)
-            ))),
+            Unsealed::Unreadable(Some(label)) => {
+                self.charge_bytes(label.as_bytes().len())?;
+                Err(self.refuse(format!(
+                    "{} cannot be read ({}); copy the fields you need into a plain table",
+                    name(self),
+                    label.to_string_lossy()
+                )))
+            }
             Unsealed::Unreadable(None) => Err(self.refuse(format!(
                 "{} cannot be read; copy the fields you need into a plain table",
                 name(self)

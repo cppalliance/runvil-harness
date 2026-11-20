@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::ffi::c_void;
 
 use mlua::{
-    AnyUserData, Function, Lua, LuaSerdeExt, MaybeSend, MetaMethod, MultiValue, Table,
+    AnyUserData, Function, Lua, LuaSerdeExt, LuaString, MaybeSend, MetaMethod, MultiValue, Table,
     UserDataMethods, Value,
 };
 
@@ -74,8 +74,10 @@ pub(crate) enum Unsealed {
     /// The table that holds the data.
     Data(Table),
     /// A view whose data only a function can read, with the view's label
-    /// when it has one.
-    Unreadable(Option<String>),
+    /// when it has one. The label is the view's own string: many views can
+    /// share one long label, so a caller that wants its text counts its
+    /// bytes before it copies them.
+    Unreadable(Option<LuaString>),
     /// A chain of views that leads back to one of its own views.
     Loop,
 }
@@ -123,7 +125,7 @@ pub(crate) fn unseal(
             }
             Value::Function(_) => {
                 let label = match label {
-                    Value::String(label) => Some(label.to_string_lossy()),
+                    Value::String(label) => Some(label),
                     _ => None,
                 };
                 return Ok(Unsealed::Unreadable(label));
