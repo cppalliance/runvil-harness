@@ -1,9 +1,10 @@
 //! The standard-library functions a section VM replaces.
 //!
 //! A run with the same seed, start time, and answers must produce the same
-//! result. Stock `math.randomseed` with no argument reads the clock and a
-//! memory address, which no run input fixes. [`install`] replaces it with a
-//! function whose result depends only on the VM's generator, which starts
+//! result. Two stock functions read something no run input fixes:
+//! `math.randomseed` with no argument and `table.sort` read the clock and a
+//! memory address. [`install`] replaces each with a function whose result
+//! depends only on its arguments and on the VM's generator, which starts
 //! from a fixed seed until
 //! [`SectionVm::seed_random`](crate::SectionVm::seed_random) gives it the
 //! run's.
@@ -17,8 +18,8 @@ use mlua::Lua;
 use crate::error::{self, Error, Result};
 use crate::program::LuaProgram;
 
-/// Replaces `math.randomseed` on a fresh VM, and seeds its generator with a
-/// fixed value.
+/// Replaces `math.randomseed` and `table.sort` on a fresh VM, and seeds its
+/// generator with a fixed value.
 ///
 /// Must run after the `_G` guard is installed and before any other chunk
 /// captures a function this one replaces.

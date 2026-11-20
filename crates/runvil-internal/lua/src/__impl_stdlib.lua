@@ -3,13 +3,16 @@
 -- The Engine runs this chunk while it hardens a fresh VM, after the `_G`
 -- guard and before any other chunk captures a function this one replaces.
 -- A run with the same seed, start time, and answers must produce the same
--- result, and stock `math.randomseed` with no argument breaks that: it
--- reads the clock and a memory address. It is replaced here by a function
--- whose result depends only on its arguments and on the VM's generator.
+-- result, and two stock functions break that: `math.randomseed` with no
+-- argument and `table.sort` both read the clock and a memory address. Each
+-- one is replaced here by a function whose result depends only on its
+-- arguments and on the VM's generator.
 
 -- Captured so author code that rebinds a global or a library field cannot
 -- change what a replacement does.
 local error, pcall, select, type = error, pcall, select, type
+local tointeger = math.tointeger
+local create = table.create
 local match, sub = string.match, string.sub
 -- These stock functions keep their stock names here. Lua names a function
 -- in its argument error by the variable it was called through, so the
@@ -82,4 +85,115 @@ function math.randomseed(...)
   end
   local n1, n2 = from_here(pcall(seeded, ...))
   return n1, n2
+end
+
+-- table.sort
+--
+-- Stock `table.sort` is a quicksort that, once a partition comes out
+-- unbalanced, picks its next pivot from the clock and an address. Elements
+-- that compare equal then end in an order that differs from one run to the
+-- next. This is a merge sort instead: it picks nothing, so the result is a
+-- function of the list and the comparison, and it is stable, so elements
+-- that compare equal keep the order they had. It makes at most
+-- n * ceil(log2(n)) comparisons, where stock Lua's worst case is
+-- quadratic, and it holds two more arrays of n slots while it runs, each
+-- created at its full size so that neither grows.
+--
+-- `before(a, b)` is the comparison: true when `a` must come before `b`.
+-- The elements are read once into an array, merged back and forth between
+-- it and a second one in runs of `width`, 2 * `width`, and so on, and
+-- written back once. A list behind `__index` and `__newindex` therefore
+-- sees n reads and then n writes, and a sort whose comparison fails
+-- leaves the list as it was.
+
+-- The elements `list[1]` to `list[n]` as a new array.
+local function read(list, n)
+  local from = create(n)
+  for i = 1, n do from[i] = list[i] end
+  return from
+end
+
+-- Sorts the array `from` of `n` elements and returns the array that holds
+-- the result, which is `from` or the second array.
+local function merge(from, n, before)
+  local to = create(n)
+  local width = 1
+  while width < n do
+    for low = 1, n, 2 * width do
+      -- The left run is [low, middle) and the right run is [middle, high).
+      local middle = low + width
+      if middle > n + 1 then middle = n + 1 end
+      local high = middle + width
+      if high > n + 1 then high = n + 1 end
+      local left, right = low, middle
+      for out = low, high - 1 do
+        -- The right element goes first only when it must come before the
+        -- left one. On a tie the left one goes first, which is what keeps
+        -- equal elements in their order.
+        if left < middle and (right >= high or not before(from[right], from[left])) then
+          to[out] = from[left]
+          left = left + 1
+        else
+          to[out] = from[right]
+          right = right + 1
+        end
+      end
+    end
+    from, to = to, from
+    width = 2 * width
+  end
+  return from
+end
+
+-- Writes the `n` elements of `sorted` to `list[1]` to `list[n]`.
+local function write(list, n, sorted)
+  for i = 1, n do list[i] = sorted[i] end
+end
+
+-- The order of a sort with no comparison function.
+local function less(a, b)
+  return a < b
+end
+
+-- The length of `list`, which a `__len` metamethod gives when there is
+-- one. It runs under `pcall`, so a `__len` that cannot be called fails on
+-- the caller's line.
+local function length(list)
+  return #list
+end
+
+-- Argument errors read as the stock function's. The length is converted
+-- as the stock function converts it, so a `__len` may return a float or a
+-- string with an integer value. A comparison function is checked only
+-- when there is something to compare, as in stock Lua.
+function table.sort(...)
+  local list, comp = ...
+  if type(list) ~= "table" then
+    local got = select("#", ...) == 0 and "no value" or type(list)
+    error("bad argument #1 to 'sort' (table expected, got " .. got .. ")", 2)
+  end
+  local n = tointeger((from_here(pcall(length, list))))
+  if n == nil then
+    error("object length is not an integer", 2)
+  end
+  if n < 2 then return end
+  if n >= 0x7fffffff then
+    error("bad argument #1 to 'sort' (array too big)", 2)
+  end
+  if comp ~= nil and type(comp) ~= "function" then
+    error("bad argument #2 to 'sort' (function expected, got " .. type(comp) .. ")", 2)
+  end
+  -- The reads, the writes, and `less` run under `pcall`, so a failure
+  -- Lua raises in them is raised from the caller's line. The stock
+  -- function, which is C, raises such a failure with no position.
+  local sorted = from_here(pcall(read, list, n))
+  if comp ~= nil then
+    -- No protected call here: a failure the comparison function raises
+    -- must leave from its own frame, which is where the Engine reads the
+    -- failing line.
+    sorted = merge(sorted, n, comp)
+  else
+    sorted = from_here(pcall(merge, sorted, n, less))
+  end
+  from_here(pcall(write, list, n, sorted))
 end
