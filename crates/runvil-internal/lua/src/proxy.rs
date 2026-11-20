@@ -147,7 +147,20 @@ pub(crate) fn view_len(lua: &Lua, data: &Table) -> mlua::Result<Function> {
 /// [`unseal`], and `table` itself when it is no view or its data cannot be
 /// read as a table.
 pub(crate) fn view_data(table: &Table) -> mlua::Result<Table> {
-    match unseal(table, || Ok(()))? {
+    view_data_within(table, || Ok(()))
+}
+
+/// [`view_data`] for a caller that reads many tables in one Rust call:
+/// `hop` runs once for each view passed, as it does for [`unseal`], so the
+/// caller can count the views of all its reads against one budget.
+///
+/// # Errors
+/// Returns the failure of `hop`, or of reading a metatable.
+pub(crate) fn view_data_within(
+    table: &Table,
+    hop: impl FnMut() -> mlua::Result<()>,
+) -> mlua::Result<Table> {
+    match unseal(table, hop)? {
         Unsealed::Data(data) => Ok(data),
         Unsealed::Unreadable(_) | Unsealed::Loop => Ok(table.clone()),
     }

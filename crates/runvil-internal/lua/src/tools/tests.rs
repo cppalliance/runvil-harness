@@ -7,6 +7,7 @@ use serde_json::json;
 use super::decode::{adhoc_params_schema, model_tool_name, tool_id};
 use super::userdata::LuaToolHandle;
 use crate::test_vm::{TestVm, echo_tool};
+use crate::walk_budget::HeapCeiling;
 
 #[path = "tests-adhoc.rs"]
 mod adhoc;
@@ -132,7 +133,7 @@ fn adhoc_params_schema_builds_object_schema_with_required_fields() {
         .load("{ query = 'string', limit = { 'integer', 'maximum hits' } }")
         .eval::<mlua::Table>()
         .expect("params table evaluates");
-    let schema = adhoc_params_schema(&params).expect("the schema builds");
+    let schema = adhoc_params_schema(&lua, &params).expect("the schema builds");
     assert_eq!(
         schema["properties"],
         json!({
@@ -163,7 +164,7 @@ fn adhoc_params_schema_sorts_required_so_the_schema_text_is_deterministic() {
         )
         .eval::<mlua::Table>()
         .expect("params table evaluates");
-    let schema = adhoc_params_schema(&params).expect("the schema builds");
+    let schema = adhoc_params_schema(&lua, &params).expect("the schema builds");
     assert_eq!(
         schema["required"],
         json!([
@@ -174,13 +175,112 @@ fn adhoc_params_schema_sorts_required_so_the_schema_text_is_deterministic() {
 }
 
 #[test]
+fn adhoc_params_schema_refuses_the_entry_whose_key_comes_first_on_every_state() {
+    // Each fresh state walks the table under its own hash seed. Every entry
+    // of a case is refused, so the refusal is that of the first key in the
+    // shared order: booleans, then numbers, then names bytewise. A number
+    // is no name: Lua reads `1` and `'1'` as one string.
+    for (params, expected) in [
+        (
+            "{ zulu = 5, mike = 'table', oscar = true, bravo = 'list', november = 0 }",
+            "tools.adhoc: param \"bravo\" has unsupported type \"list\": \
+             expected \"string\", \"integer\", \"number\", or \"boolean\"",
+        ),
+        (
+            "{ [1] = 'string', ['1'] = 'integer', [2.5] = 'string', zulu = 5 }",
+            "tools.adhoc: a parameter's name must be a string, got integer",
+        ),
+        (
+            "{ [{}] = 'string', [true] = 'string', [type] = 'string', zulu = 5 }",
+            "tools.adhoc: a parameter's name must be a string, got boolean",
+        ),
+    ] {
+        for state in 0..16 {
+            let lua = Lua::new();
+            let table = lua
+                .load(params)
+                .eval::<mlua::Table>()
+                .expect("params table evaluates");
+            let error = adhoc_params_schema(&lua, &table).expect_err("every entry is refused");
+            assert_eq!(error.to_string(), expected, "state {state}: {params}");
+        }
+    }
+}
+
+#[test]
+fn adhoc_params_schema_reads_a_parameter_without_running_its_metamethods() {
+    // The parameters are read in the order of Lua's own walk. An `__index`
+    // that counted its calls gave `alpha` the type of the first call in
+    // one state and of the second in another.
+    let lua = Lua::new();
+    let params = lua
+        .load(
+            "calls = 0 \
+             local counting = setmetatable({}, { __index = function() \
+               calls = calls + 1 return calls == 1 and 'string' or 'integer' end }) \
+             return { alpha = counting, bravo = counting }",
+        )
+        .eval::<mlua::Table>()
+        .expect("params table evaluates");
+    let error = adhoc_params_schema(&lua, &params).expect_err("the parameter is refused");
+    assert_eq!(
+        error.to_string(),
+        "tools.adhoc: param \"alpha\" must be a type string or a {type, description} array"
+    );
+    assert_eq!(lua.globals().get::<i64>("calls").expect("the count"), 0);
+}
+
+#[test]
+fn adhoc_params_schema_refuses_parameters_past_the_budget_of_the_vm() {
+    // The ceiling is 64 KiB: 65,536 bytes of text and 8,192 values. The
+    // first table shares one description of 16 KiB among eight parameters,
+    // so its schema would hold 128 KiB that the Lua heap holds once. The
+    // second reaches each of 100 types through the same 20 views, which
+    // cost six values each. Both are too large in every state, with an
+    // entry to refuse beside them or without.
+    for params in [
+        "local spec = { 'string', string.rep('x', 16 * 1024) } \
+         local params = {} \
+         for i = 1, 8 do params['p' .. i] = spec end \
+         return params",
+        "local spec = { 'string' } \
+         for _ = 1, 20 do \
+           spec = setmetatable({}, { __index = spec, __metatable = 'view' }) \
+         end \
+         local params = {} \
+         for i = 1, 100 do params['p' .. i] = spec end \
+         return params",
+    ] {
+        for state in 0..8 {
+            let lua = Lua::new();
+            lua.set_app_data(HeapCeiling(64 * 1024));
+            let table = lua
+                .load(params)
+                .eval::<mlua::Table>()
+                .expect("params table evaluates");
+            for refused in [false, true] {
+                if refused {
+                    table.raw_set(1, false).expect("the entry sets");
+                }
+                let error = adhoc_params_schema(&lua, &table).expect_err("the table is refused");
+                assert_eq!(
+                    error.to_string(),
+                    "tools.adhoc: parameters are too large to convert",
+                    "state {state}, refused {refused}: {params}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn adhoc_params_schema_rejects_an_unsupported_type_under_the_adhoc_prefix() {
     let lua = Lua::new();
     let params = lua
         .load("{ payload = 'table' }")
         .eval::<mlua::Table>()
         .expect("params table evaluates");
-    let error = adhoc_params_schema(&params).expect_err("an unsupported type fails");
+    let error = adhoc_params_schema(&lua, &params).expect_err("an unsupported type fails");
     assert!(
         error
             .to_string()

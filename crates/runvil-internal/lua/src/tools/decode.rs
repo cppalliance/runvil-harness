@@ -5,10 +5,13 @@
 //! The short-form `parameters` conversion of `tools.adhoc` sits beside it
 //! as the namespace's other argument decode.
 
-use mlua::Value;
+use mlua::{Lua, LuaString, Table, Value};
 use serde_json::{Value as Json, json};
 
 use super::userdata::LuaToolHandle;
+use crate::order::FirstRefusal;
+use crate::proxy::view_data_within;
+use crate::walk_budget::{TooLarge, WalkBudget};
 
 /// Resolves the tool a script's `tools.call` names to its id.
 ///
@@ -68,44 +71,176 @@ fn object_id(value: &Value) -> Option<String> {
 }
 
 /// Builds the JSON Schema `parameters` object from the short form of a
-/// `tools.adhoc` `parameters` table. Each value is a bare type string or a
-/// `{type, description}` array; every declared parameter is required.
+/// `tools.adhoc` `parameters` table. Each key is a parameter's name, a
+/// string, and each value is a bare type string or a `{type, description}`
+/// array; every declared parameter is required.
+///
+/// A key that is a number is refused. Lua would read it as a string, and
+/// the keys `1` and `'1'` would then name one parameter, whose type would
+/// be that of the one Lua's own walk met last.
+///
+/// One [`WalkBudget`] bounds the whole conversion, which is one Rust call
+/// that no instruction hook interrupts. Each parameter costs a value, each
+/// view on the way to its value costs what [`WalkBudget::charge_view`]
+/// takes, and each name, type, and description costs its bytes before it
+/// is read. A description that many parameters share is copied once for
+/// each, and a chain of views that many parameters share is passed once
+/// for each, so the schema and the work can be far larger than the Lua
+/// heap that holds the table. What an entry costs does not depend on the
+/// entries read before it, so a table is too large in every order of Lua's
+/// own walk or in none.
+///
+/// The first refusal drops the schema built so far, and nothing is copied
+/// after it: a table to refuse costs the reads and no more.
 ///
 /// `properties` is a `serde_json::Map`, a `BTreeMap` while `serde_json`'s
 /// `preserve_order` is off, so only `required` needs the sort below.
-pub(super) fn adhoc_params_schema(params: &mlua::Table) -> mlua::Result<Json> {
-    let mut properties = serde_json::Map::new();
-    let mut required = Vec::new();
-    for pair in params.pairs::<String, Value>() {
-        let (name, spec) = pair?;
-        let (ty, description) = match spec {
-            Value::String(s) => (s.to_string_lossy(), None),
-            Value::Table(t) => (t.get::<String>(1)?, t.get::<Option<String>>(2)?),
-            _ => {
-                return Err(mlua::Error::external(format!(
-                    "tools.adhoc: param {name:?} must be a type string or a {{type, description}} array"
-                )));
+///
+/// # Errors
+/// Refuses a table past the budget. Refuses a key that is not a UTF-8
+/// string and a value that is not one of the two forms: of several such
+/// entries, the one whose key comes first in the shared order of keys.
+pub(super) fn adhoc_params_schema(lua: &Lua, params: &Table) -> mlua::Result<Json> {
+    let mut budget = WalkBudget::for_vm(lua);
+    let mut properties = Some(serde_json::Map::new());
+    let mut refused = FirstRefusal::default();
+    for pair in params.pairs::<Value, Value>() {
+        let (key, spec) = pair?;
+        budget.charge_node().map_err(too_large)?;
+        match adhoc_param(&mut budget, &key, &spec)? {
+            Ok(param) => {
+                if let Some(properties) = &mut properties {
+                    properties.insert(param.name.to_string_lossy(), param.schema());
+                }
             }
-        };
-        if !matches!(ty.as_str(), "string" | "integer" | "number" | "boolean") {
-            return Err(mlua::Error::external(format!(
-                "tools.adhoc: param {name:?} has unsupported type {ty:?}: \
-                 expected \"string\", \"integer\", \"number\", or \"boolean\""
-            )));
+            Err(refusal) => {
+                properties = None;
+                refused.refuse(&key, refusal);
+            }
         }
-        let mut property = json!({ "type": ty });
-        if let Some(description) = description {
-            property["description"] = Json::String(description);
-        }
-        properties.insert(name.clone(), property);
-        required.push(name);
     }
+    refused.into_result()?;
+    let properties = properties.unwrap_or_default();
     // Bytewise sort, matching the shared `SortKey::Text` order, so the
     // generated schema is the same text in every process.
+    let mut required = properties.keys().cloned().collect::<Vec<_>>();
     required.sort();
     Ok(json!({
         "type": "object",
         "properties": properties,
         "required": required,
     }))
+}
+
+/// What the short form says when its conversion goes past the budget.
+const PARAMETERS_TOO_LARGE: &str = "tools.adhoc: parameters are too large to convert";
+
+/// The four types a parameter of the short form can have.
+const PARAMETER_TYPES: [&str; 4] = ["string", "integer", "number", "boolean"];
+
+/// One parameter of the short form, read and not yet copied: the name and
+/// the description are the table's own strings, both UTF-8.
+struct AdhocParam {
+    name: LuaString,
+    ty: &'static str,
+    description: Option<LuaString>,
+}
+
+impl AdhocParam {
+    /// The parameter's JSON Schema, with a copy of its description.
+    fn schema(&self) -> Json {
+        let mut property = json!({ "type": self.ty });
+        if let Some(description) = &self.description {
+            property["description"] = Json::String(description.to_string_lossy());
+        }
+        property
+    }
+}
+
+/// The refusal of a conversion past its budget.
+fn too_large(_: TooLarge) -> mlua::Error {
+    mlua::Error::external(PARAMETERS_TOO_LARGE)
+}
+
+/// One parameter of the short form, or the refusal of its entry.
+///
+/// # Errors
+/// Returns the failure of a spent budget or of a read, which ends the
+/// conversion, where a refusal waits for the entries left to read.
+fn adhoc_param(
+    budget: &mut WalkBudget,
+    key: &Value,
+    spec: &Value,
+) -> mlua::Result<Result<AdhocParam, mlua::Error>> {
+    let Value::String(name) = key else {
+        return Ok(Err(mlua::Error::external(format!(
+            "tools.adhoc: a parameter's name must be a string, got {}",
+            key.type_name()
+        ))));
+    };
+    budget
+        .charge_bytes(name.as_bytes().len())
+        .map_err(too_large)?;
+    let shown = match name.to_str() {
+        Ok(shown) => shown,
+        Err(error) => return Ok(Err(error)),
+    };
+    let Some((ty, description)) = type_and_description(budget, spec)? else {
+        return Ok(Err(mlua::Error::external(format!(
+            "tools.adhoc: param {shown:?} must be a type string or a {{type, description}} array"
+        ))));
+    };
+    budget
+        .charge_bytes(ty.as_bytes().len())
+        .map_err(too_large)?;
+    let known = PARAMETER_TYPES
+        .into_iter()
+        .find(|known| ty.as_bytes() == known.as_bytes());
+    let Some(ty) = known else {
+        let ty = ty.to_string_lossy();
+        return Ok(Err(mlua::Error::external(format!(
+            "tools.adhoc: param {shown:?} has unsupported type {ty:?}: \
+             expected \"string\", \"integer\", \"number\", or \"boolean\""
+        ))));
+    };
+    if let Some(description) = &description {
+        budget
+            .charge_bytes(description.as_bytes().len())
+            .map_err(too_large)?;
+        if let Err(error) = description.to_str() {
+            return Ok(Err(error));
+        }
+    }
+    Ok(Ok(AdhocParam {
+        name: name.clone(),
+        ty,
+        description,
+    }))
+}
+
+/// The type and the description a parameter's value declares, when the
+/// value is one of the two forms: a type string, or an array of a type
+/// string and an optional description string.
+///
+/// An array is read raw, and a sealed view as the table it stands for, so
+/// the read runs no code of the author. The parameters are read in the
+/// order of Lua's own walk, which differs from one run to the next, and a
+/// metamethod could tell that order. Each view passed is charged to
+/// `budget`.
+fn type_and_description(
+    budget: &mut WalkBudget,
+    spec: &Value,
+) -> mlua::Result<Option<(LuaString, Option<LuaString>)>> {
+    let spec = match spec {
+        Value::String(ty) => return Ok(Some((ty.clone(), None))),
+        Value::Table(spec) => view_data_within(spec, || budget.charge_view().map_err(too_large))?,
+        _ => return Ok(None),
+    };
+    Ok(
+        match (spec.raw_get::<Value>(1)?, spec.raw_get::<Value>(2)?) {
+            (Value::String(ty), Value::Nil) => Some((ty, None)),
+            (Value::String(ty), Value::String(description)) => Some((ty, Some(description))),
+            _ => None,
+        },
+    )
 }
