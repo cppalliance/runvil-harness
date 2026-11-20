@@ -22,6 +22,7 @@ use runvil_model_client::model::{ModelBinding, ModelSet, Temperature};
 use runvil_types::models::ModelRole;
 
 use crate::error::{self, Result};
+use crate::order::FirstRefusal;
 
 /// One model handle over a frozen `ModelBinding`, the inspectable value
 /// `models.use`, `models.get`, and `models.current` return: it exposes the
@@ -253,17 +254,6 @@ fn decode_max_tokens(value: &Value) -> mlua::Result<NonZeroU32> {
     })
 }
 
-/// Where `models.use` checks one option entry: non-string keys first,
-/// grouped by type because their rejection names only the type, then names
-/// bytewise. `pairs` walks in the state's hash-seed order, so checking in
-/// this order makes the first rejection a function of the table's contents.
-fn option_check_order(key: &Value) -> (bool, Vec<u8>) {
-    match key {
-        Value::String(name) => (true, name.as_bytes().to_vec()),
-        other => (false, other.type_name().as_bytes().to_vec()),
-    }
-}
-
 /// Decodes the `models.use` arguments after the label: an optional options
 /// table and nothing more.
 fn parse_use_options(options: Value, rest: &MultiValue) -> mlua::Result<UseOptions> {
@@ -283,29 +273,39 @@ fn parse_use_options(options: Value, rest: &MultiValue) -> mlua::Result<UseOptio
             )));
         }
     };
-    let mut entries = table
-        .pairs::<Value, Value>()
-        .collect::<mlua::Result<Vec<_>>>()?;
-    entries.sort_by_cached_key(|(key, _)| option_check_order(key));
+    // The entries are read one at a time and none is kept, so a table of
+    // any size costs no Lua reference. Of several options to refuse, the
+    // one whose key comes first in the shared order of keys is.
     let mut parsed = UseOptions::default();
-    for (key, value) in entries {
-        let Value::String(key) = key else {
-            return Err(mlua::Error::external(format!(
-                "models.use option names must be strings, got {}",
-                key.type_name()
-            )));
-        };
-        match key.to_string_lossy().as_str() {
-            "temperature" => parsed.temperature = Some(decode_temperature(&value)?),
-            "max_tokens" => parsed.max_tokens = Some(decode_max_tokens(&value)?),
-            other => {
-                return Err(mlua::Error::external(format!(
-                    "models.use option {other:?} is unknown: expected temperature or max_tokens"
-                )));
-            }
+    let mut refused = FirstRefusal::default();
+    for pair in table.pairs::<Value, Value>() {
+        let (key, value) = pair?;
+        if let Err(error) = set_option(&mut parsed, &key, &value) {
+            refused.refuse(&key, error);
         }
     }
+    refused.into_result()?;
     Ok(parsed)
+}
+
+/// Sets the option `key` names on `parsed` to `value`.
+fn set_option(parsed: &mut UseOptions, key: &Value, value: &Value) -> mlua::Result<()> {
+    let Value::String(key) = key else {
+        return Err(mlua::Error::external(format!(
+            "models.use option names must be strings, got {}",
+            key.type_name()
+        )));
+    };
+    match key.to_string_lossy().as_str() {
+        "temperature" => parsed.temperature = Some(decode_temperature(value)?),
+        "max_tokens" => parsed.max_tokens = Some(decode_max_tokens(value)?),
+        other => {
+            return Err(mlua::Error::external(format!(
+                "models.use option {other:?} is unknown: expected temperature or max_tokens"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Installs the `models` table the module doc describes into one section VM;
