@@ -1,5 +1,6 @@
 //! Sandbox hardening for section VMs: the `_G` guard, global removal, the
-//! `table.concat` wrapper, and the cancellation hook.
+//! `table.concat` wrapper, the standard-library replacements, and the
+//! cancellation hook.
 
 use std::sync::{Arc, OnceLock};
 
@@ -22,6 +23,10 @@ const HOOK_INTERVAL: u32 = 10_000;
 /// Also wraps `table.concat` so a value with a `__tostring` metamethod
 /// (fanout result objects, Engine userdata) coerces like `tostring`. Plain
 /// tables, booleans, and nil still raise as stock Lua does.
+///
+/// Last replaces the standard-library functions whose result no run input
+/// fixes ([`crate::stdlib`]), so every chunk the VM loads later captures the
+/// replacements.
 pub(crate) fn harden(lua: &Lua) -> Result<()> {
     // The guard captures the raw functions removed below, and every later
     // chunk, the `table.concat` wrapper included, must capture the
@@ -84,7 +89,7 @@ end
     )
     .exec()
     .map_err(error::make_lua_error)?;
-    Ok(())
+    crate::stdlib::install(lua)
 }
 
 /// A VM's shared cancellation-hook state.

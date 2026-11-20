@@ -86,6 +86,29 @@ fn a_different_seed_changes_the_nonce_but_not_sys_when() {
 }
 
 #[test]
+fn math_random_draws_from_the_runs_seed_and_the_section_entrys_id() {
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        ## First\n\n\
+        ```lua\n\
+        var.first = tostring(math.random(0))\n\
+        ```\n\n\
+        ## Second\n\n\
+        ```lua\n\
+        return var.first .. '|' .. tostring(math.random(0))\n\
+        ```\n";
+    let known = RunSeed::from_bytes(std::array::from_fn(|i| {
+        u8::try_from(i).expect("an index below 32 fits a byte")
+    }));
+    // The first draw of the entries `0.0` and `0.1` under this seed,
+    // computed outside the Engine with SHA-256 and a reference
+    // xoshiro256**. The two differ, so the entry's id is in the seed.
+    assert_eq!(
+        text_of(run_seeded(md, known)),
+        "-2538964283181059592|-6423962807213488481"
+    );
+}
+
+#[test]
 fn the_preamble_reads_the_runs_started_at_as_sys_when() {
     // The preamble reads the run's `started_at` as every section does. A
     // `return` in the preamble ends the run with that value.

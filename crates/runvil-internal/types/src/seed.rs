@@ -5,8 +5,9 @@
 //! seed goes through `derive()` under its own `runvil.<purpose>.v1`
 //! tag, as the guard nonce
 //! ([`GuardNonce::from_seed`](crate::untrusted::GuardNonce::from_seed))
-//! does. Each derivation is one-way, so a derived value can be shown
-//! without revealing the seed or any other value derived from it.
+//! and the source of the `math.random` seeds ([`LuaRandom`]) do. Each
+//! derivation is one-way, so a derived value can be shown without revealing
+//! the seed or any other value derived from it.
 
 use std::fmt;
 
@@ -66,6 +67,49 @@ impl<'de> Deserialize<'de> for RunSeed {
     }
 }
 
+/// A run's source of the seed of each section VM's `math.random` generator.
+///
+/// Stock Lua seeds the generator from the clock and a memory address, so a
+/// draw would differ between two runs with the same inputs. The Engine
+/// seeds each section VM from this value and the section entry's id
+/// instead: the draws differ from one run to the next and from one section
+/// entry to the next, and a run with the same seed repeats them.
+///
+/// The value is the digest of the run's seed under its own tag. Lua's
+/// generator is not cryptographic, so assume that a prompt which reads
+/// enough draws can compute the 128 bits that seeded its VM. Those bits
+/// are a digest of this value, which is itself a digest of the seed, so
+/// they give back neither the seed, nor the guard nonce, nor another
+/// entry's seed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LuaRandom([u8; 32]);
+
+impl LuaRandom {
+    /// Derives the run's source from `seed`.
+    #[must_use]
+    pub fn from_seed(seed: &RunSeed) -> LuaRandom {
+        LuaRandom(derive(LUA_RANDOM_DOMAIN, seed))
+    }
+
+    /// The seed of the generator of the section entry `entry_id`: the two
+    /// integers `math.randomseed` takes.
+    ///
+    /// They are the first 16 bytes of SHA-256 over this source, then
+    /// `entry_id`'s bytes, read as two big-endian words. No two section
+    /// entries of a run share an id, so no two of its VMs share a seed.
+    /// The derivation is part of the run's replay contract and never
+    /// changes silently.
+    #[must_use]
+    pub fn entry_seed(&self, entry_id: &str) -> [i64; 2] {
+        let digest = Sha256::new()
+            .chain_update(self.0)
+            .chain_update(entry_id)
+            .finalize();
+        let (words, _) = digest.as_chunks::<8>();
+        [words[0], words[1]].map(i64::from_be_bytes)
+    }
+}
+
 /// SHA-256 over `domain`, then `seed`'s bytes.
 ///
 /// Every value derived from a run's seed comes from here under its own
@@ -82,6 +126,11 @@ pub(crate) fn derive(domain: &[u8], seed: &RunSeed) -> [u8; 32] {
     out.copy_from_slice(&digest);
     out
 }
+
+/// The domain tag hashed ahead of the seed, so the source of the
+/// `math.random` seeds never equals a SHA-256 of the same seed bytes taken
+/// for any other purpose.
+const LUA_RANDOM_DOMAIN: &[u8] = b"runvil.lua-random.v1";
 
 /// Writes `bytes` as lowercase hex.
 fn write_hex(f: &mut fmt::Formatter<'_>, bytes: &[u8; 32]) -> fmt::Result {
@@ -149,6 +198,24 @@ mod tests {
             GuardNonce::from_seed(&seed).to_string(),
             expected[..32],
             "the nonce is the first half of derive under its own tag"
+        );
+    }
+
+    #[test]
+    fn a_lua_random_entry_seed_matches_its_known_answer() {
+        let seed = RunSeed::from_bytes(std::array::from_fn(|i| {
+            u8::try_from(i).expect("an index below 32 fits a byte")
+        }));
+        let random = LuaRandom::from_seed(&seed);
+        // Computed outside this crate, with another SHA-256, so a change to
+        // the tag, the hashing order, or the byte order fails here.
+        assert_eq!(
+            random.entry_seed("0.0"),
+            [-3_572_835_231_721_551_567, -8_962_037_305_301_457_989]
+        );
+        assert_eq!(
+            random.entry_seed("0.1"),
+            [-1_382_469_946_683_854_880, -7_771_455_195_306_047_233]
         );
     }
 

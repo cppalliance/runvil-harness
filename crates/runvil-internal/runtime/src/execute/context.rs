@@ -21,6 +21,7 @@ use runvil_types::emitter::{Emitter, EventSink};
 use runvil_types::event::Event;
 use runvil_types::ids::{ChainId, TaskId};
 use runvil_types::packs::{PackId, Prelude};
+use runvil_types::seed::LuaRandom;
 use runvil_types::tools::ToolCatalog;
 use runvil_types::untrusted::GuardNonce;
 use runvil_vfs::{Store, VfsRef};
@@ -60,6 +61,10 @@ struct SharedState {
     /// The untrusted-envelope nonce, derived once here from the run's seed
     /// so every wrap in the run shares it.
     nonce: GuardNonce,
+    /// The source of each section VM's `math.random` seed, derived once
+    /// here from the run's seed. A section entry's own seed comes from it
+    /// and the entry's id.
+    lua_random: LuaRandom,
     /// The run's VFS handle: the files the run's tool calls work in. Chain
     /// steps acquire or spawn their access capabilities from it.
     vfs: VfsRef,
@@ -322,6 +327,7 @@ impl ChainState {
             shared: Arc::new(SharedState {
                 prompts,
                 nonce: GuardNonce::from_seed(&seed),
+                lua_random: LuaRandom::from_seed(&seed),
                 vfs,
                 limits,
                 events,
@@ -393,6 +399,11 @@ impl ChainState {
     /// The run's untrusted-envelope nonce.
     pub(super) fn nonce(&self) -> &GuardNonce {
         &self.shared.nonce
+    }
+
+    /// The run's source of each section VM's `math.random` seed.
+    pub(super) fn lua_random(&self) -> &LuaRandom {
+        &self.shared.lua_random
     }
 
     /// The run's VFS handle.
@@ -626,6 +637,7 @@ impl fmt::Debug for SharedState {
         state
             .field("prompts", &self.prompts.keys().collect::<Vec<_>>())
             .field("nonce", &self.nonce)
+            .field("lua_random", &self.lua_random)
             .field("vfs", &"<VfsRef>")
             .field("limits", &self.limits)
             .field("events", &self.events)

@@ -71,6 +71,31 @@ fn dangerous_globals_absent() {
 }
 
 #[test]
+fn math_random_draws_only_from_the_seed_the_vm_was_given() {
+    let vm = SectionVm::new(&test_nonce(), &null_emitter(), "Test").expect("VM must build");
+    let eval = |source: &str| {
+        vm.uninjected_lua()
+            .load(source)
+            .eval::<String>()
+            .expect("the chunk runs")
+    };
+    // Every expected draw below was computed outside this crate with a
+    // reference xoshiro256**. `math.random(0)` is one whole 64-bit draw.
+    // A VM nothing seeded draws from the fixed seed (0, 0).
+    let two_draws = "return math.random(0) .. ' ' .. math.random(0)";
+    assert_eq!(eval(two_draws), "4554719557422691265 4331835599999590920");
+    vm.seed_random([-3_572_835_231_721_551_567, -8_962_037_305_301_457_989])
+        .expect("the seed installs");
+    assert_eq!(eval(two_draws), "-2538964283181059592 -1382995782422572602");
+    // With no argument the new seed is the generator's next two draws,
+    // which it returns, and the draw after it follows from them.
+    assert_eq!(
+        eval("local n1, n2 = math.randomseed() return n1 .. ' ' .. n2 .. ' ' .. math.random(0)"),
+        "-2860266774601705052 7099798641931708825 532391193148689082"
+    );
+}
+
+#[test]
 fn an_installed_require_is_runvils_and_loads_no_module() {
     let vm = TestVm::new().shims().build();
     vm.install_require(

@@ -13,7 +13,7 @@ use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use mlua::{Lua, LuaOptions, StdLib};
+use mlua::{Function, Lua, LuaOptions, StdLib, Table};
 use runvil_model_client::model::{ModelBinding, ModelSet};
 use runvil_types::emitter::Emitter;
 use runvil_types::event_lifecycle;
@@ -252,6 +252,25 @@ impl SectionVm<Uninjected> {
         self.log_byte_budget
             .store(log_byte_budget(log_events), Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Seeds this VM's `math.random` generator with `seed`, the two
+    /// integers `math.randomseed` takes.
+    ///
+    /// A VM is built with a fixed seed, so its draws repeat from one VM to
+    /// the next until this gives it its own. The executor calls it right
+    /// after construction with the seed derived from the run's seed and
+    /// the section entry's id, ahead of the Pack preludes and every block.
+    ///
+    /// # Errors
+    /// Returns a `LuaRuntime` failure if the VM rejects the seed.
+    pub fn seed_random(&self, [n1, n2]: [i64; 2]) -> Result<()> {
+        self.lua
+            .globals()
+            .get::<Table>("math")
+            .and_then(|math| math.get::<Function>("randomseed"))
+            .and_then(|randomseed| randomseed.call::<()>((n1, n2)))
+            .map_err(error::make_lua_error)
     }
 
     fn construction_failed(self, error: Error, emitter: &Emitter, section: &str) -> Result<Self> {
