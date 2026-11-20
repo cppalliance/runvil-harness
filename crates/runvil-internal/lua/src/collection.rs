@@ -3,29 +3,34 @@
 //!
 //! A section's Lua calls `tasks.fanout(worker, collection)`; the collection
 //! is any Lua table, and the shim spawns one arm per member in a fixed
-//! order. The array part (`1..=#t`) comes first, in order; the hash part
-//! follows as `{ key, value }` pair tables sorted by key, because Lua's
+//! order. The list comes first, in order: the indices from 1 up to the
+//! first that holds nothing, which [`listed`] counts. Every other entry
+//! follows as a `{ key, value }` pair table, sorted by key, because Lua's
 //! `pairs` order depends on the string hash seed and a fanout's arm order
-//! must not. An array member arrives as the arm's `item` value as itself; a
-//! hash member arrives as the pair table (`item.key` / `item.value`). A
-//! collection that is a sealed view enumerates as the table it stands for.
+//! must not. A member of the list arrives as the arm's `item` value as
+//! itself; a keyed member arrives as the pair table (`item.key` /
+//! `item.value`), and so does an index past a gap. A collection that is a
+//! sealed view enumerates as the table it stands for.
 
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 
 use crate::error::{self, Result, make_lua_runtime_error};
-use crate::order::{KeyError, SortKey, sort_key};
+use crate::order::{FirstRefusal, KeyError, SortKey, is_weak, listed, sort_key, sort_list};
 use crate::proxy::{plain, view_data};
 
 /// Enumerates fanout's collection argument as the sequence of members the
-/// shim spawns arms over: the array part (`1..=#t`) in order, then the hash
-/// part as `{ key = k, value = v }` pair tables sorted by key. Members stay
+/// shim spawns arms over: the list in order, then every other entry as a
+/// `{ key = k, value = v }` pair table, sorted by key. Members stay
 /// Lua values; the `spawn` request converts each one at its own boundary.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure when the value is not a table (the message says
 /// how to read the items of a list in a section), when a member is a
-/// function, userdata, or thread (the error names the member's index), or
-/// when a hash key is not a string, number, or boolean.
+/// function, userdata, or thread (the error names the member's index),
+/// when the table is weak, or when a hash key is not a string, number, or
+/// boolean. Of several
+/// members to refuse in the list, the failure is that of the first, and
+/// among the keyed members that of the one whose key comes first.
 pub(crate) fn collection_members(lua: &Lua, collection: &Value) -> Result<Table> {
     let Value::Table(table) = collection else {
         return Err(make_lua_runtime_error(format!(
@@ -35,7 +40,16 @@ pub(crate) fn collection_members(lua: &Lua, collection: &Value) -> Result<Table>
         )));
     };
     let table = &view_data(table).map_err(error::make_lua_error)?;
-    let border = table.raw_len();
+    // The members go to a Lua list as they are read, so the collector can
+    // run in the middle of the read and take a weak table's unread ones.
+    if is_weak(table).map_err(error::make_lua_error)? {
+        return Err(make_lua_runtime_error(
+            "tasks.fanout's collection is a weak table, one whose metatable sets __mode: the \
+             entries the collector leaves in it are not the same in two runs"
+                .to_owned(),
+        ));
+    }
+    let border = listed(table).map_err(error::make_lua_error)?;
     let members = lua
         .create_table_with_capacity(border, 0)
         .map_err(error::make_lua_error)?;
@@ -48,44 +62,60 @@ pub(crate) fn collection_members(lua: &Lua, collection: &Value) -> Result<Table>
             .raw_set(index, member)
             .map_err(error::make_lua_error)?;
     }
-    let mut pairs: Vec<(SortKey, Value, Value)> = Vec::new();
+    // Rust holds no reference to a pair past the step that reads it: the
+    // pair goes to `members` as Lua's own walk meets it, and only its place
+    // in the order stays here. Of the pairs to refuse, only the refusal
+    // with the least key is kept.
+    let mut places = Vec::new();
+    let mut refused = FirstRefusal::default();
     for pair in table.pairs::<Value, Value>() {
         let (key, member) = pair.map_err(error::make_lua_error)?;
-        // The array part was already emitted above, in order.
+        // The list was already emitted above, in order.
         if let Value::Integer(index) = &key
             && usize::try_from(*index).is_ok_and(|index| (1..=border).contains(&index))
         {
             continue;
         }
-        // The shared classifier yields each scalar key's sort position and
-        // its diagnostic label; the failure is mapped to fanout's own message
-        // here, so a non-scalar key is rejected before any later code path.
-        let (position, key_label) = sort_key(&key).map_err(|error| match error {
-            KeyError::NotFinite => {
-                make_lua_runtime_error("fanout collection key is not a finite number".to_owned())
+        match keyed_member(&key, &member) {
+            Ok(position) => {
+                let entry = lua
+                    .create_table_with_capacity(0, 2)
+                    .map_err(error::make_lua_error)?;
+                entry.raw_set("key", key).map_err(error::make_lua_error)?;
+                entry
+                    .raw_set("value", member)
+                    .map_err(error::make_lua_error)?;
+                places.push(position);
+                members
+                    .raw_set(border + places.len(), entry)
+                    .map_err(error::make_lua_error)?;
             }
-            KeyError::NotUtf8(source) => error::make_lua_error(source),
-            KeyError::Unsortable(type_name) => make_lua_runtime_error(format!(
-                "fanout collection key must be a string, number, or boolean, got {type_name}"
-            )),
-        })?;
-        check_member(&member, &key_label)?;
-        pairs.push((position, key, member));
+            Err(error) => refused.refuse(&key, error),
+        }
     }
-    pairs.sort_by(|left, right| left.0.compare(&right.0));
-    for (position, (_, key, member)) in pairs.into_iter().enumerate() {
-        let entry = lua
-            .create_table_with_capacity(0, 2)
-            .map_err(error::make_lua_error)?;
-        entry.raw_set("key", key).map_err(error::make_lua_error)?;
-        entry
-            .raw_set("value", member)
-            .map_err(error::make_lua_error)?;
-        members
-            .raw_set(border + position + 1, entry)
-            .map_err(error::make_lua_error)?;
-    }
+    refused.into_result()?;
+    sort_list(&members, border, &places, SortKey::compare).map_err(error::make_lua_error)?;
     Ok(members)
+}
+
+/// The sort position of `key` in the hash part of a collection, when the
+/// key and its `member` can be an arm's item.
+///
+/// The shared classifier yields each scalar key's sort position and its
+/// diagnostic label; the failure is mapped to fanout's own message here, so
+/// a non-scalar key is rejected before any later code path.
+fn keyed_member(key: &Value, member: &Value) -> Result<SortKey> {
+    let (position, key_label) = sort_key(key).map_err(|error| match error {
+        KeyError::NotFinite => {
+            make_lua_runtime_error("fanout collection key is not a finite number".to_owned())
+        }
+        KeyError::NotUtf8(source) => error::make_lua_error(source),
+        KeyError::Unsortable(type_name) => make_lua_runtime_error(format!(
+            "fanout collection key must be a string, number, or boolean, got {type_name}"
+        )),
+    })?;
+    check_member(member, &key_label)?;
+    Ok(position)
 }
 
 /// Rejects a member that cannot cross into an arm.
@@ -318,6 +348,104 @@ mod tests {
 
     struct Stub;
     impl mlua::UserData for Stub {}
+
+    #[test]
+    fn collection_members_refuses_the_keyed_member_whose_key_comes_first_on_every_state() {
+        // Each fresh state walks the hash part under its own hash seed.
+        // Every member of a case is refused, so the refusal is that of the
+        // first key in the shared order.
+        for (collection, expected) in [
+            (
+                "return { zulu = type, mike = type, alpha = type, oscar = type, bravo = type }",
+                "fanout collection member at index alpha is a function; members must be data",
+            ),
+            (
+                "return { [{}] = 1, [type] = 1, zulu = type, [7.5] = type }",
+                "fanout collection member at index 7.5 is a function; members must be data",
+            ),
+            (
+                "return { [{}] = 1, [type] = 1 }",
+                "fanout collection key must be a string, number, or boolean, got function",
+            ),
+        ] {
+            for state in 0..16 {
+                let lua = mlua::Lua::new();
+                let value = eval(&lua, collection);
+                let error = collection_members(&lua, &value).expect_err("every member is refused");
+                assert_eq!(error.to_string(), expected, "state {state}: {collection}");
+            }
+        }
+    }
+
+    #[test]
+    fn collection_members_ends_the_list_at_the_first_gap_on_every_state() {
+        // `#t` of this table is 3 in one state and 5 in another: the
+        // indices sit in the hash part, where Lua looks for the end of the
+        // list with the seed of the state. A list that ended at `#t` held
+        // a nil member and `e` as itself in the states that gave 5.
+        for state in 0..32 {
+            let lua = mlua::Lua::new();
+            assert_eq!(
+                members_json(
+                    &lua,
+                    "return { [1] = 'a', [2] = 'b', [3] = 'c', [5] = 'e', [false] = 'f' }"
+                ),
+                vec![
+                    json!("a"),
+                    json!("b"),
+                    json!("c"),
+                    json!({ "key": false, "value": "f" }),
+                    json!({ "key": 5, "value": "e" }),
+                ],
+                "state {state}"
+            );
+        }
+    }
+
+    #[test]
+    fn collection_members_refuses_a_weak_collection() {
+        // The values are in use elsewhere, so the collector takes none of
+        // them: the refusal is for the table, whatever it holds.
+        let lua = mlua::Lua::new();
+        for mode in ["k", "v"] {
+            let value = eval(
+                &lua,
+                &format!(
+                    "KEEP = {{ {{}}, {{}} }} \
+                     return setmetatable({{ KEEP[1], a = KEEP[2] }}, {{ __mode = '{mode}' }})"
+                ),
+            );
+            assert_eq!(
+                collection_members(&lua, &value)
+                    .expect_err("a weak collection is refused")
+                    .to_string(),
+                "tasks.fanout's collection is a weak table, one whose metatable sets __mode: the \
+                 entries the collector leaves in it are not the same in two runs",
+                "{mode}"
+            );
+        }
+    }
+
+    #[test]
+    fn collection_members_holds_no_reference_to_each_keyed_member() {
+        // `mlua` panics when the stack that holds the Lua values Rust refers
+        // to cannot grow, and a reference to each of 50,000 keys and members
+        // needs it to. With this little memory left the stack cannot grow,
+        // and the members do not fit either, which Lua reports.
+        let lua = mlua::Lua::new();
+        let value = eval(
+            &lua,
+            "local t = {} for i = 1, 50000 do t[i + 0.5] = 'x' end return t",
+        );
+        lua.set_memory_limit(lua.used_memory() + 256 * 1024)
+            .expect("the limit is set");
+        assert_eq!(
+            collection_members(&lua, &value)
+                .expect_err("the members do not fit")
+                .to_string(),
+            "memory error: not enough memory"
+        );
+    }
 
     #[test]
     fn collection_members_rejects_a_userdata_member_naming_its_index() {
