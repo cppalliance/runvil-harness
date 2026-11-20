@@ -200,7 +200,7 @@ pub(crate) fn tool(mut error: Error) -> Error {
     reason = "the adapter every VM call's `map_err` passes its error to"
 )]
 pub(crate) fn make_lua_error(source: mlua::Error) -> Error {
-    make_lua_runtime_error(source.to_string())
+    make_lua_runtime_error(lua_text(&source))
 }
 
 /// An internal invariant failure, at the call site as its construction
@@ -228,18 +228,58 @@ pub(crate) fn root_cause(error: &mlua::Error) -> &mlua::Error {
     }
 }
 
+/// The text `mlua` renders `error` as, with [`without_address`] applied.
+/// Every text of an `mlua` failure that leaves this crate comes from here
+/// or from [`root_text`].
+pub(crate) fn lua_text(error: &mlua::Error) -> String {
+    without_address(&error.to_string()).into_owned()
+}
+
 /// The text of the failure at the root of `error`, without `mlua`'s label
 /// for its kind: what Lua raised, or the message of the universal failure
-/// a callback raised.
+/// a callback raised. [`without_address`] applies to what Lua raised.
 pub(crate) fn root_text(error: &mlua::Error) -> String {
     match root_cause(error) {
-        mlua::Error::RuntimeError(message) | mlua::Error::SyntaxError { message, .. } => {
-            message.clone()
-        }
+        mlua::Error::RuntimeError(message) => without_address(message).into_owned(),
+        mlua::Error::SyntaxError { message, .. } => message.clone(),
         other => other
             .downcast_ref::<Error>()
             .map_or_else(|| other.to_string(), |typed| typed.message.clone()),
     }
+}
+
+/// `text`, a failure as Lua or `mlua` rendered it, with the address of a
+/// raised value taken out.
+///
+/// When Rust runs the author's Lua (a `__pairs` or `__len` metamethod, a
+/// callback) and that Lua raises a value that is not a string, `mlua` turns
+/// the value into text before any code of this crate sees it. It does so
+/// with Lua's own `luaL_tolstring`, which renders a table, a function, a
+/// userdata, or a thread as its type name, or the `__name` of its
+/// metatable, then `: ` and its address: `table: 0x55d0c0a1e2f0`. The value
+/// is gone by then and `mlua` offers no hook, so the text is all there is
+/// to go by. The address differs from one run to the next.
+///
+/// The address is the last thing Lua writes, so it ends the text or stands
+/// right before a traceback. A `__name` is any string, one that holds the
+/// heading of a traceback included, so the text before each heading in
+/// `text` is looked at, and the end of `text`, and every address found
+/// there goes. Where the text up to the first address is a plain name, not
+/// empty and with no `: ` and no line break in it, it reads
+/// `error object is a <name> value`, the words stock Lua has for an error
+/// that is not a string. Any other address is replaced by `(address)` and
+/// the text before it stays.
+///
+/// The rule reads a text, so it cannot tell such a value from a string
+/// that ends the same way, and it changes both: no address stays, at the
+/// cost of a string that only looks like one. On Linux and macOS
+/// `error('size: 0x1f', 0)` reads `error object is a size value`, and
+/// `error('bad byte: 0x1f')`, which has its position in front, ends in
+/// `bad byte: (address)`. On Windows both stay, and a string that ends in
+/// the shape [`is_address`] takes there changes the same way. A number
+/// with more hex digits than a pointer has is no address and stays.
+pub(crate) fn without_address(text: &str) -> Cow<'_, str> {
+    reworded(text, cfg!(windows)).map_or(Cow::Borrowed(text), Cow::Owned)
 }
 
 /// Records `file` as the file the prompt this VM runs came from, which
@@ -346,6 +386,77 @@ pub(crate) fn authored(lua: &Lua, error: Error) -> Error {
 /// The heading Lua puts on its own line between a failure's text and its
 /// traceback.
 pub(crate) const TRACEBACK_HEADING: &str = "\nstack traceback:";
+
+/// The label `mlua` puts in front of the text of a failure Lua raised.
+const RUNTIME_LABEL: &str = "runtime error: ";
+
+/// What [`without_address`] puts in the place of an address whose value
+/// it cannot name.
+const ADDRESS_STAND_IN: &str = "(address)";
+
+/// The most hex digits a pointer of this platform prints as.
+const ADDRESS_DIGITS: usize = 2 * size_of::<usize>();
+
+/// `text` with each address [`without_address`] finds taken out, in the
+/// shape `msvc` selects, or `None` when it finds none.
+fn reworded(text: &str, msvc: bool) -> Option<String> {
+    let mut out = String::new();
+    let mut changed = false;
+    let mut start = 0;
+    let ends = text
+        .match_indices(TRACEBACK_HEADING)
+        .map(|(at, _)| at)
+        .chain([text.len()]);
+    for end in ends {
+        let part = &text[start..end];
+        match part
+            .rsplit_once(": ")
+            .filter(|(_, address)| is_address(address, msvc))
+        {
+            Some((front, _)) => {
+                changed = true;
+                let (label, name) = front
+                    .strip_prefix(RUNTIME_LABEL)
+                    .map_or(("", front), |name| (RUNTIME_LABEL, name));
+                let plain = !name.is_empty() && !name.contains(": ") && !name.contains('\n');
+                if start == 0 && plain {
+                    out.push_str(label);
+                    out.push_str("error object is a ");
+                    out.push_str(name);
+                    out.push_str(" value");
+                } else {
+                    out.push_str(front);
+                    out.push_str(": ");
+                    out.push_str(ADDRESS_STAND_IN);
+                }
+            }
+            None => out.push_str(part),
+        }
+        start = end;
+    }
+    changed.then_some(out)
+}
+
+/// Whether `text` is an address as C's `%p` prints it, which Lua leaves to
+/// the platform: `0x` and lowercase hex digits on Linux and macOS, and with
+/// `msvc` (the C runtime every Windows target links) uppercase hex digits
+/// padded to the pointer's width, with nothing in front. A pointer has
+/// [`ADDRESS_DIGITS`] hex digits at most, so a longer number is no address
+/// and stays.
+fn is_address(text: &str, msvc: bool) -> bool {
+    if msvc {
+        return text.len() == ADDRESS_DIGITS
+            && text
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(&byte));
+    }
+    text.strip_prefix("0x").is_some_and(|digits| {
+        (1..=ADDRESS_DIGITS).contains(&digits.len())
+            && digits
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
 
 /// The failure's own text in `message`: the text before the traceback,
 /// without the `[string "..."]:N: ` positions Lua puts in front of it.

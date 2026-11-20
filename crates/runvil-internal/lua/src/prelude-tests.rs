@@ -3,11 +3,11 @@
 
 use std::num::NonZeroU32;
 
-use mlua::Value;
+use mlua::{Table, Value};
 use runvil_types::packs::{PackId, Prelude};
 use serde_json::json;
 
-use super::install_preludes;
+use super::{defined_globals, install_preludes};
 use crate::test_vm::{BuiltVm, TestVm};
 use crate::tests::refusal_line;
 use crate::{CoroStep, LuaProgram, Request, SectionVm, YieldParse};
@@ -409,6 +409,63 @@ fn a_global_whose_name_is_not_a_utf8_string_fails_naming_the_key() {
             "the refusal names the Pack and the key: {message}"
         );
     }
+}
+
+#[test]
+fn a_prelude_with_several_globals_to_refuse_fails_for_the_same_one_in_every_vm() {
+    // Each VM walks the prelude's globals under its own hash seed. The
+    // refusal names the first key in the shared order: a boolean comes
+    // before a number, and a table after every string.
+    for state in 0..8 {
+        let vm = section_vm();
+        let message = install_failure(
+            &vm,
+            &[prelude(
+                "kit",
+                "_ENV[{}] = 1 _ENV['\\xff'] = 1 _ENV[2] = 1 _ENV[true] = 1 _ENV[1.5] = 1",
+            )],
+        );
+        assert_eq!(
+            message,
+            "Pack `kit`: its prelude defines a global under a key of type boolean; a global's \
+             name must be a UTF-8 string",
+            "state {state}"
+        );
+    }
+}
+
+#[test]
+fn a_prelude_that_makes_its_environment_weak_is_refused() {
+    let vm = section_vm();
+    let message = install_failure(
+        &vm,
+        &[prelude(
+            "kit",
+            "getmetatable(_ENV).__mode = 'v'\nfunction helper() end",
+        )],
+    );
+    assert_eq!(
+        message,
+        "Pack `kit`: its prelude set __mode on the metatable of its environment; the environment \
+         must not be a weak table"
+    );
+}
+
+#[test]
+fn the_globals_of_a_prelude_are_read_without_a_reference_to_each_value() {
+    // `mlua` panics when the stack that holds the Lua values Rust refers to
+    // cannot grow, and a reference to each of 50,000 values needs it to.
+    // With this little memory left it cannot.
+    let lua = mlua::Lua::new();
+    let env = lua
+        .load("local env = {} for i = 1, 50000 do env['g' .. i] = 'v' end return env")
+        .eval::<Table>()
+        .expect("the environment builds");
+    lua.set_memory_limit(lua.used_memory() + 64 * 1024)
+        .expect("the limit is set");
+    let pack = PackId::parse("kit").expect("a valid Pack id");
+    let defined = defined_globals(&pack, &env).expect("the names are read");
+    assert_eq!(defined.len(), 50_000);
 }
 
 #[test]

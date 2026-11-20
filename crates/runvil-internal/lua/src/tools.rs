@@ -274,7 +274,7 @@ fn parameters_schema(lua: &Lua, parameters: &Table) -> mlua::Result<Json> {
             false,
             &Value::Table(parameters.clone()),
         ),
-        _ => adhoc_params_schema(parameters),
+        _ => adhoc_params_schema(lua, parameters),
     }
 }
 

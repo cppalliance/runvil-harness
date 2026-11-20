@@ -61,9 +61,15 @@ fn an_args_write_raises_the_whole_refusal_for_a_string_integer_or_other_key() {
     let args = json!({ "query": "papers" });
     let vm = TestVm::new().args(&args).build();
     for (target, refusal) in [
-        ("args.query", "args is read-only: cannot set field 'query'"),
-        ("args[1]", "args is read-only: cannot set field 1"),
-        ("args[2.5]", "args is read-only: cannot set field number"),
+        (
+            "args.query",
+            "prompt:1: args is read-only: cannot set field 'query'",
+        ),
+        ("args[1]", "prompt:1: args is read-only: cannot set field 1"),
+        (
+            "args[2.5]",
+            "prompt:1: args is read-only: cannot set field number",
+        ),
     ] {
         let source =
             format!("local ok, err = pcall(function() {target} = 1 end)\nreturn tostring(err)");
@@ -89,7 +95,7 @@ fn an_args_assignment_raises_the_whole_refusal() {
     let caught = out.expect("the chunk returns the caught error");
     assert_eq!(
         refusal_line(&caught),
-        Some("args is read-only: assign to `var` or a section global instead")
+        Some("prompt:1: args is read-only: assign to `var` or a section global instead")
     );
     vm.teardown();
 }

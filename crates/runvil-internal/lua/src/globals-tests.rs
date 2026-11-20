@@ -283,7 +283,7 @@ fn the_other_fields_of_the_author_metatable_apply_to_g_from_each_setmetatable() 
     );
     let (plain, callable): (bool, bool) = vm.eval(
         "setmetatable(_G, nil)\n\
-         return tostring(_G):find('^table: ') ~= nil, (pcall(_G))",
+         return tostring(_G) == 'table', (pcall(_G))",
     );
     assert!(plain, "clearing drops the copied __tostring");
     assert!(!callable, "clearing drops the copied __call");

@@ -54,9 +54,14 @@ When a run ends as a whole, by a cancel or a fatal answer, the scheduler first a
 
 ### The collection is a Lua table, and `tasks.fanout` lists its members in a fixed order
 
-`tasks.fanout` lists the array part in index order and then the keyed part sorted by key. It reads a view through to its data, so a list from `args` or from `var` is a collection like any table. A keyed member becomes a pair table that the arm reads as `item.key` and `item.value`. Any other value in place of the table raises an error that points to `prompt.list(heading)`.
+`tasks.fanout` lists the items of the list in index order, from index 1 up to the first index that holds nothing, and then every other entry sorted by key.
+An index past such a gap is a keyed member.
+It reads a view through to its data, so a list from `args` or from `var` is a collection like any table. A keyed member becomes a pair table that the arm reads as `item.key` and `item.value`. Any other value in place of the table raises an error that points to `prompt.list(heading)`.
+A weak table, one whose metatable has a `__mode` with `k` or `v` in it, raises an error too.
 
 A heading in place of the table is one of the refused values. `prompt.list(heading)` returns the items of a list section, so a heading as the argument would be a second way to do one thing, and a bare string is ambiguous against a section name. The sort of the keyed part makes every process spawn the arms in the same order.
+The list ends at the first gap because the length that Lua gives a table with a gap differs between two runs ([The prompt language](prompt-language.md)).
+Lua's collector can take a member out of a weak table while `tasks.fanout` reads it, and which members it takes follows the order of Lua's own walk, so two runs with the same inputs would spawn different arms.
 
 ### Each arm is a task that runs the worker section with `item` and `sys.index`
 
@@ -128,7 +133,9 @@ The cap is 8 because that is more depth than the owner expects a prompt to need 
 
 For each run the Harness generates a random seed, reads the clock, and passes both to the Engine in `RunParams`. With the same two values, and the same answers, messages, and file requests delivered in the same order at the same steps, and with the cancel flag clear, the Engine emits the same effects, events, and ids. The order of answers is an input. So is the order of the file requests that the Harness reports for open tool calls, each of which the Engine issues as an effect at its next step ([The Engine](engine.md)). So is each message that a Host sends the run, with its place among the answers and the steps ([The Harness and the Host API](harness-and-host.md)). Among waiting tool calls, the Harness starts the one with the lowest effect id ([Tools and Packs](tools-and-packs.md)), and `Run` hears of a call again only at its file requests and at its answer. That choice therefore affects the Engine only through the order of answers and of file requests, so a replay (see Planned work) that repeats the answers, the messages, and the file requests in their order and at their steps is independent of the Harness's start order. Three results depend on the order of answers: which task `tasks.join_any` returns, whether a timed wait runs out, and how far a canceled task got. The guide adds a fourth: where a `tasks.send` message applies in a task's work.
 
-Because of this rule, replay is a job for the Harness: the Engine is deterministic, so the Harness can match a recorded run exactly. The rule covers Lua's table walks too. The Engine's `pairs` and `next` walk a table in sorted order, where the order of stock Lua's walk depends on a hash seed.
+Because of this rule, replay is a job for the Harness: the Engine is deterministic, so the Harness can match a recorded run exactly. The rule covers Lua's table walks too. The Engine's `pairs` and `next` walk a table in sorted order, and refuse a table with a key that only its memory address could place, where the order of stock Lua's walk depends on a hash seed and on such addresses.
+The length of a table with a gap in its list is outside the rule: `#t` of such a table can differ between two such runs ([The prompt language](prompt-language.md)).
+The Engine seeds `math.random` from the run's seed, its `table.sort` orders by the list and the comparison alone, and its `tostring` and `string.format` print a table, function, thread, or userdata by its name, where stock Lua's read the clock or print a memory address ([The prompt language](prompt-language.md)).
 
 ### Chain ids, task ids, and `sys.id` are dot-separated paths
 

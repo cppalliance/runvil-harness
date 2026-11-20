@@ -8,6 +8,11 @@
 //! gives the block its chain's store; and an every-Nth-instruction
 //! hook polls the run's cancel flag, so even an unbounded loop aborts
 //! promptly once the run is canceled.
+//! Four standard functions are replaced so that a run with the same seed
+//! repeats: `math.randomseed` seeds from the VM's own generator,
+//! `table.sort` is a stable merge sort, and `tostring` and `string.format`
+//! print a table, function, thread, or userdata by its name. The executor
+//! seeds each VM's `math.random` generator.
 //! Direct `print` and `warn` are unavailable. A persistent `log(message)`
 //! callback accepts one bounded, single-line UTF-8 string and reports it
 //! through the run's emitter as an `Event::Lua` checkpoint. A persistent
@@ -118,6 +123,7 @@ mod proxy;
 mod require;
 mod scope;
 mod section;
+mod stdlib;
 mod sys;
 mod tools;
 mod var;

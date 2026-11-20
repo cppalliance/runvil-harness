@@ -25,7 +25,7 @@ use super::{
     make_context_exhausted_error, make_internal_at_error, make_internal_error,
     make_lua_compile_error, make_lua_error, make_lua_quota_error, make_lua_runtime_error,
     make_task_canceled_error, make_task_consumed_error, make_task_not_owned_error,
-    make_tool_loop_exhausted_error, prompt_file, set_call_line, set_prompt_file, tool,
+    make_tool_loop_exhausted_error, prompt_file, reworded, set_call_line, set_prompt_file, tool,
 };
 use crate::error_value::{ErrorField, ErrorKind, error_fields, error_kind};
 
@@ -140,6 +140,76 @@ fn the_failure_text_drops_the_positions_in_front_and_the_traceback() {
         "nor is a marker whose line has no digits"
     );
     assert_eq!(failure_text("a refusal\n"), "a refusal");
+}
+
+#[test]
+fn every_address_that_ends_a_text_or_stands_before_a_traceback_is_taken_out() {
+    let msvc_address = format!("{:0width$X}", 0xC2D0, width = 2 * size_of::<usize>());
+    let msvc_table = format!("table: {msvc_address}");
+    let widest = format!("table: 0x{}", "f".repeat(2 * size_of::<usize>()));
+    let too_wide = format!("size: 0x{}", "f".repeat(2 * size_of::<usize>() + 1));
+    for (text, msvc, expected) in [
+        (
+            "table: 0x55d0c0a1e2f0",
+            false,
+            Some("error object is a table value"),
+        ),
+        (
+            "runtime error: My Thing: 0x600003a1c0c0\nstack traceback:\n\t[C]: in ?",
+            false,
+            Some("runtime error: error object is a My Thing value\nstack traceback:\n\t[C]: in ?"),
+        ),
+        (
+            msvc_table.as_str(),
+            true,
+            Some("error object is a table value"),
+        ),
+        (msvc_table.as_str(), false, None),
+        ("table: 0x55d0c0a1e2f0", true, None),
+        ("table: C2D0", true, None),
+        // A name that is empty, or holds a `: `, keeps its text.
+        (": 0x1f", false, Some(": (address)")),
+        (
+            "My: Thing: 0x600003a1c0c0",
+            false,
+            Some("My: Thing: (address)"),
+        ),
+        (
+            "[string \"line 3\"]:2: size: 0x1f",
+            false,
+            Some("[string \"line 3\"]:2: size: (address)"),
+        ),
+        // A name that holds a heading: the address is past the first one.
+        (
+            "x\nstack traceback: y: 0x1f\nstack traceback:\n\t[C]: in ?",
+            false,
+            Some("x\nstack traceback: y: (address)\nstack traceback:\n\t[C]: in ?"),
+        ),
+        (
+            "a: 0x1f\nstack traceback: 0x2e\nstack traceback:\n\t[C]: in ?",
+            false,
+            Some(
+                "error object is a a value\nstack traceback: (address)\nstack traceback:\n\t[C]: in ?",
+            ),
+        ),
+        (
+            widest.as_str(),
+            false,
+            Some("error object is a table value"),
+        ),
+        // A number with more digits than a pointer has is no address.
+        (too_wide.as_str(), false, None),
+        ("size: 0x1F", false, None),
+        ("size: 0x", false, None),
+        ("size: 0x1f at the start", false, None),
+        ("0x1f", false, None),
+    ] {
+        assert_eq!(
+            reworded(text, msvc).as_deref(),
+            expected,
+            "{text} with msvc {msvc}"
+        );
+    }
 }
 
 #[test]

@@ -1,9 +1,8 @@
 //! Tests for the `models` namespace: `use`, `get`, and the section's current model.
 
-use mlua::Value;
 use runvil_model_client::model::{ModelBinding, ModelId, ModelInvocation, ModelSet, Temperature};
 
-use super::option_check_order;
+use crate::error::root_text;
 use crate::test_vm::{BuiltVm, TestVm};
 
 /// The role-name list every label rejection ends with.
@@ -245,57 +244,42 @@ fn models_use_rejects_invalid_options_without_selecting() {
 fn models_use_reports_the_first_bad_option_in_key_order_on_every_state() {
     // Each fresh state walks `pairs` under its own hash seed; the rejection
     // must not follow that walk. Every option in a case is bad, so the
-    // rejection names the first of its keys in check order: non-string
-    // keys by type name, then names bytewise.
-    let cases: [(&str, &[&str], &str); 3] = [
+    // rejection names the first of its keys in the shared order: booleans,
+    // then numbers, then names bytewise.
+    for (options, expected) in [
         (
             "{ top_p = 1, max_tokens = 0, temperature = 3 }",
-            &["max_tokens", "temperature", "top_p"],
             "models.use option max_tokens must be an integer in [1, 4294967295], got 0",
         ),
         (
             "{ temperature = 3, top_p = 1 }",
-            &["temperature", "top_p"],
             "models.use option temperature 3 is outside the supported range [0.0, 2.0]",
         ),
         (
             "{ 'x', [true] = 1, temperature = 3 }",
-            &["boolean", "integer", "temperature"],
             "models.use option names must be strings, got boolean",
         ),
-    ];
-    for (options, check_order, expected) in cases {
-        assert!(
-            expected.contains(check_order[0]),
-            "{options}: the expected rejection {expected:?} names the first key in check order"
-        );
+    ] {
         let chunk = format!("models.use('strong', {options})");
         for state in 0..32 {
-            let vm = models_vm();
-            let table: mlua::Table = vm.eval(&format!("return {options}"));
-            let mut keys = table
-                .pairs::<Value, Value>()
-                .map(|pair| {
-                    let (key, _) = pair.expect("a plain options table walks without error");
-                    option_check_order(&key)
-                })
-                .collect::<Vec<_>>();
-            keys.sort();
-            let sorted: Vec<String> = keys
-                .into_iter()
-                .map(|(_, label)| String::from_utf8_lossy(&label).into_owned())
-                .collect();
-            assert_eq!(
-                sorted, check_order,
-                "state {state}: {options} sorts its option keys into the check order"
-            );
-            let error = vm.eval_err(&chunk);
-            assert!(
-                error.to_string().contains(expected),
-                "state {state}: {chunk}: expected {expected:?} in {error}"
-            );
+            let error = models_vm().eval_err(&chunk);
+            assert_eq!(root_text(&error), expected, "state {state}: {chunk}");
         }
     }
+}
+
+#[test]
+fn models_use_reads_an_options_table_too_large_to_hold_a_reference_to_each_entry() {
+    // `mlua` panics when Rust holds about a million Lua references, and each
+    // entry here is one.
+    let error = models_vm().eval_err(
+        "local options = {} for i = 1, 1200000 do options[i] = 'x' end \
+         models.use('strong', options)",
+    );
+    assert_eq!(
+        root_text(&error),
+        "models.use option names must be strings, got integer"
+    );
 }
 
 /// The section's current model's `(temperature, max_tokens)`, read the way

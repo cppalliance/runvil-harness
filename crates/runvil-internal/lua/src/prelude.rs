@@ -20,13 +20,16 @@
 //! checked for a collision, a table is sealed at its top level the way
 //! `sys` is, and each is raw-set into `_G`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use mlua::chunk::ChunkMode;
 use mlua::{Lua, Table, Value};
 use runvil_types::packs::{PackId, Prelude};
 
-use crate::error::{self, Error, Result, TRACEBACK_HEADING, make_lua_runtime_error};
+use crate::error::{
+    self, Error, Result, TRACEBACK_HEADING, make_lua_runtime_error, without_address,
+};
+use crate::order::{FirstRefusal, is_weak};
 use crate::proxy::{key_path, key_text, read_only_proxy};
 
 /// The `_G` names a prelude's environment reads, as bound when it installs.
@@ -88,11 +91,14 @@ pub fn install_preludes(lua: &Lua, preludes: &[Prelude]) -> Result<()> {
             .call::<()>(pack.to_string())
             .map_err(|error| make_load_failure_error(pack, &error))?;
         let defined = defined_globals(pack, &env)?;
-        for name in defined.keys() {
+        for name in &defined {
             check_collision(&globals, pack, name, &installed)?;
         }
-        for (name, value) in defined {
-            let value = match value {
+        for name in defined {
+            let value = match env
+                .raw_get::<Value>(name.as_str())
+                .map_err(error::make_lua_error)?
+            {
                 Value::Table(table) => Value::Table(seal(lua, pack, &name, table)?),
                 other => other,
             };
@@ -153,27 +159,50 @@ fn read_only_var(lua: &Lua, target: Table, path: String) -> mlua::Result<Table> 
     )
 }
 
-/// Reads the prelude's globals off its environment table's own entries,
-/// sorted by name so the checks and the install run in a fixed order.
-fn defined_globals(pack: &PackId, env: &Table) -> Result<BTreeMap<String, Value>> {
-    let mut defined = BTreeMap::new();
+/// Reads the names of the prelude's globals off its environment table's own
+/// entries, sorted so the checks and the install run in a fixed order.
+///
+/// Only the names are kept. A Lua reference to each value would need the
+/// stack `mlua` keeps them on to grow, and `mlua` panics when it cannot,
+/// as it cannot near the VM's memory limit. The install reads each value
+/// by its name.
+///
+/// # Errors
+/// Refuses an environment the prelude made weak, whose values the collector
+/// can take before the install reads them. Refuses a key that is not a
+/// UTF-8 string: of several, the one that comes first in the shared order
+/// of keys.
+fn defined_globals(pack: &PackId, env: &Table) -> Result<BTreeSet<String>> {
+    if is_weak(env).map_err(error::make_lua_error)? {
+        return Err(make_lua_runtime_error(format!(
+            "Pack `{pack}`: its prelude set __mode on the metatable of its environment; the \
+             environment must not be a weak table"
+        )));
+    }
+    let mut defined = BTreeSet::new();
+    let mut refused = FirstRefusal::default();
     for pair in env.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(error::make_lua_error)?;
+        let (key, _) = pair.map_err(error::make_lua_error)?;
         if let Value::String(name) = &key
             && let Ok(name) = name.to_str()
         {
-            defined.insert(name.to_string(), value);
+            defined.insert(name.to_string());
             continue;
         }
-        let key = match &key {
-            Value::String(_) => "a string key that is not valid UTF-8".to_owned(),
-            other => format!("a key of type {}", other.type_name()),
-        };
-        return Err(make_lua_runtime_error(format!(
+        refused.refuse(
+            &key,
+            match &key {
+                Value::String(_) => "a string key that is not valid UTF-8".to_owned(),
+                other => format!("a key of type {}", other.type_name()),
+            },
+        );
+    }
+    refused.into_result().map_err(|key| {
+        make_lua_runtime_error(format!(
             "Pack `{pack}`: its prelude defines a global under {key}; a global's \
              name must be a UTF-8 string"
-        )));
-    }
+        ))
+    })?;
     Ok(defined)
 }
 
@@ -226,8 +255,8 @@ fn seal(lua: &Lua, pack: &PackId, name: &str, hidden: Table) -> Result<Table> {
 /// keeping the Lua traceback after it.
 fn make_load_failure_error(pack: &PackId, error: &mlua::Error) -> Error {
     let rendered = match error {
-        mlua::Error::RuntimeError(message) => message.clone(),
-        other => other.to_string(),
+        mlua::Error::RuntimeError(message) => without_address(message).into_owned(),
+        other => error::lua_text(other),
     };
     let (head, traceback) = match rendered.split_once(TRACEBACK_HEADING) {
         Some((head, traceback)) => (head, Some(traceback)),

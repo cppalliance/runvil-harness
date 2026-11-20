@@ -190,7 +190,7 @@ impl SectionContext {
         sys.index = seed.index;
         ctx.emitter()
             .report(section.name(), event_lifecycle::SECTION_STARTED);
-        let vm = limited_vm(ctx, section.name())?;
+        let vm = limited_vm(ctx, section.name(), section_id)?;
         let resolve = library_resolver(Arc::clone(ctx.prompt()));
         let render = prose_renderer(ctx, seed.item.clone());
         // The `prompt` reads resolve from the section, or from the library
@@ -360,11 +360,13 @@ fn library_resolver(
 }
 
 /// Builds the section VM for `name` over the sets of the chain's prompt,
-/// with the run's cancel flag and Lua limits applied.
+/// with the run's cancel flag and Lua limits applied, and its `math.random`
+/// generator seeded for `entry_id`, the section entry's id.
 ///
 /// # Errors
-/// Returns the failure of the VM construction or the limits install.
-fn limited_vm(ctx: &ChainState, name: &str) -> Result<SectionVm<Uninjected>> {
+/// Returns the failure of the VM construction, the seeding, or the limits
+/// install.
+fn limited_vm(ctx: &ChainState, name: &str, entry_id: &str) -> Result<SectionVm<Uninjected>> {
     let vm = SectionVm::new_for_section(
         ctx.nonce(),
         ctx.tool_set(),
@@ -374,6 +376,9 @@ fn limited_vm(ctx: &ChainState, name: &str) -> Result<SectionVm<Uninjected>> {
     )?;
     // The run's cancel flag reaches every block coroutine's hook.
     vm.set_cancel(ctx.cancel().clone());
+    // Before the Pack preludes and every block, so no Lua the VM runs
+    // draws from the fixed seed it was built with.
+    vm.seed_random(ctx.lua_random().entry_seed(entry_id))?;
     // A limits failure propagates bare: no teardown runs here, so no
     // LUA_TEARDOWN_* observation fires on this path.
     vm.apply_lua_limits(

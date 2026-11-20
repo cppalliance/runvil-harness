@@ -8,8 +8,8 @@ use runvil_types::error::ErrorCode;
 
 use crate::chunk_line::{PROMPT_CHUNK_PREFIX, compile_line, map_chunk_line_to_absolute};
 use crate::error::{
-    self, Error, Result, authored_at, failure_text, make_lua_compile_error, make_lua_runtime_error,
-    root_text,
+    self, Error, Result, authored_at, failure_text, lua_text, make_lua_compile_error,
+    make_lua_runtime_error, root_text,
 };
 
 /// The statement every prompt block compiles behind, on its first line so
@@ -298,7 +298,7 @@ impl LuaProgram {
         }) {
             return located.clone();
         }
-        let raw = error.to_string();
+        let raw = lua_text(error);
         let owners: Vec<(&str, &str, NonZeroU32)> = std::iter::once(self)
             .chain(loaded)
             .map(|program| {

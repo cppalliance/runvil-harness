@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::ffi::c_void;
 
 use mlua::{
-    AnyUserData, Function, Lua, LuaSerdeExt, MaybeSend, MetaMethod, MultiValue, Table,
+    AnyUserData, Function, Lua, LuaSerdeExt, LuaString, MaybeSend, MetaMethod, MultiValue, Table,
     UserDataMethods, Value,
 };
 
@@ -74,8 +74,10 @@ pub(crate) enum Unsealed {
     /// The table that holds the data.
     Data(Table),
     /// A view whose data only a function can read, with the view's label
-    /// when it has one.
-    Unreadable(Option<String>),
+    /// when it has one. The label is the view's own string: many views can
+    /// share one long label, so a caller that wants its text counts its
+    /// bytes before it copies them.
+    Unreadable(Option<LuaString>),
     /// A chain of views that leads back to one of its own views.
     Loop,
 }
@@ -123,7 +125,7 @@ pub(crate) fn unseal(
             }
             Value::Function(_) => {
                 let label = match label {
-                    Value::String(label) => Some(label.to_string_lossy()),
+                    Value::String(label) => Some(label),
                     _ => None,
                 };
                 return Ok(Unsealed::Unreadable(label));
@@ -145,7 +147,20 @@ pub(crate) fn view_len(lua: &Lua, data: &Table) -> mlua::Result<Function> {
 /// [`unseal`], and `table` itself when it is no view or its data cannot be
 /// read as a table.
 pub(crate) fn view_data(table: &Table) -> mlua::Result<Table> {
-    match unseal(table, || Ok(()))? {
+    view_data_within(table, || Ok(()))
+}
+
+/// [`view_data`] for a caller that reads many tables in one Rust call:
+/// `hop` runs once for each view passed, as it does for [`unseal`], so the
+/// caller can count the views of all its reads against one budget.
+///
+/// # Errors
+/// Returns the failure of `hop`, or of reading a metatable.
+pub(crate) fn view_data_within(
+    table: &Table,
+    hop: impl FnMut() -> mlua::Result<()>,
+) -> mlua::Result<Table> {
+    match unseal(table, hop)? {
         Unsealed::Data(data) => Ok(data),
         Unsealed::Unreadable(_) | Unsealed::Loop => Ok(table.clone()),
     }

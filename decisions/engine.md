@@ -20,7 +20,7 @@ The Engine performs these kinds of work itself and reports each as an event: an 
 
 `RunParams::new` takes a `RunSeed` and a `Timestamp`, and `with_` setters add a run's other inputs. Lua reads the timestamp as `sys.when`, every timeout is a `Timer` effect, and clippy rejects a clock read in an Engine crate. The same prompt, arguments, params, and answers produce the same effects, events, and result ([Tasks and fanout](tasks-and-fanout.md)).
 
-The seed is 32 bytes, and the Engine derives from it, with SHA-256, the nonce of the envelope that it wraps around untrusted text ([Tools and Packs](tools-and-packs.md)). A 64-bit seed would cap the nonce's unpredictability at 64 bits.
+The seed is 32 bytes, and the Engine derives from it, with SHA-256, the nonce of the envelope that it wraps around untrusted text ([Tools and Packs](tools-and-packs.md)) and the seed of the `math.random` generator of each section VM ([The prompt language](prompt-language.md)). A 64-bit seed would cap the nonce's unpredictability at 64 bits.
 
 ### Plugin code and wire code are outside the Engine
 

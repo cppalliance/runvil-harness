@@ -296,7 +296,11 @@ fn a_spawn_with_an_option_it_does_not_take_is_refused_and_starts_no_task() {
                  end
                  var.opts = { args = { n = 1 }, name = 'x' }
                  return refused({ itme = 'a' }) .. '|' .. refused({ zeta = 1, alpha = 2, index = 3 })
-                   .. '|' .. refused({ 'first' }) .. '|' .. refused(var.opts)",
+                   .. '|' .. refused({ 'first' }) .. '|' .. refused(var.opts)
+                   .. '|' .. refused({
+                     [setmetatable({}, { __name = 'A' })] = 1,
+                     [setmetatable({}, { __name = 'B' })] = 1,
+                   })",
             ),
             ("Child", ECHO),
         ],
@@ -312,7 +316,17 @@ fn a_spawn_with_an_option_it_does_not_take_is_refused_and_starts_no_task() {
             lua(r#""itme""#),
             lua(r#""alpha""#),
             lua("1"),
-            lua(r#""name""#)
+            lua(r#""name""#),
+            // Two keys that only their addresses tell apart: the walk of
+            // the options refuses the table, the same way in every run.
+            format!(
+                "lua:{}",
+                refused(
+                    12,
+                    "'pairs' walks boolean, number, and string keys only: the table has a table \
+                     key, which has no order that is the same in two runs"
+                )
+            ),
         ]
         .join("|")
     );

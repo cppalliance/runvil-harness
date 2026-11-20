@@ -14,6 +14,12 @@ use mlua::Lua;
 /// above that.
 const BYTES_PER_NODE: usize = 8;
 
+/// What one sealed view costs a walk that can pass one view many times,
+/// in values: a view is a table of its own, which takes 48 bytes of the
+/// Lua heap on a 64-bit machine, so views that are passed once each and
+/// fit the heap stay inside the budget.
+const NODES_PER_VIEW: usize = 6;
+
 /// The most Lua references one Rust walk may hold at once: an encode path's
 /// string, table, function, thread, and userdata keys, the entries of
 /// `json.encode`'s options table, or an offer verb's array entries, each of
@@ -62,6 +68,13 @@ impl WalkBudget {
     /// Spends one value, failing once none are left.
     pub(crate) fn charge_node(&mut self) -> Result<(), TooLarge> {
         self.nodes = self.nodes.checked_sub(1).ok_or(TooLarge)?;
+        Ok(())
+    }
+
+    /// Spends one view passed on the way to a table, for a walk that can
+    /// pass one view many times, failing once too few values are left.
+    pub(crate) fn charge_view(&mut self) -> Result<(), TooLarge> {
+        self.nodes = self.nodes.checked_sub(NODES_PER_VIEW).ok_or(TooLarge)?;
         Ok(())
     }
 

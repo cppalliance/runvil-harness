@@ -56,6 +56,24 @@ fn debug_mode_raises_the_size_refusal_instead_of_a_placeholder() {
 }
 
 #[test]
+fn a_shared_label_of_unreadable_views_is_counted_for_each_placeholder() {
+    // 32 views share one label of 512 KiB. Debug mode puts the label in a
+    // placeholder for each, 16 MiB of text against a 4 MiB budget.
+    let vm = small_heap_vm();
+    vm.exec(
+        "local label = string.rep('x', 2^19) \
+         t = {} \
+         for i = 1, 32 do \
+           t[i] = setmetatable({}, { __index = function() end, __metatable = label }) \
+         end",
+    );
+    assert_eq!(
+        caught(&vm, "json.encode(t, { debug = true })"),
+        lua_error("json.encode: value is too large to encode")
+    );
+}
+
+#[test]
 fn a_shared_chain_of_sealed_views_is_refused_by_its_hops_alone() {
     // `chain` is 1,000 sealed views over one empty table, so reading it
     // once costs about 1,000 hops. The doubling table reaches it through

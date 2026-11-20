@@ -7,11 +7,14 @@
 //! [`SortKey::compare`] orders two of them. Fanout's member enumeration, the
 //! deterministic `pairs`/`next` installer, and `json.encode`'s key order
 //! share both, so a table's order is a function of its contents wherever it
-//! is read.
+//! is read. [`FirstRefusal`] gives the same order to a check that refuses a
+//! table for one of its entries, and [`sort_list`] to a Lua list of a
+//! table's entries. [`is_weak`] tells a table that no such list is made
+//! of, and [`listed`] counts the items that come before the keys.
 
 use std::cmp::Ordering;
 
-use mlua::Value;
+use mlua::{Table, Value};
 
 /// A hash key's sort position: booleans first (`false` before `true`), then
 /// numbers by value, then strings bytewise. The ranks keep mixed-type keys
@@ -57,7 +60,7 @@ impl SortKey {
     }
 }
 
-/// Orders an integer key against a finite float key exactly: the float is
+/// Orders an integer key against a float key exactly: the float is
 /// compared to the integer's neighborhood without rounding the integer,
 /// so an integer past 2^53 still sorts on the correct side of a nearby
 /// float. A float outside `i64`'s range is beyond every integer; a float
@@ -137,6 +140,188 @@ pub(crate) fn sort_key(key: &Value) -> Result<(SortKey, String), KeyError> {
         Value::Boolean(b) => Ok((SortKey::Bool(*b), b.to_string())),
         other => Err(KeyError::Unsortable(other.type_name())),
     }
+}
+
+/// A key's place in a walk of its table, for a caller that needs no label:
+/// that of [`sort_key`], and also a string that is not valid UTF-8 by its
+/// bytes and an infinite number by its value. Lua's own order of two such
+/// keys comes from its hash state, so a walk that kept it would differ from
+/// run to run.
+///
+/// # Errors
+/// Returns the key's type name when the key is a table, a function, a
+/// userdata, or a thread. Only its memory address tells two such keys
+/// apart, and no order made from an address is the same in two runs.
+pub(crate) fn position(key: &Value) -> Result<SortKey, &'static str> {
+    match (sort_key(key), key) {
+        (Ok((position, _)), _) => Ok(position),
+        (Err(KeyError::NotUtf8(_)), Value::String(text)) => {
+            Ok(SortKey::Text(text.as_bytes().to_vec()))
+        }
+        (Err(KeyError::NotFinite), Value::Number(number)) => Ok(SortKey::Float(*number)),
+        (Err(_), other) => Err(other.type_name()),
+    }
+}
+
+/// Orders the places [`position`] gives two keys: a key with a place comes
+/// before a key without one, and two keys without one go by type name.
+pub(crate) fn compare_places(
+    left: &Result<SortKey, &'static str>,
+    right: &Result<SortKey, &'static str>,
+) -> Ordering {
+    match (left, right) {
+        (Ok(left), Ok(right)) => left.compare(right),
+        (Ok(_), Err(_)) => Ordering::Less,
+        (Err(_), Ok(_)) => Ordering::Greater,
+        (Err(left), Err(right)) => left.cmp(right),
+    }
+}
+
+/// Whether `table` is weak: its metatable has a `__mode` that is a string
+/// with `k` or `v` in it before its first zero byte, which is how Lua reads
+/// the field. Lua reads it each time it collects, so a table can become
+/// weak after it has its metatable.
+///
+/// A walk that keeps no reference to each entry refuses a weak table.
+/// Lua's collector takes an entry out of one once nothing else uses the
+/// entry's key or value, whichever the mode names. Such a walk writes to
+/// Lua's heap as it reads, and the collector can run at each write: it
+/// then takes the entries the walk has not read yet, and keeps the one
+/// Rust holds. Which entries those are follows Lua's own order, which
+/// differs from one VM to the next, so what the walk found would too.
+///
+/// # Errors
+/// Returns the `mlua` error of the metatable read.
+pub(crate) fn is_weak(table: &Table) -> mlua::Result<bool> {
+    let Some(metatable) = table.metatable() else {
+        return Ok(false);
+    };
+    Ok(match metatable.raw_get::<Value>("__mode")? {
+        Value::String(mode) => mode
+            .as_bytes()
+            .iter()
+            .take_while(|byte| **byte != 0)
+            .any(|byte| *byte == b'k' || *byte == b'v'),
+        _ => false,
+    })
+}
+
+/// Puts the `places.len()` items of the Lua list `list` after its first
+/// `base` in the order `compare` gives their places: `places[slot]` is the
+/// place of the item at `base + slot + 1`.
+///
+/// For a walk that must hold no Lua reference to each item, of a table
+/// that [`is_weak`] says is not weak. `mlua` gives
+/// every Lua value a Rust value holds a slot on one stack, and panics when
+/// that stack cannot grow, which near the VM's memory limit it cannot. So
+/// the walk writes each item to a Lua list as it meets it and keeps only
+/// the item's place, the places are sorted here as plain data, and each
+/// item then moves to its slot.
+///
+/// # Errors
+/// Returns the `mlua` error of a read or a write of `list`.
+pub(crate) fn sort_list<P>(
+    list: &Table,
+    base: usize,
+    places: &[P],
+    compare: impl Fn(&P, &P) -> Ordering,
+) -> mlua::Result<()> {
+    let mut sources = (0..places.len()).collect::<Vec<_>>();
+    sources.sort_by(|left, right| compare(&places[*left], &places[*right]));
+    arrange(list, base, sources)
+}
+
+/// How many items the list in `table` has: the indices from 1 up that
+/// hold a value, to the first that holds none.
+///
+/// Not `#table`. For a table with a gap in those indices Lua's length is
+/// any index before a gap, and when the indices sit in the table's hash
+/// part Lua picks among them with the seed of the state, which differs
+/// from one run to the next. So a walk that split a table at `#table`
+/// split it in two ways. The count costs one read for each item.
+///
+/// # Errors
+/// Returns the `mlua` error of a read of `table`.
+pub(crate) fn listed(table: &Table) -> mlua::Result<usize> {
+    let mut count = 0;
+    while !table.raw_get::<Value>(count + 1)?.is_nil() {
+        count += 1;
+    }
+    Ok(count)
+}
+
+/// Of the entries a check refuses in one table, the refusal of the entry
+/// whose key comes first.
+///
+/// Lua's own walk meets the entries of a table in an order that differs
+/// from one run to the next. A check that returned at the first entry it
+/// refused would then name a different entry in each run. A check that
+/// sorted the entries first would hold a Lua reference to each of them,
+/// and `mlua` panics when a state holds about a million. So the check reads
+/// every entry in Lua's order, hands each refusal here, and this keeps the
+/// one with the least key and drops the rest.
+///
+/// The keys go by [`compare_places`]. Two keys without a place and of one
+/// type tie, and the refusal met first stays, so the refusal of such a key
+/// must say nothing of the key but its type.
+pub(crate) struct FirstRefusal<E> {
+    least: Option<(Result<SortKey, &'static str>, E)>,
+}
+
+impl<E> Default for FirstRefusal<E> {
+    fn default() -> Self {
+        Self { least: None }
+    }
+}
+
+impl<E> FirstRefusal<E> {
+    /// Records that the check refuses the entry under `key` with `refusal`.
+    pub(crate) fn refuse(&mut self, key: &Value, refusal: E) {
+        let place = position(key);
+        let earlier = self
+            .least
+            .as_ref()
+            .is_none_or(|(least, _)| compare_places(&place, least) == Ordering::Less);
+        if earlier {
+            self.least = Some((place, refusal));
+        }
+    }
+
+    /// The refusal of the entry with the least key.
+    ///
+    /// # Errors
+    /// Returns that refusal when the check refused an entry.
+    pub(crate) fn into_result(self) -> Result<(), E> {
+        self.least.map_or(Ok(()), |(_, refusal)| Err(refusal))
+    }
+}
+
+/// Reorders the `sources.len()` items of `list` after its first `base`:
+/// the item at slot `i` becomes the one that was at slot `sources[i]`.
+/// `sources` holds every slot once. Each item moves once, along the cycle
+/// of slots it belongs to, so Rust holds two items at a time.
+fn arrange(list: &Table, base: usize, mut sources: Vec<usize>) -> mlua::Result<()> {
+    let index = |slot: usize| base + slot + 1;
+    for start in 0..sources.len() {
+        // A slot that already holds its item has itself as its source.
+        if sources[start] == start {
+            continue;
+        }
+        let first: Value = list.raw_get(index(start))?;
+        let mut slot = start;
+        loop {
+            let source = sources[slot];
+            sources[slot] = slot;
+            if source == start {
+                list.raw_set(index(slot), first)?;
+                break;
+            }
+            let moved: Value = list.raw_get(index(source))?;
+            list.raw_set(index(slot), moved)?;
+            slot = source;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

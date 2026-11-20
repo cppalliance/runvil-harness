@@ -135,8 +135,18 @@ The model sees wire names, and a render can alter them. Prose that tells the mod
 ### `tools.adhoc` defines a tool in Lua, and `tools.offer` offers it
 
 `tools.adhoc(attrs, f)` takes a name, a description, optional parameters, and a function, and returns a tool object. The tool's wire name is the name as written, and its id is `adhoc/<name>` with the name in lower case. The prompt passes that object to `tools.offer`, or calls the tool itself with `tools.call`.
+The parameters are a JSON Schema object, or a short form: a table that maps each parameter's name to its type, or to an array of its type and its description.
+A name in the short form is a string, and a number in its place raises an error.
+The type and the description are strings that the Engine reads from the table itself, so an `__index` metamethod of an array in the short form stays uncalled.
+The names, the types, and the descriptions of one short form may add up to as many bytes as the VM's memory limit, which is 64 MiB by default, and a description that several parameters share counts once for each.
+One short form may have as many parameters as one eighth of that limit, which is 8,388,608 at the default, and each view that the Engine reads through to reach a parameter's value counts as six parameters.
+A short form past either limit raises an error that reads `tools.adhoc: parameters are too large to convert`, whatever else is wrong with it.
 
 Defining a tool is separate from offering it, so every tool has one offer path, and a prompt can define a helper tool that only Lua calls.
+A number is refused as a parameter's name because Lua converts it to a string on request, so the keys `1` and `'1'` of one table would name one parameter with two types.
+The Engine reads the parameters in the order of Lua's own walk, which differs between two runs with the same inputs, and a metamethod that ran at each read could act on that order.
+The schema holds a copy of each description outside the VM's memory, so without the limits a small table could make the Engine hold many times the memory that the run allows.
+The conversion is one step that a cancel does not interrupt, so the limit on views also bounds how long that step can take.
 
 ### An adhoc handler runs inside the Engine, as section Lua
 
@@ -324,7 +334,7 @@ A Rust Pack that needs an async runtime uses the Host's. Its Plugin takes the ha
 
 ### A Pack's Lua prelude runs once in each section VM
 
-For a prompt that declares the Pack, the Engine runs the Pack's prelude in each section VM, before `require` and before the author's code. The prelude receives the Pack id through `...` and defines globals, which the Engine then seals. Each Rust Pack that ships leaves its prelude unset. A Pack from the C contract has a name and a description, and a prelude for it is still to be built.
+For a prompt that declares the Pack, the Engine runs the Pack's prelude in each section VM, before `require` and before the author's code. The prelude receives the Pack id through `...` and defines globals, which the Engine then seals. A prelude defines each global under a name that is a UTF-8 string and leaves its environment a table that is not weak, and the install fails for a prelude that breaks either rule. Each Rust Pack that ships leaves its prelude unset. A Pack from the C contract has a name and a description, and a prelude for it is still to be built.
 
 ## 8. The C contract
 
