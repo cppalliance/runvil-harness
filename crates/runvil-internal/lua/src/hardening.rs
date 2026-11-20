@@ -17,7 +17,8 @@ const HOOK_INTERVAL: u32 = 10_000;
 /// and its global is stripped again.
 ///
 /// First installs the `_G` guard with its `setmetatable` and
-/// `getmetatable` replacements ([`crate::globals`]).
+/// `getmetatable` replacements ([`crate::globals`]), then the `pairs` and
+/// `next` that walk in a fixed order ([`crate::iteration`]).
 ///
 /// Last replaces the standard-library functions whose result no run input
 /// fixes, and wraps `table.concat` ([`crate::stdlib`]), so every chunk the
@@ -27,6 +28,8 @@ pub(crate) fn harden(lua: &Lua) -> Result<()> {
     // chunk, the standard-library replacements included, must capture the
     // guard's replacements rather than the base functions.
     crate::globals::install(lua)?;
+    // The iterator of `pairs` captures `rawget`, which is removed below.
+    crate::iteration::install_deterministic_iteration(lua)?;
     let globals = lua.globals();
     for name in [
         "load",

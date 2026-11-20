@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 
 use mlua::{Table, Value};
 
-use crate::order::{KeyError, SortKey, sort_key};
+use crate::order;
 
 /// What a table's keys make it.
 pub(super) enum Shape {
@@ -110,9 +110,9 @@ pub(super) fn entries(table: &Table, room: usize) -> mlua::Result<Option<Entries
                 return Ok(None);
             }
         }
-        found.push((position(&key), key));
+        found.push((order::position(&key), key));
     }
-    found.sort_by(|left, right| compare(&left.0, &right.0));
+    found.sort_by(|left, right| order::compare_places(&left.0, &right.0));
     Ok(Some(Entries {
         keys: found.into_iter().map(|(_, key)| key).collect(),
         held,
@@ -132,34 +132,4 @@ fn holds_reference(key: &Value) -> bool {
             | Value::UserData(_)
             | Value::Other(_)
     )
-}
-
-/// A key's place in visiting order.
-enum Position {
-    Sorted(SortKey),
-    Unsorted(&'static str),
-}
-
-/// Places `key` by `sort_key`, also placing a string that is not valid
-/// UTF-8 by its bytes and an infinite number by its value.
-fn position(key: &Value) -> Position {
-    match (sort_key(key), key) {
-        (Ok((position, _)), _) => Position::Sorted(position),
-        (Err(KeyError::NotUtf8(_)), Value::String(text)) => {
-            Position::Sorted(SortKey::Text(text.as_bytes().to_vec()))
-        }
-        (Err(KeyError::NotFinite), Value::Number(number)) => {
-            Position::Sorted(SortKey::Float(*number))
-        }
-        (Err(_), other) => Position::Unsorted(other.type_name()),
-    }
-}
-
-fn compare(left: &Position, right: &Position) -> Ordering {
-    match (left, right) {
-        (Position::Sorted(left), Position::Sorted(right)) => left.compare(right),
-        (Position::Sorted(_), Position::Unsorted(_)) => Ordering::Less,
-        (Position::Unsorted(_), Position::Sorted(_)) => Ordering::Greater,
-        (Position::Unsorted(left), Position::Unsorted(right)) => left.cmp(right),
-    }
 }
