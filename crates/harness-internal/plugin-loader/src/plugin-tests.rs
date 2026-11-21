@@ -6,10 +6,10 @@ use std::cell::RefCell;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
-use runvil_plugin::{ErrorCode, ErrorFact, PackRegistry};
+use runvil_plugin::{Error, ErrorCode, ErrorFact, PackRegistry};
 
 use crate::fakes::*;
-use crate::plugin::{Plugin, PluginSource, insert_plugin};
+use crate::plugin::{Plugin, PluginSource, make_report};
 use crate::resources::HostResources;
 
 /// A Plugin may cross threads and be shared.
@@ -258,12 +258,27 @@ fn inserting_a_plugin_leaves_the_pack_registry_as_it_was() {
     fake!(plug, |call| describe(call, "acme-url", "1.0.0"));
     let mut packs = PackRegistry::new();
     let _plugin =
-        insert_plugin(&mut packs, plug::entry, &HostResources::new()).expect("the Plugin loads");
+        insert_into(&mut packs, plug::entry, &HostResources::new()).expect("the Plugin loads");
     assert_eq!(
         packs.list().count(),
         0,
         "a Plugin that inserts no Pack leaves the registry empty"
     );
+}
+
+#[test]
+fn a_report_made_from_an_outcome_holds_no_plugin_and_the_failure_of_the_outcome() {
+    let done = make_report(Ok(()));
+    assert!(done.plugins().is_empty(), "{:?}", done.plugins());
+    assert!(done.failures().is_empty(), "{:?}", done.failures());
+
+    // The failure of a step that loads no Plugin of the contract is any
+    // error, and the report holds it as it is.
+    let code = ErrorCode::InvalidValue;
+    let failure = Error::new(code, "the Rust Plugin failed", code.prose());
+    let failed = make_report(Err(failure.clone()));
+    assert!(failed.plugins().is_empty(), "{:?}", failed.plugins());
+    assert_eq!(failed.failures(), [failure]);
 }
 
 #[test]

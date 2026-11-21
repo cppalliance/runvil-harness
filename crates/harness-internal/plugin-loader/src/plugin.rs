@@ -1,6 +1,6 @@
-//! The public surface: inserting the library Plugins in a directory or a
-//! linked Plugin, and the report, the Plugin, and the failure that come
-//! back.
+//! The public surface: inserting the library Plugins in a directory, the
+//! library Plugin in one file, or a linked Plugin, and the report that
+//! comes back, with each Plugin that loaded and each failure.
 
 use std::fmt;
 use std::io;
@@ -54,45 +54,49 @@ pub fn insert_plugin_dir(
     directory: &Path,
     resources: &HostResources,
 ) -> io::Result<PluginReport> {
-    let mut report = PluginReport {
-        plugins: Vec::new(),
-        failures: Vec::new(),
-    };
+    let mut report = PluginReport::empty();
     for path in plugin_files(directory)? {
-        match load_library(&path, resources) {
-            Ok((plugin, _))
-                if report
-                    .plugins
-                    .iter()
-                    .any(|loaded| loaded.name == plugin.name) =>
-            {
-                let mut repeat = make_load_error(
-                    "duplicate",
-                    format!(
-                        "a Plugin named {} was already loaded from this directory",
-                        plugin.name
-                    ),
-                );
-                repeat
-                    .facts
-                    .insert(ErrorFact::Name, plugin.name.as_str().into());
-                report.failures.push(with_path(repeat, &path));
-                // It did load, so this drop sends RV_PLUGIN_UNLOAD and then
-                // closes its library, like any other Plugin's.
-                drop(plugin);
-            }
-            Ok((plugin, inserted)) => {
-                let plugin = Arc::new(plugin);
-                let refused = insert_packs(packs, &plugin, inserted);
-                report
-                    .failures
-                    .extend(refused.into_iter().map(|error| with_path(error, &path)));
-                report.plugins.push(plugin);
-            }
-            Err(error) => report.failures.push(with_path(error, &path)),
-        }
+        report.insert_library(packs, &path, resources);
     }
     Ok(report)
+}
+
+/// Opens the dynamic library at `path`, loads its Plugin by sending it
+/// RV_PLUGIN_LOAD, and inserts the Packs that Plugin offers into `packs`,
+/// as [`insert_plugin_dir`] does for each library it finds. The report
+/// holds the Plugin when it loaded, and each failure with the library's
+/// path: a file that can't be opened, has no `runvil_plugin`, or fails to
+/// load, and each Pack that `packs` refuses, while the Plugin and its
+/// other Packs stay. A relative `path` resolves against the working
+/// directory, and a path that cannot be made absolute fails as a library
+/// that can't be opened.
+///
+/// Each Pack that goes in keeps its Plugin loaded for as long as `packs`,
+/// or what a Host builds from it, holds the Pack. The Plugin keeps a
+/// clone of `resources`, and every tool call of its Packs is lent what
+/// `resources` offers as the call starts.
+///
+/// This safe function runs foreign code, as [`insert_plugin_dir`] does:
+/// a Host names only a library it trusts, whose `runvil_plugin` must
+/// follow the contract in `runvil-plugin-sys` and must not unwind.
+#[must_use = "the report holds each failure, and a Plugin that inserted no Pack unloads when \
+              the report drops"]
+pub fn insert_plugin_file(
+    packs: &mut PackRegistry,
+    path: &Path,
+    resources: &HostResources,
+) -> PluginReport {
+    let mut report = PluginReport::empty();
+    // The loader opens a library by an absolute path, as Windows requires.
+    match std::path::absolute(path) {
+        Ok(path) => report.insert_library(packs, &path, resources),
+        Err(error) => {
+            let failure =
+                make_load_error("open", format!("the library could not be opened: {error}"));
+            report.failures.push(with_path(failure, path));
+        }
+    }
+    report
 }
 
 /// `error` with the library's `path` as its `Path` fact.
@@ -111,9 +115,10 @@ fn load_library(
 ) -> Result<(Plugin, Vec<InsertedPack>), Error> {
     let (library, entry) = open_entry(path)?;
     let source = PluginSource::Library(path.to_owned());
-    // SAFETY: `insert_plugin_dir`'s documentation requires every
-    // `runvil_plugin` to follow the C contract and not unwind, and
-    // `library` is the library `entry` came from.
+    // SAFETY: the documentation of `insert_plugin_dir` and of
+    // `insert_plugin_file` requires every `runvil_plugin` to follow the C
+    // contract and not unwind, and `library` is the library `entry` came
+    // from.
     unsafe { load(source, entry, Some(library), resources) }
 }
 
@@ -186,8 +191,16 @@ fn insert_packs(
 }
 
 /// Loads a Plugin linked into the Host by sending `entry` RV_PLUGIN_LOAD,
-/// inserts the Packs it offers into `packs`, and returns it. `entry` must
-/// follow the C contract in `runvil-plugin-sys`, as a library's must.
+/// inserts the Packs it offers into `packs`, and reports what came of it,
+/// as [`insert_plugin_dir`] reports each library. `entry` must follow the
+/// C contract in `runvil-plugin-sys`, as a library's must.
+///
+/// A Plugin that loads is the report's one Plugin. A Pack that `packs`
+/// refuses, such as one whose name it already holds, is a failure of the
+/// report, and the Plugin and its other Packs stay. A Plugin that
+/// refuses, misuses the load functions, or does not describe itself is
+/// the report's one failure, and the report then holds no Plugin. A
+/// failure of a linked Plugin has no `Path` fact.
 ///
 /// Each Pack that goes in keeps the Plugin loaded for as long as `packs`,
 /// or what a Host builds from it, holds the Pack.
@@ -198,28 +211,35 @@ fn insert_packs(
 /// This safe function runs foreign code: it calls `entry` with no way to
 /// check it, so a Host passes only an entry point it trusts, and `entry`
 /// must not unwind.
-///
-/// # Errors
-/// Returns the `PluginLoadFailed` failure, with no `Path` fact, when the
-/// Plugin refuses, misuses the load functions, or does not describe
-/// itself, and the failure of the first Pack that `packs` refuses. The
-/// Packs that went in before that one stay in `packs`.
+#[must_use = "the report holds each failure, and a Plugin that inserted no Pack unloads when \
+              the report drops"]
 pub fn insert_plugin(
     packs: &mut PackRegistry,
     entry: PluginEntry,
     resources: &HostResources,
-) -> Result<Arc<Plugin>, Error> {
+) -> PluginReport {
+    let mut report = PluginReport::empty();
     // SAFETY: this function's documentation requires `entry` to follow the
     // C contract and not unwind, and a linked Plugin has no library.
-    let (plugin, inserted) = unsafe { load(PluginSource::Linked, entry, None, resources) }?;
-    let plugin = Arc::new(plugin);
-    match insert_packs(packs, &plugin, inserted).into_iter().next() {
-        Some(refused) => Err(refused),
-        None => Ok(plugin),
+    match unsafe { load(PluginSource::Linked, entry, None, resources) } {
+        Ok((plugin, inserted)) => report.record(packs, plugin, inserted, None),
+        Err(error) => report.failures.push(error),
+    }
+    report
+}
+
+/// The report of a step that loads no Plugin of the C contract, such as a
+/// Rust Plugin's `install`: it holds no Plugin, and it holds the failure
+/// of `outcome` when there is one.
+#[must_use]
+pub fn make_report(outcome: Result<(), Error>) -> PluginReport {
+    PluginReport {
+        plugins: Vec::new(),
+        failures: outcome.err().into_iter().collect(),
     }
 }
 
-/// What one `insert_plugin_dir` call loaded and what failed. It holds one
+/// What one call that loads Plugins loaded and what failed. It holds one
 /// `Arc` of each Plugin it loaded; dropping it releases only that hold.
 #[derive(Debug)]
 pub struct PluginReport {
@@ -234,13 +254,73 @@ impl PluginReport {
         &self.plugins
     }
 
-    /// Every failure, in the order it happened: a `PluginLoadFailed` error
-    /// whose message says why, with the library's path as its `Path` fact,
-    /// the failure's kind as its `Reason` fact, and, for a repeated Plugin
-    /// name or a Pack the registry refused, that name as its `Name` fact.
+    /// Every failure, in the order it happened. A failed load and a Pack
+    /// the registry refused are each a `PluginLoadFailed` error whose
+    /// message says why, with the failure's kind as its `Reason` fact,
+    /// the library's path as its `Path` fact when the Plugin came from a
+    /// library, and, for a repeated Plugin name or a refused Pack, that
+    /// name as its `Name` fact. The report of a step that loads no
+    /// Plugin of the C contract holds the failure of that step as it is.
     #[must_use]
     pub fn failures(&self) -> &[Error] {
         &self.failures
+    }
+
+    /// A report of nothing loaded and nothing failed.
+    fn empty() -> PluginReport {
+        PluginReport {
+            plugins: Vec::new(),
+            failures: Vec::new(),
+        }
+    }
+
+    /// Opens the library at the absolute `path`, loads its Plugin, and
+    /// records what came of it: the Plugin with its Packs inserted into
+    /// `packs`, or the failure with `path`. A Plugin whose name this
+    /// report holds already did load, so it is unloaded again, none of
+    /// its Packs go in, and it is recorded as a `duplicate` failure.
+    fn insert_library(&mut self, packs: &mut PackRegistry, path: &Path, resources: &HostResources) {
+        match load_library(path, resources) {
+            Ok((plugin, _)) if self.plugins.iter().any(|loaded| loaded.name == plugin.name) => {
+                let mut repeat = make_load_error(
+                    "duplicate",
+                    format!(
+                        "a Plugin named {} was already loaded from this directory",
+                        plugin.name
+                    ),
+                );
+                repeat
+                    .facts
+                    .insert(ErrorFact::Name, plugin.name.as_str().into());
+                self.failures.push(with_path(repeat, path));
+                // It did load, so this drop sends RV_PLUGIN_UNLOAD and then
+                // closes its library, like any other Plugin's.
+                drop(plugin);
+            }
+            Ok((plugin, inserted)) => self.record(packs, plugin, inserted, Some(path)),
+            Err(error) => self.failures.push(with_path(error, path)),
+        }
+    }
+
+    /// Records the loaded `plugin`, from a library or linked: inserts
+    /// each Pack it offered into `packs`, adds the failure of each one
+    /// `packs` refused, with `path` when the Plugin came from a library,
+    /// and adds the Plugin.
+    fn record(
+        &mut self,
+        packs: &mut PackRegistry,
+        plugin: Plugin,
+        inserted: Vec<InsertedPack>,
+        path: Option<&Path>,
+    ) {
+        let plugin = Arc::new(plugin);
+        let refused = insert_packs(packs, &plugin, inserted);
+        self.failures
+            .extend(refused.into_iter().map(|error| match path {
+                Some(path) => with_path(error, path),
+                None => error,
+            }));
+        self.plugins.push(plugin);
     }
 }
 

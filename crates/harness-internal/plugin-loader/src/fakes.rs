@@ -213,10 +213,31 @@ pub(crate) const PLUGIN_TAG: usize = 0x100;
 /// The `pack_run` a well-behaved fake `RV_PACK_NEW` sets.
 pub(crate) const PACK_TAG: usize = 0x200;
 
+/// Inserts the linked Plugin `entry` into `packs`, as a Host that offers
+/// `resources` does, and reads the report: the Plugin that loaded, or
+/// the report's first failure, which drops the report and its hold on a
+/// Plugin that loaded all the same.
+pub(crate) fn insert_into(
+    packs: &mut PackRegistry,
+    entry: PluginEntry,
+    resources: &HostResources,
+) -> Result<Arc<Plugin>, Error> {
+    let report = insert_plugin(packs, entry, resources);
+    match report.failures().first() {
+        Some(failure) => Err(failure.clone()),
+        None => Ok(Arc::clone(
+            report
+                .plugins()
+                .first()
+                .expect("a report with no failure holds its Plugin"),
+        )),
+    }
+}
+
 /// Inserts the linked Plugin `entry` into a fresh Pack registry, as a
 /// Host that offers no resources does.
 pub(crate) fn insert(entry: PluginEntry) -> Result<Arc<Plugin>, Error> {
-    insert_plugin(&mut PackRegistry::new(), entry, &HostResources::new())
+    insert_into(&mut PackRegistry::new(), entry, &HostResources::new())
 }
 
 /// Inserts `entry`, which must load.
@@ -251,7 +272,7 @@ fn fake_pack(packs: PackRegistry) -> Result<Arc<dyn Pack>, Error> {
 /// [`FAKE_PACK`] for one run's instance.
 pub(crate) fn new_pack(entry: PluginEntry) -> Result<Arc<dyn Pack>, Error> {
     let mut packs = PackRegistry::new();
-    drop(insert_plugin(&mut packs, entry, &HostResources::new()).expect("the Plugin loads"));
+    drop(insert_into(&mut packs, entry, &HostResources::new()).expect("the Plugin loads"));
     fake_pack(packs)
 }
 
@@ -269,7 +290,7 @@ pub(crate) fn made_with(
     resources: &HostResources,
 ) -> (Arc<Plugin>, Arc<dyn Pack>) {
     let mut packs = PackRegistry::new();
-    let plugin = insert_plugin(&mut packs, entry, resources).expect("the Plugin loads");
+    let plugin = insert_into(&mut packs, entry, resources).expect("the Plugin loads");
     let pack = fake_pack(packs).expect("the Pack instance is made");
     (plugin, pack)
 }

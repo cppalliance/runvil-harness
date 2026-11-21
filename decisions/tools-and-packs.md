@@ -382,7 +382,9 @@ In the loader, `insert_plugin_dir` loads every dynamic library in a directory, a
 
 A Pack from the contract has tools only, and a tool has a name, a wire name, a description, parameters, and the flag that says it changes files. The other `ToolInfo` flags, the prelude, `ready`, `render`, the call's origin, a configuration at `install`, and a Pack inserted as unavailable exist in the Rust API alone. The contract is still to gain the ones that a shipped Pack uses.
 
-A loaded Plugin stays loaded while the `PluginReport`, one of its Packs in the registry, or a run's instance of one of its Packs holds it, so it unloads after its last Pack instance is deleted. `insert_plugin_dir` records a library that fails to load in the `PluginReport` and continues with the next one.
+Each of the two functions answers with a `PluginReport`, which holds each Plugin that loaded and each failure. A Plugin that fails to load is a failure of the report, and `insert_plugin_dir` continues with the next library. A Pack that the registry refuses is a failure too, and its Plugin stays in the report, because the Plugin did load and its other Packs went in. The two kinds are reported alike for the reason they are loaded alike: a Host reads one report whichever kind it loaded. A failure of a library names the library's path, and a failure of a C entry point has no path to name.
+
+A loaded Plugin stays loaded while the `PluginReport`, one of its Packs in the registry, or a run's instance of one of its Packs holds it, so it unloads after its last Pack instance is deleted.
 
 Loading happens in the Harness, and the Engine receives data: the tool catalog, the roster of the run's Packs, and the prelude text. The reason is that the Engine is pure: tool calls are effects that the Harness performs, and a replay can feed recorded results back to the Engine in place of calls to the Plugins.
 

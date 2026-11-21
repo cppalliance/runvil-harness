@@ -1,5 +1,7 @@
 //! `harness-plugin-loader` - inserts Plugins into a Host's Pack registry,
-//! from dynamic libraries in a Plugin directory or linked into the Host.
+//! from the dynamic libraries in a Plugin directory, from one library
+//! file, or linked into the Host, and reports each insert the same way:
+//! the Plugins that loaded and each failure.
 //! Each Plugin loads as it is inserted, and each Pack it offers goes into
 //! the registry with a factory that makes one instance of the Pack for
 //! each run and performs that instance's tool calls, all through the
@@ -96,5 +98,8 @@ mod plugin;
 mod resources;
 mod session;
 
-pub use plugin::{Plugin, PluginReport, PluginSource, insert_plugin, insert_plugin_dir};
+pub use plugin::{
+    Plugin, PluginReport, PluginSource, insert_plugin, insert_plugin_dir, insert_plugin_file,
+    make_report,
+};
 pub use resources::HostResources;

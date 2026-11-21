@@ -400,7 +400,7 @@ pub fn runvil::harness::RunRecorder::end_run(&self, run: runvil::harness::RunId,
 pub fn runvil::harness::Timer::now(&self) -> runvil::Timestamp { .. }
 pub fn runvil::harness::Timer::sleep(&self, duration: core::time::Duration) -> runvil::BoxFuture<'static, ()>
 pub fn runvil::harness::display_chain(error: &dyn core::error::Error) -> alloc::string::String
-pub fn runvil::harness::insert_plugin(packs: &mut runvil::plugin::PackRegistry, entry: runvil_plugin_sys::PluginEntry, resources: &runvil::harness::HostResources) -> core::result::Result<alloc::sync::Arc<runvil::harness::Plugin>, runvil::Error>
+pub fn runvil::harness::insert_plugin(packs: &mut runvil::plugin::PackRegistry, entry: runvil_plugin_sys::PluginEntry, resources: &runvil::harness::HostResources) -> runvil::harness::PluginReport
 pub fn runvil::harness::insert_plugin_dir(packs: &mut runvil::plugin::PackRegistry, directory: &std::path::Path, resources: &runvil::harness::HostResources) -> core::io::error::Result<runvil::harness::PluginReport>
 pub fn runvil::harness::make_recorder_error(cause: impl core::convert::Into<alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>) -> runvil::Error
 pub fn runvil::ids::AbandonReason::why(self) -> &'static str

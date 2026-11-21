@@ -617,8 +617,7 @@ fn a_pack_name_and_a_description_at_their_bounds_are_accepted() {
     });
     let mut packs = runvil_plugin::PackRegistry::new();
     let resources = crate::resources::HostResources::new();
-    let _plugin = crate::plugin::insert_plugin(&mut packs, plug::entry, &resources)
-        .expect("the Plugin loads");
+    let _plugin = insert_into(&mut packs, plug::entry, &resources).expect("the Plugin loads");
     let fqn = format!("{}/{}", "v".repeat(64), "p".repeat(64));
     let description = packs
         .list()

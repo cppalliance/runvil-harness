@@ -53,7 +53,7 @@ pack_fake!(
 fn a_plugins_pack_goes_into_the_registry_under_its_name_with_its_description() {
     let mut packs = PackRegistry::new();
     let plugin =
-        insert_plugin(&mut packs, good::entry, &HostResources::new()).expect("the Plugin loads");
+        insert_into(&mut packs, good::entry, &HostResources::new()).expect("the Plugin loads");
     assert_eq!(plugin.name(), "fake");
     let listed: Vec<(&str, &str)> = packs
         .list()
@@ -181,7 +181,7 @@ pack_fake!(
 #[test]
 fn a_pack_in_the_registry_keeps_its_plugin_loaded_and_each_run_gets_its_own_instance() {
     let mut packs = PackRegistry::new();
-    drop(insert_plugin(&mut packs, kept::entry, &HostResources::new()).expect("the Plugin loads"));
+    drop(insert_into(&mut packs, kept::entry, &HostResources::new()).expect("the Plugin loads"));
     assert_eq!(
         kept::UNLOADS.load(Ordering::SeqCst),
         0,
@@ -209,20 +209,29 @@ fn a_pack_in_the_registry_keeps_its_plugin_loaded_and_each_run_gets_its_own_inst
 }
 
 #[test]
-fn a_pack_the_registry_refuses_fails_the_insert_and_names_the_pack() {
+fn a_pack_the_registry_refuses_is_a_failure_and_its_plugin_stays_in_the_report() {
     let mut packs = PackRegistry::new();
     let resources = HostResources::new();
-    let _first =
-        insert_plugin(&mut packs, kept::entry, &resources).expect("the first Plugin loads");
-    let failure =
-        insert_plugin(&mut packs, good::entry, &resources).expect_err("the Pack name is taken");
+    let _first = insert_into(&mut packs, kept::entry, &resources).expect("the first Plugin loads");
+    let report = insert_plugin(&mut packs, good::entry, &resources);
+    let [failure] = report.failures() else {
+        panic!("the Pack name is taken, got {:?}", report.failures());
+    };
     assert_eq!(failure.code, ErrorCode::PluginLoadFailed);
-    assert_eq!(reason(&failure), Some("pack"));
+    assert_eq!(reason(failure), Some("pack"));
     assert_eq!(failure.facts.get(&ErrorFact::Name), Some(&json!(FAKE_PACK)));
     assert_eq!(
         failure.message,
         "the Pack acme/fake of the Plugin fake was not inserted: Pack `acme/fake` is already in \
          the registry"
+    );
+    let [plugin] = report.plugins() else {
+        panic!("the Plugin loaded, got {:?}", report.plugins());
+    };
+    assert_eq!(
+        plugin.name(),
+        "fake",
+        "a Plugin whose Pack was refused did load, so the report holds it"
     );
 }
 

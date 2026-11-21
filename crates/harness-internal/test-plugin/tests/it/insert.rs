@@ -1,12 +1,16 @@
 //! `insert_plugin_dir` against copies of the fixture library: what loads,
 //! what fails and why, what is ignored, and that every library closes.
+//! `insert_plugin_file` against one copy named by its file: it reports
+//! the copy as the directory function reports each library it finds.
 //! Each test drops its report, then removes its directory.
 
 use std::fs;
 use std::io;
 use std::path::Path;
 
-use harness_plugin_loader::{HostResources, PluginReport, PluginSource, insert_plugin_dir};
+use harness_plugin_loader::{
+    HostResources, PluginReport, PluginSource, insert_plugin_dir, insert_plugin_file,
+};
 use runvil_plugin::{Error, ErrorFact, PackRegistry};
 
 use crate::support::{copy_fixture, remove, scratch};
@@ -184,6 +188,99 @@ fn a_pack_the_registry_already_holds_is_reported_and_its_plugin_still_loads() {
     drop((first, second, packs));
     remove(&first_dir);
     remove(&second_dir);
+}
+
+#[test]
+fn insert_plugin_file_loads_the_fixture() {
+    let dir = scratch("insert_plugin_file_loads_the_fixture");
+    let file = copy_fixture(&dir, "plugin");
+    let report = insert_plugin_file(&mut PackRegistry::new(), &file, &HostResources::new());
+    assert!(report.failures().is_empty(), "{:?}", report.failures());
+    let [plugin] = report.plugins() else {
+        panic!("one Plugin loads, got {:?}", report.plugins());
+    };
+    assert_eq!(
+        format!("{} {}", plugin.name(), plugin.version()),
+        "test-plugin 0.1.0"
+    );
+    assert_eq!(plugin.source(), &library_source(&file));
+    drop(report);
+    remove(&dir);
+}
+
+#[test]
+fn a_file_that_is_no_library_is_one_open_failure_with_its_path() {
+    let dir = scratch("a_file_that_is_no_library_is_one_open_failure");
+    let garbage = dir.join(format!("garbage.{}", std::env::consts::DLL_EXTENSION));
+    fs::write(&garbage, b"this is not a library").expect("the garbage file is written");
+    let report = insert_plugin_file(&mut PackRegistry::new(), &garbage, &HostResources::new());
+    assert!(report.plugins().is_empty(), "{:?}", report.plugins());
+    let [failure] = report.failures() else {
+        panic!("the file fails, got {:?}", report.failures());
+    };
+    assert_eq!(fact(failure, ErrorFact::Reason), Some("open"));
+    assert!(
+        failure
+            .message
+            .starts_with("the library could not be opened: "),
+        "{}",
+        failure.message
+    );
+    assert_eq!(
+        fact(failure, ErrorFact::Path),
+        Some(library_path(&garbage).as_str())
+    );
+
+    // A path that cannot be made absolute fails the same way, with the
+    // path as it was given.
+    let unnamed = insert_plugin_file(
+        &mut PackRegistry::new(),
+        Path::new(""),
+        &HostResources::new(),
+    );
+    assert!(unnamed.plugins().is_empty(), "{:?}", unnamed.plugins());
+    let [failure] = unnamed.failures() else {
+        panic!("the empty path fails, got {:?}", unnamed.failures());
+    };
+    assert_eq!(fact(failure, ErrorFact::Reason), Some("open"));
+    assert_eq!(fact(failure, ErrorFact::Path), Some(""));
+    drop((report, unnamed));
+    remove(&dir);
+}
+
+#[test]
+fn a_file_whose_pack_the_registry_already_holds_stays_in_the_report_with_the_refusal() {
+    let dir = scratch("a_file_whose_pack_the_registry_already_holds");
+    // Two copies of one library are two Plugins of one name, and each file
+    // is a call of its own, so both load.
+    let first_file = copy_fixture(&dir, "first");
+    let second_file = copy_fixture(&dir, "second");
+    let mut packs = PackRegistry::new();
+    let resources = HostResources::new();
+    let first = insert_plugin_file(&mut packs, &first_file, &resources);
+    assert!(first.failures().is_empty(), "{:?}", first.failures());
+
+    let second = insert_plugin_file(&mut packs, &second_file, &resources);
+    let [plugin] = second.plugins() else {
+        panic!("the second Plugin did load, got {:?}", second.plugins());
+    };
+    assert_eq!(plugin.source(), &library_source(&second_file));
+    let [failure] = second.failures() else {
+        panic!("its Pack is refused, got {:?}", second.failures());
+    };
+    assert_eq!(fact(failure, ErrorFact::Reason), Some("pack"));
+    assert_eq!(fact(failure, ErrorFact::Name), Some("fixture/test"));
+    assert_eq!(
+        fact(failure, ErrorFact::Path),
+        Some(library_path(&second_file).as_str())
+    );
+    assert_eq!(
+        failure.message,
+        "the Pack fixture/test of the Plugin test-plugin was not inserted: Pack `fixture/test` \
+         is already in the registry"
+    );
+    drop((first, second, packs));
+    remove(&dir);
 }
 
 #[test]
