@@ -463,7 +463,4 @@ One commit, `dd13113` on `master` of `cppalliance/runvil-classroom`. `discover_o
 
 ## Left open
 
-- **The guide and Workshop are on the forks only.** `vinniefalco/runvil-docs` is one commit ahead of `cppalliance/runvil-docs`, and `vinniefalco/runvil-workshop` is two commits ahead of `cppalliance/runvil-workshop`.
-- **This record is on the fork of the Harness only**, one commit ahead of `cppalliance/runvil-harness`.
-- **Issue [#29](https://github.com/cppalliance/runvil-harness/issues/29) is about a handle that `models.get` built from a model id.** No such handle exists now, and the issue is still open.
-- **A test broker that lists two models** would let a runner test select the second one. That would answer the first review comment and close the gap named under Phase 1.
+Each of the four points that this section listed is settled. The guide, Workshop, and this record reached `cppalliance` on 2026-11-20: the guide with pull request [#9](https://github.com/cppalliance/runvil-docs/pull/9), Workshop with pull request [#29](https://github.com/cppalliance/runvil-workshop/pull/29), and this record on `master` of `cppalliance/runvil-harness`. Issue [#29](https://github.com/cppalliance/runvil-harness/issues/29) is closed: `models.get` takes a role alone since `d5c2ebe9`, so the handle that the issue is about cannot be built. The test broker that lists two models exists in the runner's suites as `Listing::ListsAfter`, and `a_prompt_reads_the_selected_model_through_a_roles_handle` now selects the model that its broker lists second. That answers the first review comment and closes the gap named under Phase 1.
