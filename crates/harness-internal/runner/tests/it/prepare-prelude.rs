@@ -71,7 +71,7 @@ async fn a_preludes_tool_calls_are_recorded_as_script_calls_from_the_section_tha
 #[tokio::test]
 async fn preludes_run_in_the_prompts_declaration_order_not_the_registry_order() {
     let packs = ["tests/first", "tests/second"].map(|fqn| echo_pack(fqn, Some("shared = 1\n")));
-    let host = Packs::new(registry(&packs));
+    let host = host_over(registry(&packs));
     let declares_second_first = "---\nname: order\ndescription: d\nrunvil: 0\n\
         uses:\n  - tests/second\n  - tests/first\n---\n\n## Only\n\n```lua\nreturn 'ran'\n```\n";
     let error = drive_over(declares_second_first, host)

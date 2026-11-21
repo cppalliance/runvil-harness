@@ -1,6 +1,9 @@
 //! harness-runner - the per-run Harness and the effect loop it drives. A
-//! Host builds one [`Host`] at startup, holding its installed [`Packs`]
-//! and how it finds prompts, and [`Host::parse`] finds a prompt
+//! Host builds one [`Host`] at startup: [`Host::builder`] takes how it
+//! finds prompts, each `with_` method of the [`HostBuilder`] names one
+//! Plugin, and [`HostBuilder::build`] installs the Plugins' Packs, keeps
+//! the report of each Plugin, and returns the `Host` inside an `Arc`.
+//! [`Host::parse`] finds a prompt
 //! by its name, parses it and every prompt it links, checks the `uses:`
 //! list of each against those Packs, and returns the parsed prompt behind
 //! an `Arc` that every run of it shares. Three stock finders serve a
@@ -63,10 +66,11 @@
 //! - The loop never reads an event to decide anything; control comes
 //!   from the run's own word (`Step` and the effects it withdraws), the
 //!   cancel flag, the Host's stop, and the messages the Host sends.
-//! - A Host's [`Packs`] keeps the factory of every Pack its
-//!   `PackRegistry` holds and of the two built-in Packs,
+//! - A [`Host`] keeps the factory of every Pack its Plugins inserted
+//!   into the `PackRegistry` of its build and of the two built-in Packs,
 //!   `runvil/subagents` and `runvil/user`, which the Harness makes
-//!   itself, and only those. The registry refuses a duplicate FQN, a
+//!   itself, and only those. Its Packs are fixed when
+//!   [`HostBuilder::build`] returns. The registry refuses a duplicate FQN, a
 //!   Pack id it holds already, and the Pack id of a built-in, so a Host
 //!   has one Pack per Pack id and no other Pack can take `subagents` or
 //!   `user`. A run whose [`RunSetup`] has no user holds `runvil/user`
@@ -81,7 +85,7 @@
 //!   instance, and drops its instances when its future ends.
 //! - A run hands a Pack's factory the Pack id alone, and a tool call
 //!   only facts about that call. What a Pack needs from the Host, its
-//!   factory holds from the time the Host filled its `PackRegistry`.
+//!   factory holds from the time its Plugin inserted it.
 //! - A factory that refuses or panics leaves its Pack unavailable to that
 //!   run alone: a refusal is logged at debug and a panic at error, and the
 //!   next run calls the factory again.
@@ -109,8 +113,7 @@ mod tool_files;
 
 pub use display_chain::display_chain;
 pub use harness::{Harness, RunControl, RunReport};
-pub use host::Host;
-pub use packs::Packs;
+pub use host::{Host, HostBuilder};
 pub use prompt_finders::{FindFilePrompt, FindTextPrompt, PromptSet};
 pub use recorder::{
     MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder, make_recorder_error,

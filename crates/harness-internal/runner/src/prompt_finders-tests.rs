@@ -13,12 +13,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use runvil_engine::{Error, ErrorCode, ErrorFact, PromptFinder};
-use runvil_plugin::PackRegistry;
 use serde_json::json;
 
 use super::{FindFilePrompt, FindTextPrompt, PromptSet};
 use crate::host::Host;
-use crate::packs::Packs;
 
 /// Tells apart the directories one process makes; nextest runs each test
 /// in its own process, so the process id tells those apart.
@@ -476,16 +474,18 @@ fn names_lists_what_the_last_rescan_found() {
 /// A prompt that parses, and names itself `greet`.
 const GREET: &str = "---\nname: greet\ndescription: d\nrunvil: 0\n---\n\n## Only\n\nDone.\n";
 
+/// A Host with no Pack but the built-ins, whose finder is `prompts`.
+fn host_over(prompts: Arc<dyn PromptFinder>) -> Arc<Host> {
+    Host::builder(prompts).build()
+}
+
 #[test]
 fn a_host_parses_a_prompt_added_to_the_set_it_shares_once_its_application_rescans() {
     let dir = Scratch::new("a_host_parses_a_prompt_added_to_the_set");
     // One set behind an `Arc`: the Host holds one handle as its finder,
     // and the application keeps the other to rescan through.
     let prompts = Arc::new(set_over(dir.path()));
-    let host = Host {
-        packs: Packs::new(PackRegistry::new()),
-        prompts: prompts.clone(),
-    };
+    let host = host_over(prompts.clone());
     assert_eq!(host.parse("greet.md"), Err(missing("greet.md")));
 
     write(dir.path(), "greet.md", GREET);
@@ -501,14 +501,6 @@ fn a_host_parses_a_prompt_added_to_the_set_it_shares_once_its_application_rescan
 /// line 5.
 const PLAN: &str =
     "---\nname: plan\ndescription: d\nrunvil: 0\nprompts: [greet.md]\n---\n\n## Only\n\nDone.\n";
-
-/// A Host with no Pack but the built-ins, whose finder is `prompts`.
-fn host_over(prompts: Arc<dyn PromptFinder>) -> Host {
-    Host {
-        packs: Packs::new(PackRegistry::new()),
-        prompts,
-    }
-}
 
 /// The file name of each prompt `prompt` links, in the order it gives
 /// them.

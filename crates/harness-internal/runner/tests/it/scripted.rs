@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use harness_runner::Packs;
+use harness_runner::Host;
 use harness_runner::performers::{InferenceBroker, Timer};
 use runvil_engine::effect::Round;
 use runvil_engine::model::{
@@ -21,7 +21,7 @@ use runvil_plugin::{
 };
 use serde_json::{Value, json};
 
-use crate::support::registry;
+use crate::support::{host_over, registry};
 
 /// The model the scripted broker lists, alone unless a test asks for a
 /// second one before it.
@@ -277,29 +277,29 @@ impl Pack for HoldPack {
 }
 
 /// A Host holding the hold Pack over `held`.
-pub(crate) fn hold_host(held: &Arc<Held>) -> Packs {
+pub(crate) fn hold_host(held: &Arc<Held>) -> Arc<Host> {
     host_holding(held, false)
 }
 
 /// A Host holding the hold Pack over `held`, its tool marked to
 /// survive a stop.
-pub(crate) fn surviving_hold_host(held: &Arc<Held>) -> Packs {
+pub(crate) fn surviving_hold_host(held: &Arc<Held>) -> Arc<Host> {
     host_holding(held, true)
 }
 
 /// A Host holding the hold Pack over `held`, and as `keep` the hold Pack
 /// over `kept`, whose tool survives a stop.
-pub(crate) fn keeping_hold_host(held: &Arc<Held>, kept: &Arc<Held>) -> Packs {
+pub(crate) fn keeping_hold_host(held: &Arc<Held>, kept: &Arc<Held>) -> Arc<Host> {
     let mut packs = registry(&[]);
     packs.insert(HOLD, holding(held, false)).unwrap();
     packs.insert(KEEP, holding(kept, true)).unwrap();
-    Packs::new(packs)
+    host_over(packs)
 }
 
 /// A Host that installed the hold Pack over `held`, its tool surviving a
 /// stop when `survives_stop` is set.
-fn host_holding(held: &Arc<Held>, survives_stop: bool) -> Packs {
+fn host_holding(held: &Arc<Held>, survives_stop: bool) -> Arc<Host> {
     let mut packs = registry(&[]);
     packs.insert(HOLD, holding(held, survives_stop)).unwrap();
-    Packs::new(packs)
+    host_over(packs)
 }

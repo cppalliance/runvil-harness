@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind};
-use harness_runner::{Packs, RunControl};
+use harness_runner::{Host, RunControl};
 use runvil_engine::Error;
 use runvil_engine::vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsPath, VfsRef};
 use runvil_plugin::{
@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 
 use super::{PATIENCE, hooked_recorder, launch, setup};
 use crate::scripted::ScriptedBroker;
-use crate::support::{assert_canceled, registry};
+use crate::support::{assert_canceled, host_over, registry};
 
 /// The fixture Pack `files`, whose every tool works through its call's
 /// files. `files/copy` reads the file its `from` names and writes what it
@@ -72,10 +72,10 @@ fn files_pack(on_pair: impl Fn() + Send + Sync + 'static) -> impl PackFactory {
 
 /// A Host holding the fixture Pack, whose `files/pair` runs `on_pair` as
 /// it starts.
-pub(super) fn files_host(on_pair: impl Fn() + Send + Sync + 'static) -> Packs {
+pub(super) fn files_host(on_pair: impl Fn() + Send + Sync + 'static) -> Arc<Host> {
     let mut packs = registry(&[]);
     packs.insert(FILES_PACK, files_pack(on_pair)).unwrap();
-    Packs::new(packs)
+    host_over(packs)
 }
 
 /// The operation that writes `text` to `path`.

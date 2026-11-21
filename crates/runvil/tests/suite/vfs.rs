@@ -8,7 +8,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use harness_gateway_client::TokioTimer;
-use runvil::harness::{MemoryRecorder, OfflineBroker, Packs, RecordKind, RunId};
+use runvil::harness::{MemoryRecorder, OfflineBroker, RecordKind, RunId};
 use runvil::packs::PackId;
 use runvil::plugin::{Pack, PackInfo, PackRegistry, ToolContext};
 use runvil::vfs::{
@@ -19,7 +19,7 @@ use runvil::{
 };
 use serde_json::{Value, json};
 
-use crate::support::{launch, no_packs};
+use crate::support::{launch, launch_with};
 
 /// Reads the notes through the desk's tool, waits for the operator's
 /// message, and returns the notes and the message.
@@ -92,13 +92,10 @@ fn new_desk(id: &PackId) -> Result<Arc<dyn Pack>, Error> {
     Ok(Arc::new(Desk { read }))
 }
 
-/// A Host's Packs: the built-ins and [`DESK`].
-fn desk_packs() -> Packs {
-    let mut registry = PackRegistry::new();
-    if let Err(error) = registry.insert(DESK, new_desk) {
-        panic!("the registry takes the desk Pack: {error:?}");
-    }
-    Packs::new(registry)
+/// The Rust Plugin of the desk: it inserts [`DESK`] into the registry it
+/// is lent.
+fn install_desk(packs: &mut PackRegistry) -> Result<(), Error> {
+    packs.insert(DESK, new_desk)
 }
 
 /// Each watched operation's origin label and file.
@@ -211,7 +208,7 @@ async fn a_hosts_edit_of_a_file_the_run_read_applies_while_the_run_waits_on_its_
     )
     .vfs(vfs.clone())
     .has_user(true);
-    let harness = launch(desk_packs(), REVIEW, setup);
+    let harness = launch_with(install_desk, REVIEW, setup);
     let control = harness.control();
     // While the run waits on its inbox, the Host edits the notes the run's
     // tool call already read, then sends the approval.
@@ -261,7 +258,7 @@ async fn a_hosts_policy_and_watcher_never_see_a_store_operation() {
         Arc::new(TokioTimer),
     )
     .vfs(vfs.clone());
-    let report = launch(no_packs(), KEEPS, setup)
+    let report = launch(KEEPS, setup)
         .run()
         .await
         .expect("the run is reported");

@@ -1,14 +1,13 @@
-//! A Host runs one prompt through a Harness: it builds a Host over an
-//! empty Pack registry, so its only Packs are the built-ins, and a finder
-//! that serves its one prompt, parses the prompt by its name, hands the
+//! A Host runs one prompt through a Harness: it builds a Host over a
+//! finder that serves its one prompt, with no Plugin, so its only Packs
+//! are the built-ins, parses the prompt by its name, hands the
 //! run a recorder, the stock offline broker, the stock tokio timer, and
 //! the operator's name, and prints the greeting the prompt returns.
 
 use std::sync::Arc;
 
 use harness_gateway_client::TokioTimer;
-use runvil::harness::{FindTextPrompt, MemoryRecorder, OfflineBroker, Packs};
-use runvil::plugin::PackRegistry;
+use runvil::harness::{FindTextPrompt, MemoryRecorder, OfflineBroker};
 use runvil::{Harness, Host, RunSetup};
 
 /// The name the Host finds the greeting prompt by.
@@ -24,13 +23,12 @@ const GREET: &str = concat!(
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Build the Host once: its installed Packs and how it finds
-    //    prompts. A stock finder serves the one prompt under its name and
-    //    finds no other.
-    let host = Arc::new(Host {
-        packs: Packs::new(PackRegistry::new()),
-        prompts: FindTextPrompt::new(GREET_NAME, GREET),
-    });
+    // 1. Build the Host once. The builder takes how the Host finds
+    //    prompts: a stock finder that serves the one prompt under its
+    //    name and finds no other. This Host names no Plugin, so its Packs
+    //    are the two built-ins. `build` returns the Host inside an `Arc`,
+    //    which every run shares.
+    let host = Host::builder(FindTextPrompt::new(GREET_NAME, GREET)).build();
 
     // 2. Find the prompt by its name and parse it.
     let prompt = host.parse(GREET_NAME)?;

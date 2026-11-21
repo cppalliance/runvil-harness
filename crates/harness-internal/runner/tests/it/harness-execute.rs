@@ -13,7 +13,7 @@ use runvil_engine::PromptFinder;
 
 use super::*;
 use crate::prepare::echo_pack;
-use crate::support::registry;
+use crate::support::{host_finding, registry};
 
 /// A directory under the temp directory named for a test and this
 /// process, removed when dropped.
@@ -42,24 +42,12 @@ impl Drop for Scratch {
     }
 }
 
-/// A Host over `packs` whose finder is `prompts`.
-fn host_finding(packs: Packs, prompts: Arc<dyn PromptFinder>) -> Arc<Host> {
-    Arc::new(Host { packs, prompts })
-}
-
 /// A finder that serves `plan` as `plan.md` and `greet` as `greet.md`.
-fn two_prompts(plan: &'static str, greet: &'static str) -> Arc<dyn PromptFinder> {
-    Arc::new(move |name: &str| -> Result<String, Error> {
-        match name {
-            "plan.md" => Ok(plan.to_owned()),
-            "greet.md" => Ok(greet.to_owned()),
-            other => Err(Error::new(
-                ErrorCode::NotFound,
-                format!("no prompt named {other}"),
-                ErrorCode::NotFound.prose(),
-            )),
-        }
-    })
+fn two_prompts(plan: &str, greet: &str) -> Arc<dyn PromptFinder> {
+    let mut set = PromptSet::new();
+    set.insert("plan.md", plan);
+    set.insert("greet.md", greet);
+    Arc::new(set)
 }
 
 /// Runs the prompt `host` parses as `plan.md` to its end, recorded
@@ -94,7 +82,7 @@ async fn a_run_executes_the_prompt_its_parse_linked_though_the_set_has_lost_that
     let mut set = PromptSet::new();
     set.insert_dir(dir.path()).expect("the directory lists");
     let set = Arc::new(set);
-    let host = host_finding(no_packs(), set.clone());
+    let host = Host::builder(set.clone()).build();
     let prompt = host.parse("plan.md").expect("the set serves both prompts");
 
     fs::remove_file(&listed).expect("the greeting's file is removed");
@@ -138,10 +126,7 @@ const GREET_KEEPS_A_NOTE: &str = "---\nname: greet\ndescription: d\nrunvil: 0\n-
 
 #[tokio::test]
 async fn each_store_record_names_the_store_of_the_prompt_whose_chain_made_the_operation() {
-    let host = host_finding(
-        no_packs(),
-        two_prompts(PLAN_KEEPS_A_NOTE, GREET_KEEPS_A_NOTE),
-    );
+    let host = Host::builder(two_prompts(PLAN_KEEPS_A_NOTE, GREET_KEEPS_A_NOTE)).build();
     let recorder = Arc::new(MemoryRecorder::new());
     let report = run_plan(&host, &recorder).await;
     assert_eq!(
@@ -205,10 +190,10 @@ const GREET_USES_THEIRS: &str = "---\nname: greet\ndescription: d\nrunvil: 0\n\
 
 #[tokio::test]
 async fn each_prompts_sections_get_its_own_packs_preludes_and_a_tool_of_any_pack_answers_either() {
-    let packs = Packs::new(registry(&[
+    let packs = registry(&[
         echo_pack("tests/mine", Some("mine_loaded = 'mine'\n")),
         echo_pack("tests/theirs", Some("theirs_loaded = 'theirs'\n")),
-    ]));
+    ]);
     let host = host_finding(packs, two_prompts(PLAN_USES_MINE, GREET_USES_THEIRS));
     let report = run_plan(&host, &Arc::new(MemoryRecorder::new())).await;
     assert_eq!(

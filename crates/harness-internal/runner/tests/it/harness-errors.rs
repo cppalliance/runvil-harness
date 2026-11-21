@@ -19,7 +19,7 @@ use harness_runner::{Harness, RunReport, RunSetup, display_chain};
 use runvil_engine::model::{Completion, phrase};
 use runvil_engine::{Error, ErrorCode, ErrorFact};
 
-use super::{PendingTimer, answers_to, launch, no_packs, plain_harness, run_beside, setup, until};
+use super::{PendingTimer, answers_to, bare_host, launch, plain_harness, run_beside, setup, until};
 use crate::scripted::{Listing, ScriptedBroker};
 use crate::support::FailingRecorder;
 
@@ -50,7 +50,7 @@ const CATCHES_A_ROUND: &str = "---\nname: catches\ndescription: d\nrunvil: 0\n\
 
 /// A Harness running `source` with `setup` and no Packs.
 fn harness_with(source: &str, setup: RunSetup) -> Harness {
-    launch(no_packs(), source, setup)
+    launch(bare_host(), source, setup)
 }
 
 /// A Harness running `source` over `recorder` and `broker` with no Packs.

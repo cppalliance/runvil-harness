@@ -19,8 +19,7 @@ use std::time::{Duration, Instant};
 use harness_gateway_client::TokioTimer;
 use harness_plugin_loader::{HostResources, PluginReport, insert_plugin_dir};
 use runvil::harness::{
-    FindTextPrompt, MemoryRecorder, OfflineBroker, Packs, Record, RecordKind, RunId, RunMeta,
-    RunRecorder,
+    FindTextPrompt, MemoryRecorder, OfflineBroker, Record, RecordKind, RunId, RunMeta, RunRecorder,
 };
 use runvil::vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsError, VfsPath, VfsRef};
 use runvil::{BoxFuture, Error, Harness, Host, RunControl, RunReport, RunSetup};
@@ -62,10 +61,14 @@ fn host_offering(
     let mut packs = PackRegistry::new();
     let report = insert_plugin_dir(&mut packs, dir, resources).expect("the directory reads");
     assert!(report.failures().is_empty(), "{:?}", report.failures());
-    let host = Arc::new(Host {
-        packs: Packs::new(packs),
-        prompts: FindTextPrompt::new(PROMPT, source),
-    });
+    // One Rust Plugin puts the filled registry in the place of the empty
+    // one the build lends it.
+    let host = Host::builder(FindTextPrompt::new(PROMPT, source))
+        .with_rust_plugin(move |registry| {
+            *registry = packs;
+            Ok(())
+        })
+        .build();
     (host, report)
 }
 

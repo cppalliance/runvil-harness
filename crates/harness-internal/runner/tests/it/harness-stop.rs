@@ -16,7 +16,7 @@ use runvil_engine::Error;
 use runvil_engine::model::{Completion, CompletionResult, ToolCall};
 use serde_json::json;
 
-use super::{FIRST_RUN, answers_to, launch, main_waits, no_packs, run_beside, setup, until};
+use super::{FIRST_RUN, answers_to, bare_host, launch, main_waits, run_beside, setup, until};
 use crate::scripted::{
     Held, HeldTimer, MODEL, ScriptedBroker, calls_hold_once, held_broker, hold_host, reply,
     surviving_hold_host,
@@ -257,7 +257,7 @@ async fn a_stop_while_the_main_chain_waits_on_its_inbox_leaves_the_wait_and_a_la
  {
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
-        no_packs(),
+        bare_host(),
         RECEIVES,
         setup(recorder.clone(), ScriptedBroker::replying()).has_user(true),
     );

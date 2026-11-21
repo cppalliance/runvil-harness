@@ -22,7 +22,7 @@ fn with_user(recorder: &Arc<MemoryRecorder>) -> RunSetup {
 
 #[tokio::test]
 async fn a_prompt_declaring_user_runs_with_a_user_and_is_refused_at_its_first_step_without_one() {
-    let report = report_of(NEEDS_USER, bare(), with_user(&recorder())).await;
+    let report = report_of(NEEDS_USER, bare_host(), with_user(&recorder())).await;
     assert_eq!(
         completed(report.result),
         "ran",
@@ -30,7 +30,7 @@ async fn a_prompt_declaring_user_runs_with_a_user_and_is_refused_at_its_first_st
     );
 
     let recorder = recorder();
-    let (run_id, result) = prepare_and_drive(NEEDS_USER, bare(), setup_over(&recorder)).await;
+    let (run_id, result) = prepare_and_drive(NEEDS_USER, bare_host(), setup_over(&recorder)).await;
     assert_eq!(
         refusal(result),
         "the environment cannot satisfy this prompt:\n\
@@ -42,14 +42,14 @@ async fn a_prompt_declaring_user_runs_with_a_user_and_is_refused_at_its_first_st
 
 #[tokio::test]
 async fn tools_packs_get_user_is_a_pack_object_in_a_run_with_a_user_and_nil_in_one_without() {
-    let report = report_of(CHECKS_USER, bare(), with_user(&recorder())).await;
+    let report = report_of(CHECKS_USER, bare_host(), with_user(&recorder())).await;
     assert_eq!(
         completed(report.result),
         "userdata",
         "a run with a user holds runvil/user, declared or not"
     );
     assert_eq!(
-        completed(drive_over(CHECKS_USER, bare()).await),
+        completed(drive_over(CHECKS_USER, bare_host()).await),
         "nil",
         "a run without one holds it unavailable"
     );

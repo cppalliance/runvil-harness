@@ -52,6 +52,7 @@ auto runvil::ErrorCode: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::ErrorFact: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::Harness: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::Host: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
+auto runvil::HostBuilder: Freeze, !RefUnwindSafe, Send, !Sync, Unpin, !UnwindSafe
 auto runvil::OutputTrust: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::Prompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::RunControl: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
@@ -74,7 +75,6 @@ auto runvil::harness::FindTextPrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, 
 auto runvil::harness::HostResources: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::MemoryRecorder: !Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::OfflineBroker: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil::harness::Packs: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::Plugin: !Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::PluginReport: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::harness::PluginSource: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
@@ -153,6 +153,7 @@ derives runvil::ErrorCode: Clone, Copy, Debug, Eq, Hash, PartialEq
 derives runvil::ErrorFact: Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd
 derives runvil::Harness: Debug
 derives runvil::Host: Debug
+derives runvil::HostBuilder: Debug
 derives runvil::OutputTrust: Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize
 derives runvil::Prompt: Clone, Debug, Eq, PartialEq
 derives runvil::RunControl: Clone, Debug
@@ -175,7 +176,6 @@ derives runvil::harness::FindTextPrompt: Debug
 derives runvil::harness::HostResources: Clone, Debug, Default
 derives runvil::harness::MemoryRecorder: Debug, Default
 derives runvil::harness::OfflineBroker: Debug
-derives runvil::harness::Packs: Debug
 derives runvil::harness::Plugin: Debug
 derives runvil::harness::PluginReport: Debug
 derives runvil::harness::PluginSource: Clone, Debug, Eq, PartialEq
@@ -332,7 +332,12 @@ pub fn runvil::Error::with_cause(self, cause: &dyn core::error::Error + 'static)
 pub fn runvil::ErrorCode::from_tag(tag: &str) -> core::option::Option<runvil::ErrorCode>
 pub fn runvil::Harness::control(&self) -> runvil::RunControl
 pub fn runvil::Harness::new(host: alloc::sync::Arc<runvil::Host>, prompt: alloc::sync::Arc<runvil::Prompt>, setup: runvil::RunSetup) -> runvil::Harness
+pub fn runvil::Host::builder(prompts: alloc::sync::Arc<dyn runvil::PromptFinder>) -> runvil::HostBuilder
+pub fn runvil::Host::packs(&self) -> impl core::iter::traits::iterator::Iterator<Item = &runvil::plugin::PackInfo>
 pub fn runvil::Host::parse(&self, name: &str) -> core::result::Result<alloc::sync::Arc<runvil::Prompt>, runvil::Error>
+pub fn runvil::Host::plugin_reports(&self) -> &[runvil::harness::PluginReport]
+pub fn runvil::HostBuilder::build(self) -> alloc::sync::Arc<runvil::Host>
+pub fn runvil::HostBuilder::with_rust_plugin(self, install: impl core::ops::function::FnOnce(&mut runvil::plugin::PackRegistry) -> core::result::Result<(), runvil::Error> + core::marker::Send + 'static) -> runvil::HostBuilder
 pub fn runvil::Prompt::file(&self) -> &str
 pub fn runvil::Prompt::frontmatter(&self) -> &runvil::prompt::Frontmatter
 pub fn runvil::Prompt::linked(&self) -> impl core::iter::traits::iterator::Iterator<Item = &alloc::sync::Arc<runvil::Prompt>>
@@ -381,7 +386,6 @@ pub fn runvil::harness::MemoryRecorder::meta(&self, run: runvil::harness::RunId)
 pub fn runvil::harness::MemoryRecorder::new() -> Self
 pub fn runvil::harness::MemoryRecorder::records(&self, run: runvil::harness::RunId) -> alloc::vec::Vec<runvil::harness::Record>
 pub fn runvil::harness::MemoryRecorder::result(&self, run: runvil::harness::RunId) -> core::option::Option<core::result::Result<alloc::string::String, runvil::Error>>
-pub fn runvil::harness::Packs::new(packs: runvil::plugin::PackRegistry) -> runvil::harness::Packs
 pub fn runvil::harness::Plugin::name(&self) -> &str
 pub fn runvil::harness::Plugin::source(&self) -> &runvil::harness::PluginSource
 pub fn runvil::harness::Plugin::version(&self) -> &str
@@ -718,8 +722,6 @@ pub runvil::ErrorFact::Section
 pub runvil::ErrorFact::Task
 pub runvil::ErrorFact::Tasks
 pub runvil::ErrorFact::ValidUpTo
-pub runvil::Host::packs: runvil::harness::Packs
-pub runvil::Host::prompts: alloc::sync::Arc<dyn runvil::PromptFinder>
 pub runvil::OutputTrust::Trusted
 pub runvil::OutputTrust::Untrusted
 pub runvil::RunLimits::lua_log_events: core::num::nonzero::NonZeroU32
@@ -1207,7 +1209,8 @@ pub runvil::vfs::Writability::ReadOnly
 pub runvil::vfs::Writability::ReadWrite
 pub struct runvil::Error { .. }
 pub struct runvil::Harness { /* private fields */ }
-pub struct runvil::Host { .. }
+pub struct runvil::Host { /* private fields */ }
+pub struct runvil::HostBuilder { /* private fields */ }
 pub struct runvil::Prompt { /* private fields */ }
 pub struct runvil::RunControl { /* private fields */ }
 pub struct runvil::RunReport { .. }
@@ -1220,7 +1223,6 @@ pub struct runvil::harness::FindTextPrompt { /* private fields */ }
 pub struct runvil::harness::HostResources { /* private fields */ }
 pub struct runvil::harness::MemoryRecorder { /* private fields */ }
 pub struct runvil::harness::OfflineBroker;
-pub struct runvil::harness::Packs { /* private fields */ }
 pub struct runvil::harness::Plugin { /* private fields */ }
 pub struct runvil::harness::PluginReport { /* private fields */ }
 pub struct runvil::harness::PromptSet { /* private fields */ }

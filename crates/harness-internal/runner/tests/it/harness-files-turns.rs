@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
+use harness_runner::Harness;
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind};
-use harness_runner::{Harness, Packs};
 use runvil_engine::Error;
 use runvil_engine::vfs::{Origin, VfsRef};
 use runvil_plugin::{
@@ -19,7 +19,7 @@ use tokio::sync::Notify;
 
 use super::{PATIENCE, launch, setup};
 use crate::scripted::ScriptedBroker;
-use crate::support::{assert_canceled, registry};
+use crate::support::{assert_canceled, host_over, registry};
 
 /// The fixture Pack `reads`. Its one tool, `reads/many`, says that it
 /// has started and then reads `/in.md` as many times as its `count`
@@ -107,7 +107,7 @@ fn reading(count: u32, started: &Arc<Notify>) -> (Harness, Arc<MemoryRecorder>) 
     );
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
-        Packs::new(packs),
+        host_over(packs),
         &source,
         setup(recorder.clone(), ScriptedBroker::replying()).vfs(vfs),
     );

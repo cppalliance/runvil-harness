@@ -12,14 +12,14 @@ use harness_runner::performers::{InferenceBroker, Timer, ToolPerformer};
 use harness_runner::recorder::{
     MemoryRecorder, Record, RunId, RunMeta, RunRecorder, make_recorder_error,
 };
-use harness_runner::{Host, Packs, PromptSet, RunSetup};
+use harness_runner::{Host, PromptSet, RunSetup};
 use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::{Round, ToolCallOrigin};
 use runvil_engine::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
 };
 use runvil_engine::{BoxFuture, Error};
-use runvil_engine::{Prompt, Run, RunParams, RunSeed, Timestamp};
+use runvil_engine::{Prompt, PromptFinder, Run, RunParams, RunSeed, Timestamp};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
 use runvil_plugin::{Pack, PackId, PackInfo, PackRegistry, ToolFiles};
 use serde_json::{Value, json};
@@ -51,14 +51,28 @@ pub(crate) fn registry(packs: &[(PackInfo, Make)]) -> PackRegistry {
     registry
 }
 
+/// A Host that holds every Pack of `packs` and finds its prompts through
+/// `prompts`. Its one Rust Plugin puts the suite's filled registry in the
+/// place of the empty one the build lends it.
+pub(crate) fn host_finding(packs: PackRegistry, prompts: Arc<dyn PromptFinder>) -> Arc<Host> {
+    Host::builder(prompts)
+        .with_rust_plugin(move |registry| {
+            *registry = packs;
+            Ok(())
+        })
+        .build()
+}
+
 /// A Host over `packs`. Its finder serves no prompt: a suite parses its
 /// own with [`parsed`], so a prompt the Host's Packs cannot serve still
 /// reaches the run.
-pub(crate) fn host_over(packs: Packs) -> Arc<Host> {
-    Arc::new(Host {
-        packs,
-        prompts: Arc::new(PromptSet::new()),
-    })
+pub(crate) fn host_over(packs: PackRegistry) -> Arc<Host> {
+    host_finding(packs, Arc::new(PromptSet::new()))
+}
+
+/// A Host with no Pack but the built-ins, whose finder serves no prompt.
+pub(crate) fn bare_host() -> Arc<Host> {
+    Host::builder(Arc::new(PromptSet::new())).build()
 }
 
 /// `source` parsed as the prompt named `prompt`, behind the handle a

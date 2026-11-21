@@ -110,7 +110,7 @@ impl Harness {
     /// and gets the model's replies through `setup.broker`, and it reads
     /// its start from `setup.timer` and sleeps through it. It runs under
     /// `setup.limits`. It makes its own instance of each Pack of
-    /// `host.packs` that the prompt picks, and its tool calls go to those
+    /// `host` that the prompt picks, and its tool calls go to those
     /// instances, which drop when the run ends; when `setup.has_user` is
     /// false, it holds `runvil/user` unavailable instead of making it. A
     /// run has at most `setup.max_tool_calls_in_flight` tool calls in

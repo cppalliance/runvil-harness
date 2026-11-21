@@ -19,13 +19,13 @@ mod tests;
 /// with its Pack id and its factory, or the reason it was inserted
 /// unavailable. It holds one Pack per Pack id, whatever the vendor.
 ///
-/// The Host owns the registry; a Plugin only inserts its Packs into it,
-/// by calling [`insert`](PackRegistry::insert) or
+/// The build of a Host owns the registry; a Plugin only inserts its
+/// Packs into it, by calling [`insert`](PackRegistry::insert) or
 /// [`insert_unavailable`](PackRegistry::insert_unavailable) from its
-/// `install` function. The Host makes the registry with
-/// [`new`](PackRegistry::new), which starts empty, and calls each
-/// Plugin it links. Then it hands the registry to `Packs::new`, which
-/// reads it through [`into_entries`](PackRegistry::into_entries), keeps
+/// `install` function. The build makes the registry with
+/// [`new`](PackRegistry::new), which starts empty, and lends it to each
+/// Plugin the Host named. Then it reads the registry
+/// through [`into_entries`](PackRegistry::into_entries), keeps
 /// each Pack's factory, and adds the built-in Packs `runvil/subagents`
 /// and `runvil/user`, which the Harness makes itself. So the registry
 /// refuses a Pack that takes the Pack id of either. Every run that

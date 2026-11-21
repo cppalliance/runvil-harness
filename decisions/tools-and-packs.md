@@ -74,7 +74,7 @@ A prompt's preludes run in the order of its `uses:`. A prelude that fails to loa
 
 ### A declared Pack can be refused at install, at parse, and at the run's first step
 
-1. At install. A Rust Plugin whose setup fails inserts its Pack as unavailable, with a reason. The loader drops every Pack of a library Plugin whose load fails, and `Host::parse` then reports each one with the text `is not installed`.
+1. At install. A Rust Plugin whose setup fails inserts its Pack as unavailable, with a reason. A Rust Plugin whose function returns an error keeps each Pack that it inserted before the error, and the error is the one failure of that Plugin's report, which the `Host` keeps. The loader drops every Pack of a library Plugin whose load fails, and `Host::parse` then reports each one with the text `is not installed`.
 2. At parse. `Host::parse` refuses a prompt when it, or a prompt it links, declares a Pack that the Host lacks or one that a Plugin inserted as unavailable.
 3. At the run's first step. A factory that fails or panics, or a `ready` that returns an error, makes the Pack unavailable to that one run. The Harness also marks `runvil/user` unavailable in a run that lacks a user.
 
@@ -264,9 +264,9 @@ The two crates are two APIs, and the design is one. The Rust API has abilities t
 
 ### A Rust Plugin is a function named `install`, and its arguments are its own
 
-A Rust Plugin is a function that inserts its Packs into the Host's `PackRegistry`. The Host calls `install` with the registry and whatever else that Plugin takes, as plain arguments. `plugin_mcp::install` takes the Host's list of MCP servers, which is the `mcpServers` object of an `mcp.json` file, and the handle of the Host's tokio runtime. For each Pack, the function builds a factory from its arguments and calls `PackRegistry::insert` with the Pack's `PackInfo` and the factory. When setup fails, it calls `PackRegistry::insert_unavailable` with a reason.
+A Rust Plugin is a function that inserts its Packs into the Host's `PackRegistry`. The Host names the Plugin with `HostBuilder::with_rust_plugin`, as a function that is lent the registry, and that function calls `install` with the registry and whatever else that Plugin takes, as plain arguments. `HostBuilder::build` makes the registry and calls each such function in the order written. `plugin_mcp::install` takes the Host's list of MCP servers, which is the `mcpServers` object of an `mcp.json` file, and the handle of the Host's tokio runtime. For each Pack, the function builds a factory from its arguments and calls `PackRegistry::insert` with the Pack's `PackInfo` and the factory. When setup fails, it calls `PackRegistry::insert_unavailable` with a reason.
 
-The arguments are plain because a Rust Plugin is compiled into the Host and shares the Host's Rust types, so the compiler checks that the Host passes each one. The Host owns the registry, and Plugins fill it. The owner's rule: "A host can only install plugins". The `install` function is the Rust-only way into the registry. A library Plugin inserts its Packs through the contract's `insert_pack`, and the loader calls `PackRegistry::insert` for it.
+The arguments are plain because a Rust Plugin is compiled into the Host and shares the Host's Rust types, so the compiler checks that the Host passes each one. The build of the `Host` owns the registry, and Plugins fill it. The owner's rule: "A host can only install plugins". The `install` function is the Rust-only way into the registry. A library Plugin inserts its Packs through the contract's `insert_pack`, and the loader calls `PackRegistry::insert` for it.
 
 ### The Harness makes one Pack instance for each run
 

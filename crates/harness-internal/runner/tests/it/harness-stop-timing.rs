@@ -13,8 +13,8 @@ use harness_runner::{RunControl, RunSetup};
 use serde_json::json;
 
 use super::{
-    FIRST_RUN, HookedRecorder, answers_to, hooked_recorder, inbox_waits, is_store_write, launch,
-    main_waits, no_packs, run_beside, setup, until,
+    FIRST_RUN, HookedRecorder, answers_to, bare_host, hooked_recorder, inbox_waits, is_store_write,
+    launch, main_waits, run_beside, setup, until,
 };
 use crate::scripted::{Held, HeldTimer, ScriptedBroker, held_broker};
 
@@ -81,7 +81,7 @@ async fn a_stop_drops_a_timed_join_any_and_its_pcall_resumes_while_the_joined_ta
     let broker = ScriptedBroker::replying();
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
-        no_packs(),
+        bare_host(),
         STOPS_TIMED_JOIN,
         RunSetup {
             timer: Arc::new(HeldTimer(Arc::clone(&timer))),
@@ -124,7 +124,7 @@ async fn a_stop_seen_before_a_steps_effects_start_drops_the_round_in_flight_and_
     let raised = Arc::new(AtomicUsize::new(0));
     let (recorder, stops) = stopping_at_each_store_write(&records, &raised);
     let harness = launch(
-        no_packs(),
+        bare_host(),
         STOPS_BEFORE_A_STEP,
         setup(recorder, held_broker(&chat)),
     );
@@ -178,7 +178,7 @@ async fn a_stop_while_the_main_chain_waits_on_its_inbox_spares_the_round_after_i
     let rounds = broker.rounds();
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
-        no_packs(),
+        bare_host(),
         RECEIVES_THEN_INFERS,
         setup(recorder.clone(), broker).has_user(true),
     );
@@ -227,7 +227,7 @@ async fn a_stop_raised_with_nothing_in_flight_changes_nothing_for_the_next_effec
     // The write is its step's one effect, and the loop answers it inline,
     // so nothing is in flight when its effect record raises the stop.
     let (recorder, stops) = stopping_at_each_store_write(&records, &raised);
-    let harness = launch(no_packs(), WRITES_THEN_INFERS, setup(recorder, broker));
+    let harness = launch(bare_host(), WRITES_THEN_INFERS, setup(recorder, broker));
     stops.set(harness.control()).unwrap();
 
     let report = harness.run().await.expect("the run is reported");

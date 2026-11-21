@@ -34,13 +34,12 @@ use std::time::Duration;
 
 use harness_runner::performers::InferenceBroker;
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder};
-use harness_runner::{Harness, Host, Packs, RunControl, RunReport, RunSetup};
+use harness_runner::{Harness, Host, RunControl, RunReport, RunSetup};
 use runvil_engine::{BoxFuture, Error, ErrorCode};
-use runvil_plugin::PackRegistry;
 use serde_json::{Value, json};
 
 use crate::scripted::{Listing, MODEL, ScriptedBroker};
-use crate::support::{PendingTimer, host_over, parsed};
+use crate::support::{PendingTimer, bare_host, parsed};
 
 #[path = "harness-errors.rs"]
 mod errors;
@@ -82,20 +81,15 @@ pub(crate) fn setup(
     .selected_model(MODEL)
 }
 
-/// A Harness running `source` with `setup` on a Host over `packs`.
-pub(crate) fn launch(packs: Packs, source: &str, setup: RunSetup) -> Harness {
-    Harness::new(host_over(packs), parsed(source), setup)
-}
-
-/// A Host's Packs with none but the built-ins.
-pub(crate) fn no_packs() -> Packs {
-    Packs::new(PackRegistry::new())
+/// A Harness running `source` with `setup` on `host`.
+pub(crate) fn launch(host: Arc<Host>, source: &str, setup: RunSetup) -> Harness {
+    Harness::new(host, parsed(source), setup)
 }
 
 /// A Harness running `source` over `recorder` and `broker` with no Packs
 /// and a timer no test here reaches.
 fn plain_harness(recorder: &Arc<MemoryRecorder>, broker: ScriptedBroker, source: &str) -> Harness {
-    launch(no_packs(), source, setup(recorder.clone(), broker))
+    launch(bare_host(), source, setup(recorder.clone(), broker))
 }
 
 /// Yields until `condition` holds, or fails naming `what`. Every
@@ -378,7 +372,7 @@ async fn a_run_with_no_selection_binds_the_first_listed_model() {
         Arc::new(broker_listing_two()),
         Arc::new(PendingTimer::default()),
     );
-    let report = launch(no_packs(), READS_THE_SELECTION, setup)
+    let report = launch(bare_host(), READS_THE_SELECTION, setup)
         .run()
         .await
         .expect("the run is reported");
@@ -459,13 +453,11 @@ async fn a_vfs_effects_answer_record_directly_follows_its_effect_record() {
 async fn two_runs_in_flight_at_once_share_the_prompt_one_parse_returned() {
     let finds = Arc::new(AtomicUsize::new(0));
     let found = Arc::clone(&finds);
-    let host = Arc::new(Host {
-        packs: no_packs(),
-        prompts: Arc::new(move |_: &str| -> Result<String, Error> {
-            found.fetch_add(1, Ordering::SeqCst);
-            Ok(RETURNS_A_MESSAGE.to_owned())
-        }),
-    });
+    let finder = move |_: &str| -> Result<String, Error> {
+        found.fetch_add(1, Ordering::SeqCst);
+        Ok(RETURNS_A_MESSAGE.to_owned())
+    };
+    let host = Host::builder(Arc::new(finder)).build();
     let prompt = host.parse("message.md").expect("the prompt parses");
 
     // Each run gets a clone of the one handle and a recorder of its own.

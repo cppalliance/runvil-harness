@@ -684,6 +684,7 @@ name = "harness-runner"
 version = "0.3.0"
 dependencies = [
  "futures-util",
+ "harness-plugin-loader",
  "rand 0.9.5",
  "runvil-engine",
  "runvil-plugin",

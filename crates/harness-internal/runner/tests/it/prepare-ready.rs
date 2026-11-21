@@ -130,7 +130,7 @@ impl Pack for Starting {
 /// A Host that installed a [`Starting`] Pack for each of `fqns`, in order,
 /// every startup standing at `phase`, beside each Pack's handle in `fqns`
 /// order.
-fn starting_host(fqns: &[&'static str], phase: Phase) -> (Packs, Vec<StartupHandle>) {
+fn starting_host(fqns: &[&'static str], phase: Phase) -> (Arc<Host>, Vec<StartupHandle>) {
     let mut packs = registry(&[]);
     let mut handles = Vec::new();
     for &fqn in fqns {
@@ -144,19 +144,22 @@ fn starting_host(fqns: &[&'static str], phase: Phase) -> (Packs, Vec<StartupHand
             .unwrap();
         handles.push((moves, startup));
     }
-    (Packs::new(packs), handles)
+    (host_over(packs), handles)
 }
 
 /// A Host that installed [`SLOW`], whose startup stands at `phase`, beside
 /// the sender that moves it and the startup the Pack shares.
-fn slow_host(phase: Phase) -> (Packs, watch::Sender<Phase>, Arc<Startup>) {
+fn slow_host(phase: Phase) -> (Arc<Host>, watch::Sender<Phase>, Arc<Startup>) {
     slow_host_of(SLOW, phase)
 }
 
 /// A Host that installed the one [`Starting`] Pack `fqn`, whose startup
 /// stands at `phase`, beside the sender that moves it and the startup the
 /// Pack shares.
-fn slow_host_of(fqn: &'static str, phase: Phase) -> (Packs, watch::Sender<Phase>, Arc<Startup>) {
+fn slow_host_of(
+    fqn: &'static str,
+    phase: Phase,
+) -> (Arc<Host>, watch::Sender<Phase>, Arc<Startup>) {
     let (host, mut handles) = starting_host(&[fqn], phase);
     let (moves, startup) = handles.pop().unwrap();
     (host, moves, startup)
@@ -344,9 +347,8 @@ async fn an_undeclared_builtin_with_no_tools_has_an_object_the_prompt_can_offer(
         local stub = tools.packs.get('subagents')\n\
         tools.offer('subagents')\n\
         return stub.name .. ':' .. #stub.tools\n```\n";
-    let host = Packs::new(registry(&[]));
     assert_eq!(
-        completed(drive_over(reads_stub, host).await),
+        completed(drive_over(reads_stub, bare_host()).await),
         "subagents:0",
         "every Host installs the stub and every run makes it, so Lua sees it and offers it"
     );
@@ -418,7 +420,7 @@ async fn a_cancel_that_lands_while_a_refusal_is_recorded_leaves_the_report_holdi
         Arc::new(ScriptedBroker::replying()),
         Arc::new(Unused),
     );
-    let harness = launch(bare(), NEEDS_WEB, setup);
+    let harness = launch(bare_host(), NEEDS_WEB, setup);
     recorder.control.set(harness.control()).unwrap();
 
     let report = tokio::time::timeout(PATIENCE, harness.run())

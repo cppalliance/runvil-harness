@@ -4,10 +4,12 @@
 //! instance each run makes of each of them, and the snapshot each run
 //! takes of those instances.
 //!
-//! The Host's Plugins insert Packs into the registry, each with its
+//! `HostBuilder::build` makes the registry and lends it to each of the
+//! Host's Plugins, which insert Packs into it, each with its
 //! factory or unavailable for a reason, and every run that declares a
-//! Pack inserted unavailable is refused naming that reason. The runner
-//! adds the built-ins `runvil/subagents` and `runvil/user` itself, so
+//! Pack inserted unavailable is refused naming that reason. The build
+//! then makes the Host's [`Packs`] from that registry, which
+//! adds the built-ins `runvil/subagents` and `runvil/user`, so
 //! every Host has both.
 //!
 //! A run's Packs are every Pack the Host installed, whatever each one's
@@ -77,12 +79,12 @@ const USER: &str = "runvil/user";
 /// The reason [`USER`] is unavailable to a run with no user.
 const NO_USER: &str = "this run has no user";
 
-/// Every Pack a Host installed in its registry and the two built-in
-/// Packs, one per Pack id, each
-/// with its factory or the reason it was inserted unavailable. Built once
-/// and shared by every run of that Host; each run makes its own instance
-/// of each Pack it holds.
-pub struct Packs {
+/// Every Pack a Host's Plugins inserted into its registry and the two
+/// built-in Packs, one per Pack id, each
+/// with its factory or the reason it was inserted unavailable. Built once,
+/// when the Host is built, and shared by every run of that Host; each run
+/// makes its own instance of each Pack it holds.
+pub(crate) struct Packs {
     installed: BTreeMap<&'static str, Installed>,
 }
 
@@ -169,8 +171,7 @@ impl Packs {
     /// Takes every Pack `packs` holds, keeping each factory for the runs
     /// to call, warns once per Pack inserted unavailable, and adds the
     /// two built-in Packs, which no registry holds.
-    #[must_use]
-    pub fn new(packs: PackRegistry) -> Packs {
+    pub(crate) fn new(packs: PackRegistry) -> Packs {
         let inserted = packs.into_entries().map(|(info, id, factory)| {
             let factory = factory.map_err(|error| {
                 tracing::warn!(
@@ -196,6 +197,12 @@ impl Packs {
         Packs {
             installed: inserted.chain(builtins).collect(),
         }
+    }
+
+    /// Every installed Pack, the built-ins and one inserted unavailable
+    /// included, in FQN order.
+    pub(crate) fn list(&self) -> impl Iterator<Item = &PackInfo> {
+        self.installed.values().map(|installed| &installed.info)
     }
 
     /// Picks the Packs a run of `prompt` holds, makes

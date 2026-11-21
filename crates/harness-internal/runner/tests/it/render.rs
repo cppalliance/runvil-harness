@@ -9,8 +9,8 @@
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
+use harness_runner::Harness;
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind};
-use harness_runner::{Harness, Packs};
 use runvil_engine::Error;
 use runvil_engine::model::{Completion, CompletionResult, ToolCall};
 use runvil_plugin::{
@@ -22,6 +22,7 @@ use tokio::sync::Semaphore;
 
 use crate::harness::{launch, setup};
 use crate::scripted::{MODEL, ScriptedBroker, reply, scripted_model};
+use crate::support::host_over;
 
 #[path = "render-calls.rs"]
 mod calls;
@@ -258,7 +259,7 @@ fn render_harness(
 ) -> Harness {
     let mut packs = PackRegistry::new();
     packs.insert(RENDERER, renderer(seen, config)).unwrap();
-    launch(Packs::new(packs), source, setup(recorder.clone(), broker))
+    launch(host_over(packs), source, setup(recorder.clone(), broker))
 }
 
 /// A prompt over [`FRONTMATTER`] whose sections are `sections`, each a

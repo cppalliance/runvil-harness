@@ -36,7 +36,7 @@ const PARAMETERS: Field = field!("the tool's parameter schema", 65536, RV_MAX_TO
 
 /// Makes each run's instance of one Pack that a Plugin inserted through
 /// its entry point. It holds an `Arc` of the Plugin, so the Plugin stays
-/// loaded while the registry, or the `Packs` built from it, holds the
+/// loaded while the registry, or the `Host` built from it, holds the
 /// Pack.
 pub(crate) struct EntryFactory {
     plugin: Arc<Plugin>,

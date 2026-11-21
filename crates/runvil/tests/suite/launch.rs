@@ -8,7 +8,7 @@ use harness_gateway_client::TokioTimer;
 use runvil::harness::{MemoryRecorder, OfflineBroker};
 use runvil::{ErrorCode, Harness, RunSetup};
 
-use crate::support::{launch, no_packs};
+use crate::support::launch;
 
 /// A prompt that returns its `text` argument, shouted.
 const SHOUTS: &str = concat!(
@@ -26,7 +26,7 @@ fn harness(source: &str) -> Harness {
         Arc::new(TokioTimer),
     )
     .args(r#"{"text":"hello"}"#);
-    launch(no_packs(), source, setup)
+    launch(source, setup)
 }
 
 #[tokio::test]

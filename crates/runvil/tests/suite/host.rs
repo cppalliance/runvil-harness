@@ -19,7 +19,7 @@ use runvil::model::{
 };
 use runvil::{BoxFuture, Harness, RunSetup};
 
-use crate::support::{launch, no_packs};
+use crate::support::launch;
 
 /// Reads the operator's next message and returns it.
 const RECEIVES: &str = concat!(
@@ -126,7 +126,7 @@ fn stuck_harness(catalog: ModelCatalog, source: &str) -> (Harness, Arc<Started>)
         Arc::new(broker),
         Arc::new(TokioTimer),
     );
-    (launch(no_packs(), source, setup), started)
+    (launch(source, setup), started)
 }
 
 /// Lists the stub model, and replies `You said: <last message>` in two
@@ -180,7 +180,7 @@ async fn tasks_receive_returns_the_message_the_host_sends_byte_for_byte() {
         Arc::new(TokioTimer),
     )
     .has_user(true);
-    let harness = launch(no_packs(), RECEIVES, setup);
+    let harness = launch(RECEIVES, setup);
     assert!(
         harness.control().send(typed.to_owned()),
         "a run that has not started accepts the message"
@@ -210,7 +210,6 @@ async fn stopping_an_in_flight_round_drops_the_call_and_the_prompts_pcall_catche
 async fn a_run_canceled_before_it_begins_is_recorded_as_canceled_before_it_starts() {
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
-        no_packs(),
         PATIENT,
         RunSetup::new(
             recorder.clone(),
@@ -248,7 +247,6 @@ async fn a_hosts_own_broker_streams_a_section_round_under_the_round_id_the_run_r
         window,
     };
     let harness = launch(
-        no_packs(),
         CHATS,
         RunSetup::new(recorder.clone(), Arc::new(broker), Arc::new(TokioTimer)),
     );

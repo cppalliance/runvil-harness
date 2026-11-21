@@ -24,7 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use harness_runner::performers::Timer;
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder};
-use harness_runner::{Harness, Packs, RunReport, RunSetup};
+use harness_runner::{Harness, Host, RunReport, RunSetup};
 use runvil_engine::make_tool_error;
 use runvil_engine::model::{Completion, CompletionResult, ToolCall};
 use runvil_engine::vfs::{Origin, VfsRef};
@@ -36,7 +36,7 @@ use serde_json::{Value, json};
 
 use crate::harness::launch;
 use crate::scripted::{MODEL, ScriptedBroker};
-use crate::support::{Make, Unused, host_over, parsed, registry};
+use crate::support::{Make, Unused, bare_host, host_over, parsed, registry};
 
 #[path = "prepare-args.rs"]
 mod args;
@@ -78,15 +78,10 @@ fn assert_no_records(recorder: &MemoryRecorder, run_id: RunId) {
     );
 }
 
-/// A Host's Packs with none but the built-ins.
-pub(crate) fn bare() -> Packs {
-    Packs::new(registry(&[]))
-}
-
-/// A Host's Packs: `pack`, an info beside its factory, beside the
-/// built-in.
-pub(crate) fn building(pack: (PackInfo, Make)) -> Packs {
-    Packs::new(registry(&[pack]))
+/// A Host whose Packs are `pack`, an info beside its factory, and the
+/// built-ins.
+pub(crate) fn building(pack: (PackInfo, Make)) -> Arc<Host> {
+    host_over(registry(&[pack]))
 }
 
 /// The setup of a run recorded through `recorder` and served by the
@@ -101,10 +96,9 @@ pub(crate) fn setup_over(recorder: &Arc<MemoryRecorder>) -> RunSetup {
     )
 }
 
-/// Runs `source` with `setup` on a Host over `packs`, and returns the
-/// run's report.
-pub(crate) async fn report_of(source: &str, packs: Packs, setup: RunSetup) -> RunReport {
-    launch(packs, source, setup)
+/// Runs `source` with `setup` on `host`, and returns the run's report.
+pub(crate) async fn report_of(source: &str, host: Arc<Host>, setup: RunSetup) -> RunReport {
+    launch(host, source, setup)
         .run()
         .await
         .expect("the run is reported")
@@ -192,7 +186,7 @@ fn completed(result: Result<String, Error>) -> String {
 #[tokio::test]
 async fn an_unmet_requirement_ends_the_prepared_run_as_failed_with_the_engines_notice() {
     let recorder = recorder();
-    let (run_id, result) = prepare_and_drive(NEEDS_WEB, bare(), setup_over(&recorder)).await;
+    let (run_id, result) = prepare_and_drive(NEEDS_WEB, bare_host(), setup_over(&recorder)).await;
 
     assert_eq!(
         recorder.result(run_id),
@@ -239,7 +233,7 @@ async fn a_refused_first_record_fails_the_run_as_a_recorder_failure_naming_the_r
         Arc::new(ScriptedBroker::replying()),
         Arc::new(Unused),
     );
-    let error = launch(bare(), PLAIN, setup)
+    let error = launch(bare_host(), PLAIN, setup)
         .run()
         .await
         .expect_err("the run's first record is refused");
@@ -260,8 +254,8 @@ async fn a_refused_first_record_fails_the_run_as_a_recorder_failure_naming_the_r
 async fn two_runs_draw_different_seeds_and_both_begin_at_the_recorder_at_the_wall_clock() {
     let recorder = recorder();
     let before = wall_clock_now();
-    let first = report_of(PLAIN, bare(), setup_over(&recorder)).await;
-    let second = report_of(PLAIN, bare(), setup_over(&recorder)).await;
+    let first = report_of(PLAIN, bare_host(), setup_over(&recorder)).await;
+    let second = report_of(PLAIN, bare_host(), setup_over(&recorder)).await;
     let after = wall_clock_now();
 
     assert_ne!(
@@ -318,7 +312,7 @@ fn pinned_setup(recorder: &Arc<MemoryRecorder>, instant: Timestamp) -> RunSetup 
 async fn a_pinned_timer_stamps_the_runs_start() {
     let recorder = recorder();
     let pinned = Timestamp::from_unix_millis(1_700_000_000_000);
-    let report = report_of(PLAIN, bare(), pinned_setup(&recorder, pinned)).await;
+    let report = report_of(PLAIN, bare_host(), pinned_setup(&recorder, pinned)).await;
     assert_eq!(completed(report.result), "plain");
     let meta = recorder
         .meta(report.run_id)
@@ -332,7 +326,7 @@ async fn a_pinned_timer_stamps_the_runs_start() {
 #[tokio::test]
 async fn two_runs_on_one_host_each_start_at_the_clock_of_their_own_setup() {
     let recorder = recorder();
-    let host = host_over(bare());
+    let host = bare_host();
     for millis in [1_700_000_000_000, 1_800_000_000_000] {
         let pinned = Timestamp::from_unix_millis(millis);
         let report = Harness::new(
@@ -436,7 +430,7 @@ async fn two_runs_over_one_setup_filesystem_each_start_with_an_empty_store() {
     let vfs = VfsRef::default();
     for run in 1..=2 {
         let setup = setup_over(&recorder).vfs(vfs.clone());
-        let report = report_of(ASKS_AROUND_A_WRITE, bare(), setup).await;
+        let report = report_of(ASKS_AROUND_A_WRITE, bare_host(), setup).await;
         assert_eq!(
             completed(report.result),
             "false|true",
@@ -460,7 +454,7 @@ async fn the_setups_filesystem_and_the_runs_store_share_no_file() {
     drop(files);
 
     let setup = setup_over(&recorder()).vfs(vfs.clone());
-    let report = report_of(STORES_A_REPORT, bare(), setup).await;
+    let report = report_of(STORES_A_REPORT, bare_host(), setup).await;
     assert_eq!(
         completed(report.result),
         "false",
@@ -484,7 +478,7 @@ async fn the_setups_filesystem_and_the_runs_store_share_no_file() {
 #[tokio::test]
 async fn a_prepared_run_drives_to_its_end_and_the_recorder_holds_its_result() {
     let recorder = recorder();
-    let (run_id, result) = prepare_and_drive(PLAIN, bare(), setup_over(&recorder)).await;
+    let (run_id, result) = prepare_and_drive(PLAIN, bare_host(), setup_over(&recorder)).await;
     assert_eq!(completed(result.clone()), "plain");
     assert_eq!(
         recorder.result(run_id),
@@ -493,20 +487,20 @@ async fn a_prepared_run_drives_to_its_end_and_the_recorder_holds_its_result() {
     );
 }
 
-/// Runs `source` with `setup` on a Host over `packs`, returning the run's
-/// id at the recorder beside its result.
+/// Runs `source` with `setup` on `host`, returning the run's id at the
+/// recorder beside its result.
 pub(crate) async fn prepare_and_drive(
     source: &str,
-    packs: Packs,
+    host: Arc<Host>,
     setup: RunSetup,
 ) -> (RunId, Result<String, Error>) {
-    let report = report_of(source, packs, setup).await;
+    let report = report_of(source, host, setup).await;
     (report.run_id, report.result)
 }
 
-/// Runs `source` on a Host over `packs` and returns the run's result.
-pub(crate) async fn drive_over(source: &str, packs: Packs) -> Result<String, Error> {
-    prepare_and_drive(source, packs, setup_over(&recorder()))
+/// Runs `source` on `host` and returns the run's result.
+pub(crate) async fn drive_over(source: &str, host: Arc<Host>) -> Result<String, Error> {
+    prepare_and_drive(source, host, setup_over(&recorder()))
         .await
         .1
 }
@@ -574,7 +568,7 @@ async fn each_run_makes_its_own_instance_and_drops_it_by_the_time_harness_run_re
     packs
         .insert(PackInfo::new("tests/tools"), counting(Arc::clone(&counts)))
         .unwrap();
-    let host = host_over(Packs::new(packs));
+    let host = host_over(packs);
     assert_eq!(
         counts.made.load(Ordering::SeqCst),
         0,
@@ -618,7 +612,7 @@ async fn a_run_hands_a_packs_factory_nothing_but_the_pack_id() {
         )
         .unwrap();
 
-    let report = report_of(CALLS_ECHO, Packs::new(packs), setup_over(&recorder())).await;
+    let report = report_of(CALLS_ECHO, host_over(packs), setup_over(&recorder())).await;
 
     assert_eq!(
         completed(report.result),
@@ -693,7 +687,7 @@ async fn the_packs_split_by_declaration_and_a_script_calls_an_extras_tool_object
         return tostring(declared.required) .. ':' .. declared.tools[1].id .. '|' .. \
           extras[1].name .. ':' .. extra.id .. '|' .. tools.call(extra, { value = 'hi' })\n```\n";
     let extra = echo_pack("acme/extra", None);
-    let host = Packs::new(registry(&[TOOLS, extra]));
+    let host = host_over(registry(&[TOOLS, extra]));
     assert_eq!(
         completed(drive_over(offering, host).await),
         "true:tools/echo|extra:extra/echo|hi",

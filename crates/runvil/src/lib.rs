@@ -6,13 +6,15 @@
 //! files; and the Plugin contract. Code that steps a run itself, as the
 //! Harness does, takes the Engine's stepping items from `runvil-engine`.
 //!
-//! A Host makes a [`plugin::PackRegistry`], calls each Plugin it links,
-//! which inserts its Packs into the registry, and builds one
-//! [`harness::Packs`] over it, which keeps each Pack's factory and adds
-//! the two built-in Packs that every Host has.
-//! It builds one [`Host`] at startup over those Packs and a
-//! [`PromptFinder`], its own or a stock one such as
-//! [`harness::PromptSet`], and shares it behind an `Arc`.
+//! A Host builds one [`Host`] at startup. [`Host::builder`] takes a
+//! [`PromptFinder`], the Host's own or a stock one such as
+//! [`harness::PromptSet`], and returns a [`HostBuilder`]. Each `with_`
+//! method of the builder names one Plugin, and [`HostBuilder::build`]
+//! lends each Plugin a [`plugin::PackRegistry`], into which the Plugin
+//! inserts its Packs, keeps each Pack's factory, adds the two built-in
+//! Packs that every Host has, and returns the `Host` inside an `Arc`,
+//! which is how every run shares it. The `Host` keeps a
+//! [`harness::PluginReport`] for each Plugin, with what failed.
 //! [`Host::parse`] finds a prompt by its name and parses it, with every
 //! prompt its `prompts:` lists reach, which are the prompts a run of it
 //! may execute, and returns it behind an `Arc` that every run of it
@@ -41,6 +43,7 @@
 
 pub use harness_runner::Harness;
 pub use harness_runner::Host;
+pub use harness_runner::HostBuilder;
 pub use harness_runner::RunControl;
 pub use harness_runner::RunReport;
 pub use harness_runner::RunSetup;
@@ -78,10 +81,11 @@ pub mod harness {
     //! What a Host gives the Harness beside a run's setup, and what the
     //! Harness hands back: the inference broker and the timer a Host
     //! supplies, beside a stock broker for a Host that runs prompts
-    //! without a model, the Packs installed from a Pack registry, whose
-    //! factories make each run's instances, the Plugins a Host inserts
-    //! into that registry, from the dynamic libraries in a Plugin
-    //! directory or linked into the Host, with what each insert loaded,
+    //! without a model, the report a `Host` keeps for each Plugin its
+    //! builder named, the functions that insert Plugins into a Pack
+    //! registry apart from a `Host`, from the dynamic libraries in a
+    //! Plugin directory or linked into the Host, with what each insert
+    //! loaded,
     //! and the recorder that receives every effect, answer, and event of
     //! a run and the result each run ends with, beside an in-memory
     //! recorder, and three stock prompt finders: one prompt from text,
@@ -99,7 +103,6 @@ pub mod harness {
     pub use harness_plugin_loader::insert_plugin_dir;
     pub use harness_runner::FindFilePrompt;
     pub use harness_runner::FindTextPrompt;
-    pub use harness_runner::Packs;
     pub use harness_runner::PromptSet;
     pub use harness_runner::display_chain;
     pub use harness_runner::performers::InferenceBroker;
@@ -121,7 +124,8 @@ pub mod plugin {
     //! render are lent, the files through which a tool call asks for
     //! file operations among them. A Plugin written against these items
     //! is a function that inserts its Packs into the Host's registry. A
-    //! Host calls it with the registry and whatever else that Plugin
+    //! Host names it with `HostBuilder::with_rust_plugin`, as a function
+    //! that is lent the registry and passes whatever else that Plugin
     //! takes, as plain arguments. The Plugin crates themselves are the
     //! Host's own dependencies.
 

@@ -31,7 +31,7 @@ async fn a_new_setup_holds_the_empty_object_which_a_prompt_with_no_args_key_runs
     );
     assert_eq!(setup.args, "{}", "a new setup's args are the empty object");
 
-    let report = report_of(READS_ARGS, bare(), setup).await;
+    let report = report_of(READS_ARGS, bare_host(), setup).await;
     assert_eq!(
         completed(report.result),
         "table|nil",
@@ -43,13 +43,13 @@ async fn a_new_setup_holds_the_empty_object_which_a_prompt_with_no_args_key_runs
 async fn args_the_prompt_refuses_end_the_run_as_a_recorded_failed_run_not_an_error_of_run() {
     let accepted = with_args(&recorder(), r#"{"name":"Ada"}"#);
     assert_eq!(
-        completed(report_of(GREETS, bare(), accepted).await.result),
+        completed(report_of(GREETS, bare_host(), accepted).await.result),
         "Hello, Ada",
         "the setup's args reach the run"
     );
 
     let recorder = recorder();
-    let report = launch(bare(), GREETS, with_args(&recorder, r#"{"name":5}"#))
+    let report = launch(bare_host(), GREETS, with_args(&recorder, r#"{"name":5}"#))
         .run()
         .await
         .expect("refused arguments are the run's result, not an error of `run`");

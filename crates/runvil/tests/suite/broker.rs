@@ -16,7 +16,7 @@ use runvil::model::{
 };
 use runvil::{BoxFuture, Error, RunSetup};
 
-use crate::support::{launch, no_packs};
+use crate::support::launch;
 
 /// The one model the scripted broker lists and the Host selects.
 const MODEL: &str = "scripted-model";
@@ -87,7 +87,7 @@ async fn a_sections_round_reaches_the_broker_as_chat_and_a_nested_infer_round_as
         Arc::new(TokioTimer),
     )
     .selected_model(MODEL);
-    let report = launch(no_packs(), INFERS_THEN_CHATS, setup)
+    let report = launch(INFERS_THEN_CHATS, setup)
         .run()
         .await
         .expect("the run is reported");

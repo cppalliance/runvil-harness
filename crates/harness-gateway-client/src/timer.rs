@@ -35,10 +35,7 @@ mod tests {
 
     use std::sync::Arc;
 
-    use runvil::harness::{
-        FindTextPrompt, MemoryRecorder, OfflineBroker, Packs, Record, RecordKind,
-    };
-    use runvil::plugin::PackRegistry;
+    use runvil::harness::{FindTextPrompt, MemoryRecorder, OfflineBroker, Record, RecordKind};
     use runvil::{Harness, Host, RunSetup};
     use serde_json::json;
     use tokio::time::Instant;
@@ -93,10 +90,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_prompts_timed_wait_ends_on_the_stock_timer_of_its_run() {
-        let host = Arc::new(Host {
-            packs: Packs::new(PackRegistry::new()),
-            prompts: FindTextPrompt::new(PROMPT, WAITS_AN_HOUR),
-        });
+        let host = Host::builder(FindTextPrompt::new(PROMPT, WAITS_AN_HOUR)).build();
         let prompt = host.parse(PROMPT).expect("the prompt parses");
         let recorder = Arc::new(MemoryRecorder::new());
         let setup = RunSetup::new(
