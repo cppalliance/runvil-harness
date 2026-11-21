@@ -2,7 +2,8 @@
 //! model through the setup's broker, prepares the parsed prompt, and
 //! drives the run as one future; the record opens
 //! with the run's own start, numbered from zero; a prompt reads the
-//! setup's selection through a role's handle; `models.get` refuses a
+//! setup's selection through a role's handle, and the first listed model
+//! when the setup selects none; `models.get` refuses a
 //! Gateway model id; a run that fails after it
 //! starts is a recorded failed run, never an error of `run`; a Vfs effect's
 //! answer record directly follows its effect record; two runs in flight at
@@ -38,7 +39,7 @@ use runvil_engine::{BoxFuture, Error, ErrorCode};
 use runvil_plugin::PackRegistry;
 use serde_json::{Value, json};
 
-use crate::scripted::{MODEL, ScriptedBroker};
+use crate::scripted::{Listing, MODEL, ScriptedBroker};
 use crate::support::{PendingTimer, host_over, parsed};
 
 #[path = "harness-errors.rs"]
@@ -357,17 +358,47 @@ async fn a_runs_record_starts_with_its_own_start_and_counts_from_zero() {
     );
 }
 
+/// A broker that lists the model `first` before the scripted model, so
+/// the selection and the first listed model are two models.
+fn broker_listing_two() -> ScriptedBroker {
+    ScriptedBroker::replying().listing(Listing::ListsAfter("first"))
+}
+
 #[tokio::test]
 async fn a_prompt_reads_the_selected_model_through_a_roles_handle() {
     let recorder = Arc::new(MemoryRecorder::new());
-    let report = plain_harness(&recorder, ScriptedBroker::replying(), READS_THE_SELECTION)
+    let report = plain_harness(&recorder, broker_listing_two(), READS_THE_SELECTION)
         .run()
         .await
         .expect("the run is reported");
     assert_eq!(
         report.result,
         Ok(MODEL.to_owned()),
-        "the setup's selection fills the role, and the role's handle names that model"
+        "the setup's selection fills the role, and the role's handle names that model, \
+         though the broker lists another model first"
+    );
+}
+
+#[tokio::test]
+async fn a_run_with_no_selection_binds_the_first_listed_model() {
+    let setup = RunSetup::new(
+        Arc::new(MemoryRecorder::new()),
+        Arc::new(broker_listing_two()),
+    );
+    let report = launch(
+        no_packs(),
+        PendingTimer::default(),
+        READS_THE_SELECTION,
+        setup,
+    )
+    .run()
+    .await
+    .expect("the run is reported");
+    assert_eq!(
+        report.result,
+        Ok("first".to_owned()),
+        "a setup that selects no model leaves the pick to the broker's list, and the first \
+         listed model fills the role"
     );
 }
 

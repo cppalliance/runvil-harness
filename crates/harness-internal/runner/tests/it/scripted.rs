@@ -1,7 +1,7 @@
 //! The scripted Host the Harness suites run against: a broker that lists
-//! one model and plays each round from a script, performers whose every
-//! future is held until it is torn down, and a Pack whose one tool is
-//! held.
+//! one model, or a second one before it, and plays each round from a
+//! script, performers whose every future is held until it is torn down,
+//! and a Pack whose one tool is held.
 
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,7 +23,8 @@ use serde_json::{Value, json};
 
 use crate::support::registry;
 
-/// The one model the scripted broker lists.
+/// The model the scripted broker lists, alone unless a test asks for a
+/// second one before it.
 pub(crate) const MODEL: &str = "m";
 
 /// What a fake keeps, shared with the test that reads it.
@@ -38,6 +39,8 @@ type ChatScript =
 pub(crate) enum Listing {
     /// Lists the one scripted model.
     Lists,
+    /// Lists the model of this id first and the scripted model second.
+    ListsAfter(&'static str),
     /// Fails under this code with the code's fixed phrase.
     Fails(ErrorCode),
     /// Never answers.
@@ -103,6 +106,7 @@ impl InferenceBroker for ScriptedBroker {
         self.listings.fetch_add(1, Ordering::SeqCst);
         match self.listing {
             Listing::Lists => Box::pin(async { Ok(catalog()) }),
+            Listing::ListsAfter(first) => Box::pin(async move { Ok(catalog_after(first)) }),
             Listing::Fails(code) => {
                 Box::pin(async move { Err(make_completion_error(code, phrase(code))) })
             }
@@ -123,19 +127,35 @@ impl InferenceBroker for ScriptedBroker {
     }
 }
 
-/// The one model the scripted broker lists, with a 131072-token window.
-pub(crate) fn scripted_model() -> ModelInfo {
+/// A model as the scripted broker lists it: the Gateway model of the id
+/// `id`, with a 131072-token window.
+fn listed_model(id: &str, description: &str) -> ModelInfo {
     ModelInfo::new(
-        ModelId::gateway(MODEL).expect("the model id is valid"),
-        "The scripted model",
+        ModelId::gateway(id).expect("the model id is valid"),
+        description,
         NonZeroU32::new(131_072).expect("131072 is non-zero"),
         ThinkingMode::Never,
     )
 }
 
+/// The scripted model, which every catalog of the scripted broker lists.
+pub(crate) fn scripted_model() -> ModelInfo {
+    listed_model(MODEL, "The scripted model")
+}
+
 /// The scripted catalog: the one model.
 fn catalog() -> ModelCatalog {
     ModelCatalog::new([scripted_model()]).expect("one model is a valid catalog")
+}
+
+/// A catalog of two models: the one of the id `first`, then the scripted
+/// one.
+fn catalog_after(first: &str) -> ModelCatalog {
+    ModelCatalog::new([
+        listed_model(first, "The model listed first"),
+        scripted_model(),
+    ])
+    .expect("two models of two ids are a valid catalog")
 }
 
 /// A text completion of `text` from the scripted model.
