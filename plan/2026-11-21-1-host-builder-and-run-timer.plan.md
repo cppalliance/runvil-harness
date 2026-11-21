@@ -37,10 +37,10 @@ todos:
     status: completed
   - id: harness-pr
     content: Push Harness master to origin and open the pull request from vinniefalco:master
-    status: pending
+    status: completed
   - id: workshop-commit
     content: "Workshop commit: pin the three rev values to the Harness head, cargo fetch, run verify-workshop.ps1 -Tag w1, commit, push to origin, open the pull request"
-    status: pending
+    status: completed
   - id: merge
     content: "When every check on both pull requests is green and neither upstream master moved: git push upstream master in the Harness and confirm, then the same in Workshop, then confirm that each fork equals its upstream"
     status: pending
@@ -990,3 +990,16 @@ These points were seen at the call sites, and the report takes them up.
 - The API report.
 
 Each of those is reported in its pull request and in the chat, because a record of them would be one more commit after the merge.
+
+## After the pull requests opened
+
+The automatic reviews of the two pull requests led to one more commit in each repo, so this note was added with them, before either merge.
+
+- **The pull requests are [#61](https://github.com/cppalliance/runvil-harness/pull/61) on the Harness and [#33](https://github.com/cppalliance/runvil-workshop/pull/33) on Workshop.**
+- **`cargo fetch` got `6efe4ad7` from `cppalliance/runvil-harness` while only the open pull request held it,** so the planned order stood: both pull requests were open before either merge.
+- **Workshop commit `71593d7a` passed Workshop's whole verification list on the real pin.** Its two test groups ran 706 and 353 tests, all passing, the same counts as before. `Cargo.lock` changed its 14 source lines for `runvil-harness` and gained two lines under `harness-runner`, as this plan expected.
+- **The automatic review of the Harness found a count in an entry of `tools-and-packs.md`.** The entry said that a run includes the two built-in Packs, and `AGENTS.md` keeps counts of things in the code out of an entry. Commit `e9c07ba5` removes that count and four more of the same sort that this work wrote: both ids of the built-ins, two kinds of Plugin, one of three ways to name a Plugin of the C contract, and each of the two one-prompt finders. So those five sentences differ from the text this plan gave.
+- **The same review said that the links of this plan copy start at `plan/` and so lead nowhere.** That is true, and the links stay as they are. The copy is the approved text, its links are written from the folder that holds both repositories side by side, and the ten earlier plan copies with links have the same form.
+- **The automatic review of Workshop asked for one test,** of a Plugin directory that exists and cannot be read. That is the one case of the directory whose outcome changed with this work. Workshop commit `a2d67686` adds it: a regular file in the place of the directory gives a built `Host` whose one report holds one failure with the reason `directory` and the configured path. Workshop's second test group runs 354 tests with it.
+- **One count in the text of the Workshop pull request was corrected.** It said that `with_plugins` and `load_plugin_dir` were 60 lines. A count by script gave 58, and 28 for `with_plugins` after the change.
+- **Workshop keeps its pin at `6efe4ad7`.** That commit holds all of the code, and `master` of `cppalliance/runvil-harness` holds it after the merge. The commits above it change text only.
