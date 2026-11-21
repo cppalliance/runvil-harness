@@ -6,7 +6,10 @@
 //! reach, which are the prompts a run of it may execute, so a prompt that
 //! lists another needs a finder that serves each listed name too, such as
 //! a [`PromptSet`]. The two finders of one prompt serve a prompt that
-//! lists none, or only itself.
+//! lists none, or only itself. Each of those two is complete when it is
+//! made, so its `new` returns it inside the `Arc` that a `Host` holds its
+//! finder in. A Host fills a `PromptSet` first and then puts it into an
+//! `Arc` itself.
 //!
 //! A file is read with a blocking `std::fs` call at each find, and
 //! nothing is cached, so an edited prompt shows in the next find. The
@@ -17,7 +20,7 @@ use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use runvil_engine::{Error, ErrorCode, ErrorFact, PromptFinder};
 
@@ -40,13 +43,15 @@ pub struct FindTextPrompt {
 }
 
 impl FindTextPrompt {
-    /// A finder that serves `text` as the source of the prompt `name`.
+    /// A finder that serves `text` as the source of the prompt `name`. It
+    /// comes back inside an `Arc`, which is how a `Host` holds its
+    /// finder, so a Host passes it on as it is.
     #[must_use]
-    pub fn new(name: impl Into<String>, text: impl Into<String>) -> FindTextPrompt {
-        FindTextPrompt {
+    pub fn new(name: impl Into<String>, text: impl Into<String>) -> Arc<FindTextPrompt> {
+        Arc::new(FindTextPrompt {
             name: name.into(),
             text: text.into(),
-        }
+        })
     }
 }
 
@@ -82,13 +87,15 @@ pub struct FindFilePrompt {
 impl FindFilePrompt {
     /// A finder that serves the file at `path` as the source of the
     /// prompt `name`. Nothing is read or checked until a find. A relative
-    /// `path` resolves against the working directory of each find.
+    /// `path` resolves against the working directory of each find. It
+    /// comes back inside an `Arc`, which is how a `Host` holds its
+    /// finder, so a Host passes it on as it is.
     #[must_use]
-    pub fn new(name: impl Into<String>, path: impl Into<PathBuf>) -> FindFilePrompt {
-        FindFilePrompt {
+    pub fn new(name: impl Into<String>, path: impl Into<PathBuf>) -> Arc<FindFilePrompt> {
+        Arc::new(FindFilePrompt {
             name: name.into(),
             path: path.into(),
-        }
+        })
     }
 }
 

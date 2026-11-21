@@ -95,7 +95,7 @@ mod tests {
     async fn a_prompts_timed_wait_ends_on_the_stock_timer_of_its_run() {
         let host = Arc::new(Host {
             packs: Packs::new(PackRegistry::new()),
-            prompts: Arc::new(FindTextPrompt::new(PROMPT, WAITS_AN_HOUR)),
+            prompts: FindTextPrompt::new(PROMPT, WAITS_AN_HOUR),
         });
         let prompt = host.parse(PROMPT).expect("the prompt parses");
         let recorder = Arc::new(MemoryRecorder::new());

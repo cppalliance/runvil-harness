@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    finds no other.
     let host = Arc::new(Host {
         packs: Packs::new(PackRegistry::new()),
-        prompts: Arc::new(FindTextPrompt::new(GREET_NAME, GREET)),
+        prompts: FindTextPrompt::new(GREET_NAME, GREET),
     });
 
     // 2. Find the prompt by its name and parse it.

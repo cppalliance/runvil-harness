@@ -64,7 +64,7 @@ fn host_offering(
     assert!(report.failures().is_empty(), "{:?}", report.failures());
     let host = Arc::new(Host {
         packs: Packs::new(packs),
-        prompts: Arc::new(FindTextPrompt::new(PROMPT, source)),
+        prompts: FindTextPrompt::new(PROMPT, source),
     });
     (host, report)
 }

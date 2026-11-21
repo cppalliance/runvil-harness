@@ -20,7 +20,7 @@ pub(crate) fn no_packs() -> Packs {
 pub(crate) fn launch(packs: Packs, source: &str, setup: RunSetup) -> Harness {
     let host = Arc::new(Host {
         packs,
-        prompts: Arc::new(FindTextPrompt::new(PROMPT, source)),
+        prompts: FindTextPrompt::new(PROMPT, source),
     });
     let prompt = match host.parse(PROMPT) {
         Ok(prompt) => prompt,

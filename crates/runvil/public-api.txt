@@ -371,8 +371,8 @@ pub fn runvil::effect::ToolCallOrigin::with_entry(self, entry: impl core::conver
 pub fn runvil::effect::ToolCallOrigin::with_model(self, model: impl core::convert::Into<alloc::string::String>) -> runvil::effect::ToolCallOrigin
 pub fn runvil::event::Event::provenance(&self) -> &runvil::ids::Provenance
 pub fn runvil::event::Event::section(&self) -> &str
-pub fn runvil::harness::FindFilePrompt::new(name: impl core::convert::Into<alloc::string::String>, path: impl core::convert::Into<std::path::PathBuf>) -> runvil::harness::FindFilePrompt
-pub fn runvil::harness::FindTextPrompt::new(name: impl core::convert::Into<alloc::string::String>, text: impl core::convert::Into<alloc::string::String>) -> runvil::harness::FindTextPrompt
+pub fn runvil::harness::FindFilePrompt::new(name: impl core::convert::Into<alloc::string::String>, path: impl core::convert::Into<std::path::PathBuf>) -> alloc::sync::Arc<runvil::harness::FindFilePrompt>
+pub fn runvil::harness::FindTextPrompt::new(name: impl core::convert::Into<alloc::string::String>, text: impl core::convert::Into<alloc::string::String>) -> alloc::sync::Arc<runvil::harness::FindTextPrompt>
 pub fn runvil::harness::HostResources::new() -> runvil::harness::HostResources
 pub fn runvil::harness::HostResources::provide(&mut self, name: &str, read: impl core::ops::function::Fn() -> core::option::Option<serde_json::value::Value> + core::marker::Send + core::marker::Sync + 'static) -> core::result::Result<(), runvil::Error>
 pub fn runvil::harness::InferenceBroker::chat(&self, binding: runvil::model::ModelBinding, messages: alloc::vec::Vec<runvil::model::Message>, tools: alloc::vec::Vec<runvil::model::ToolSchema>, options: runvil::model::CompletionOptions, round: runvil::effect::Round) -> runvil::BoxFuture<'static, core::result::Result<alloc::boxed::Box<runvil::model::Completion>, runvil::Error>>

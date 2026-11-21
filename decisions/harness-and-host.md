@@ -68,6 +68,8 @@ The Harness calls the Host's finder only inside `Host::parse`. One parse finds t
 
 `runvil::harness` has stock finders. `FindTextPrompt` serves one prompt from text, and `FindFilePrompt` serves one from a file. Each fails a find for any other name with the code `not_found` and the message `no prompt named {name}`, so the two fit a prompt that lists at most itself. `PromptSet` serves the prompts that a Host inserts as text, as files, and as directories, each file of a directory under its file name, such as `greet.md`. A Host whose prompts execute each other therefore gives its `Host` a `PromptSet`, or a finder of its own that serves each name.
 
+`FindTextPrompt::new` and `FindFilePrompt::new` return the finder inside an `Arc`, because that is how a `Host` holds its finder, so a Host passes the result on as it is. Each of the two is complete when it is made. A `PromptSet` is filled first, and the Host then puts it into an `Arc` and may keep a second handle for `rescan`.
+
 A run that has started holds its parsed prompt and every prompt that one links, and an `execute` runs one of those. `PromptSet::rescan` lists the set's directories again, which affects what later parses find and leaves every run in progress as it is.
 
 Every find happens in `Host::parse` because a stock finder reads a file with a blocking call, and a parse runs before the run's future exists. The rule holds for a prompt that executes others because the parse has read them all.

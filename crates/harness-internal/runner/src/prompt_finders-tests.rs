@@ -2,8 +2,9 @@
 //! finds fail, which files of a directory a `PromptSet` takes, which
 //! insert wins a name, what a rescan changes and reports, what the set
 //! names, a `Host` that parses a prompt its application added to a set
-//! the two share, and a `Host` that parses a prompt with the prompt it
-//! lists from one set.
+//! the two share, a `Host` that takes a file finder as `new` returns it,
+//! and a `Host` that parses a prompt with the prompt it lists from one
+//! set.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -502,7 +503,7 @@ const PLAN: &str =
     "---\nname: plan\ndescription: d\nrunvil: 0\nprompts: [greet.md]\n---\n\n## Only\n\nDone.\n";
 
 /// A Host with no Pack but the built-ins, whose finder is `prompts`.
-fn host_over(prompts: Arc<PromptSet>) -> Host {
+fn host_over(prompts: Arc<dyn PromptFinder>) -> Host {
     Host {
         packs: Packs::new(PackRegistry::new()),
         prompts,
@@ -513,6 +514,20 @@ fn host_over(prompts: Arc<PromptSet>) -> Host {
 /// them.
 fn linked_names(prompt: &runvil_engine::Prompt) -> Vec<&str> {
     prompt.linked().map(|linked| linked.file()).collect()
+}
+
+#[test]
+fn a_host_parses_the_file_of_a_file_prompt_given_as_new_returns_it() {
+    let dir = Scratch::new("a_host_parses_the_file_of_a_file_prompt");
+    let path = write(dir.path(), "greet.md", GREET);
+    // What `new` returns goes to the Host as it is, with no `Arc::new`
+    // around it.
+    let host = host_over(FindFilePrompt::new("greet.md", path));
+    let prompt = host
+        .parse("greet.md")
+        .expect("the file finder serves its prompt");
+    assert_eq!(prompt.file(), "greet.md");
+    assert_eq!(prompt.frontmatter().name(), "greet");
 }
 
 #[test]
