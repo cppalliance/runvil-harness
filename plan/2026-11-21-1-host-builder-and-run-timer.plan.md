@@ -993,7 +993,7 @@ Each of those is reported in its pull request and in the chat, because a record 
 
 ## After the pull requests opened
 
-The automatic reviews of the two pull requests led to one more commit in each repo, so this note was added with them, before either merge.
+The automatic reviews of the two pull requests led to one more commit in the Harness and two in Workshop, so this note was added with them, before either merge.
 
 - **The pull requests are [#61](https://github.com/cppalliance/runvil-harness/pull/61) on the Harness and [#33](https://github.com/cppalliance/runvil-workshop/pull/33) on Workshop.**
 - **`cargo fetch` got `6efe4ad7` from `cppalliance/runvil-harness` while only the open pull request held it,** so the planned order stood: both pull requests were open before either merge.
@@ -1001,5 +1001,6 @@ The automatic reviews of the two pull requests led to one more commit in each re
 - **The automatic review of the Harness found a count in an entry of `tools-and-packs.md`.** The entry said that a run includes the two built-in Packs, and `AGENTS.md` keeps counts of things in the code out of an entry. Commit `e9c07ba5` removes that count and four more of the same sort that this work wrote: both ids of the built-ins, two kinds of Plugin, one of three ways to name a Plugin of the C contract, and each of the two one-prompt finders. So those five sentences differ from the text this plan gave.
 - **The same review said that the links of this plan copy start at `plan/` and so lead nowhere.** That is true, and the links stay as they are. The copy is the approved text, its links are written from the folder that holds both repositories side by side, and the ten earlier plan copies with links have the same form.
 - **The automatic review of Workshop asked for one test,** of a Plugin directory that exists and cannot be read. That is the one case of the directory whose outcome changed with this work. Workshop commit `a2d67686` adds it: a regular file in the place of the directory gives a built `Host` whose one report holds one failure with the reason `directory` and the configured path. Workshop's second test group runs 354 tests with it.
+- **A second review asked for a named fixture.** The new test made its fixture in a temporary directory with an anonymous name. Workshop commit `73e4fccd` makes it with the helper that names a directory for its test, as each Plugin directory of that file is made.
 - **One count in the text of the Workshop pull request was corrected.** It said that `with_plugins` and `load_plugin_dir` were 60 lines. A count by script gave 58, and 28 for `with_plugins` after the change.
 - **Workshop keeps its pin at `6efe4ad7`.** That commit holds all of the code, and `master` of `cppalliance/runvil-harness` holds it after the merge. The commits above it change text only.
