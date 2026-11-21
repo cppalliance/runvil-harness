@@ -4,37 +4,37 @@ overview: "Eleven changes, as seven code commits in runvil-harness and one in ru
 todos:
   - id: prep
     content: "Check that runvil-harness and runvil-workshop are clean; fast-forward runvil-harness master to cppalliance master and push the fork; run the tests once for the base count; Harness commit 0: copy the approved plan alone to runvil-harness/plan/2026-11-21-1-host-builder-and-run-timer.plan.md"
-    status: pending
+    status: completed
   - id: two-models
     content: "Harness commit 1 (item 9): `Listing::ListsAfter` in the scripted broker, the selection test over a two-model list, the new no-selection test; verify.ps1 -Tag h1; commit"
-    status: pending
+    status: completed
   - id: tidy-records
     content: "Item 10: close issue #29 with its comment; Harness commit 2 (text only): rewrite `## Left open` in plan/2026-11-20-1-remove-ui-and-fluent-setters.plan.md"
-    status: pending
+    status: completed
   - id: timer
     content: "Harness commit 3 (item 1): `RunSetup::new(recorder, broker, timer)`, `Host` loses its timer, `drive_run` reads the setup, every call site, tightened by the plan's rule, the two-clocks test, six page entries and the docs, bless the runvil listing (one line changed, one added, one removed); verify.ps1 -Tag h3; commit"
-    status: pending
+    status: completed
   - id: builtins
     content: "Harness commit 4 (item 2): `PackRegistry::new()` starts empty and refuses the built-in ids as `pack_id_taken`, `PackOrigin` removed, `packs_builtin.rs` in the runner, tests moved and the pin test added, three page entries, bless; verify.ps1 -Tag h4; commit"
-    status: pending
+    status: completed
   - id: plugin-file
     content: "Harness commit 5 (items 7, 12): in the loader, `insert_plugin_file`, `make_report`, and an `insert_plugin` that returns a `PluginReport`; the loader's unit tests adapt, four new tests, two page entries, bless the runvil listing (one changed line); verify.ps1 -Tag h5; commit"
-    status: pending
+    status: completed
   - id: finders
     content: "Harness commit 6 (item 11): `FindTextPrompt::new` and `FindFilePrompt::new` return the finder inside an `Arc`, the four `Host` sites that wrap one lose their `Arc::new`, one new test of a `Host` over a file finder, one page entry, bless the runvil listing (two changed lines); verify.ps1 -Tag h6; commit"
-    status: pending
+    status: completed
   - id: builder
     content: "Harness commit 7 (items 3, 4, 5, 6): the runner depends on the loader, `Host::builder`, `with_rust_plugin`, `build`, which logs each report, `Host::packs`, `Host::plugin_reports`, private fields, `Packs` out of the public API, every Host built through the builder, each call site tightened by the plan's rule, the example, four new tests, pages, Cargo.lock (one added line), bless; verify.ps1 -Tag h7; run the example; commit"
-    status: pending
+    status: completed
   - id: builder-plugins
     content: "Harness commit 8 (items 5, 6, 7, 12): the runner depends on `runvil-plugin-sys`, `with_resources`, `with_plugin_dir`, `with_plugin_file`, `with_plugin`, `insert_plugin` out of the facade, the test Plugin's suites on the builder with seven new tests, each call site tightened, pages, Cargo.lock (one added line), bless (four added lines, one removed); verify.ps1 -Tag h8; commit"
-    status: pending
+    status: completed
   - id: workshop-dry-run
     content: "Workshop dry run under a temporary [patch] on the local Harness: make the edits of the Workshop commit and tighten each call site, run clippy and nextest for workshop-agents and workshop-server, then restore the root Cargo.toml and Cargo.lock"
-    status: pending
+    status: completed
   - id: record
     content: "Harness commit 9: add 'What the build found' for both repos and the todo statuses to the repo copy of the plan, and commit it alone"
-    status: pending
+    status: completed
   - id: harness-pr
     content: Push Harness master to origin and open the pull request from vinniefalco:master
     status: pending
@@ -873,3 +873,120 @@ The commits run one after the other. Each verification is a full build on one ma
 - **The docs have three automatic checks** (the wording scan, the doctest ban, and the surface check on doc text), and commits 7 and 8 write the most new doc text of the plan.
 - **Workshop's tests change their shape,** because a finder now goes in before the Packs. I read each helper, and the dry run is their first run.
 - **The count of tests after each commit** is the base count plus the new tests that this plan names. A test that I merge or split changes it, and the record gives the real numbers.
+
+# What the build found
+
+The plan held in both repos. This record was written after the seven Harness code commits and the Workshop dry run, and before anything was pushed. These points differ from the plan above, or add to it.
+
+## Before the first commit
+
+- **Upstream `master` had moved.** It was at `f40a9a2e`, four commits ahead of the fork, which held pull request #26. Local `master` was fast-forwarded and the fork was pushed, as the plan's first step says.
+- **The base count is 3,979 tests,** all passing, with 25 skipped. Those four commits changed tests and added none.
+- **A whole run of the verification list takes about two minutes** on a warm tree, where the plan guessed ten.
+
+## Harness commit 0, `0bf31ef5`: the plan
+
+- **The copy is the approved text, with every todo `pending`.** The Cursor plan file showed the first todo as `in_progress` when the copy was taken, so that one line of the copy was set back.
+
+## Harness commit 1, `72b95a37`: a test broker that lists two models
+
+- **Both tests pass over the two-model list.** The selection test returns `m`, though the broker lists `first` before it, and the new test with no selection returns `first`. The count is 3,980.
+- **Two helpers go beyond the plan.** `listed_model(id, description)` in `scripted.rs` makes the `ModelInfo` of one id, so the second model repeats no argument list. `broker_listing_two()` in `harness.rs` makes the broker of both tests, so the name `first` is written in one place.
+
+## Item 10 and Harness commit 2, `fbf7060d`: the two records
+
+- **Issue #29 is closed as completed** with the comment that this plan gave, and one more clause: a loop on such a handle can no longer be written.
+- **`## Left open` of the earlier record is one paragraph.** It names docs pull request #9 and Workshop pull request #29, which settled two of its points.
+- **Seen and left:** two other sentences of that record still describe the gap as open. They are the history of that day, and this plan asked for the one section.
+
+## Harness commit 3, `0cee3750`: the timer moves from `Host` to `RunSetup`
+
+- **The listing diff is the three lines that this plan named,** and the count is 3,981. The commit changed 46 files.
+- **The 18 struct update sites became chains, as counted.** Struct update stays at four places, each of which sets the timer.
+- **`begin` in `prepare.rs` takes the setup alone.** Its one caller passed `host.timer.now()`, so a `started_at` parameter would have been `setup.timer.now()` at that one call.
+- **Two helpers hold the struct update that sets a timer:** `timed_loop_setup(recorder, timer)` in the suites' `support.rs`, for the six `drive_run` calls with a timer of their own, and `pinned_setup(recorder, instant)` in `prepare.rs`, for the pinned-clock test and the new two-clocks test. This plan said struct update at each call.
+- **`host_over` of the runner's suites took its finder from an empty `PromptSet` in this commit,** where this plan listed that for commit 7, because this commit rewrote the function.
+- **Other tightenings:** `a_pinned_timer_stamps_the_runs_start` calls `report_of`, and one timer whose flag nothing read became `PendingTimer::default()` inline.
+- **Seen and left:** each of the eight `RunSetup::new` calls of the facade suite names `Arc::new(TokioTimer)` itself. A helper would be shorter, but that suite shows the API as a Host application writes it.
+
+## Harness commit 4, `555ecd38`: the runner makes the two built-in Packs
+
+- **The count is 3,983, two more than after commit 3, where this plan expected one more.** The old test of a new registry asserted that each built-in has a description. That assertion needed a home in the runner, and it is the test `each_builtin_has_a_description`.
+- **`PackRegistry` derives `Default`.** With an empty start the hand-written impl had nothing left to do, and the listing shows the same `derives` line.
+- **`builtin_id(&PackInfo)` in `packs_builtin.rs` gives a built-in's Pack id,** because the registry's own function for that is private to `runvil-plugin`.
+- **Two tests have new names,** because the old names said something that stopped being true: `add_refuses_an_fqn_the_registry_holds_already` and `the_registrys_debug_output_shows_each_fqn_and_pack_id`.
+- **Two loader tests got simpler.** One lost its filter for the fake Pack, because the registry now holds that one Pack alone, and one asserts in a single line that the registry is empty after a load.
+- **Seen and left:** `USER` in `packs.rs` and the names in `packs_builtin.rs` both spell `runvil/user`. The rule about a run with no user stays in `packs.rs`, as this plan says, and it uses its own constant.
+
+## Harness commit 5, `54d1a1eb`: the loader reports every kind of Plugin in one way
+
+- **The first verification failed the listing check.** The doc of `PluginReport::failures` linked `make_report`. `PluginReport` is on the facade's surface and `make_report` is outside it, and the check refuses doc text of the surface that links an item of an internal crate that the facade leaves out. The sentence now names no item. The second run passed, with 3,987 tests and a listing diff of one changed line.
+- **`insert_plugin` and `insert_plugin_file` have `#[must_use]` with a reason.** A `Result` forced its caller to look, and a report leaves that to the caller, and a Plugin that inserted no Pack unloads when its report drops.
+- **One helper reads a report as the old `Result`.** `insert_into(packs, entry, resources)` in the loader's `fakes.rs` returns the Plugin or the first failure, so the unit tests behind it kept each `.expect(..)`.
+- **A path that cannot be made absolute has a test.** The second new test of `insert.rs` also names an empty path, which is one failure with the reason `open` and the path as given.
+- **Two copies of the fixture load by their files into one registry,** because each file is a call of its own, and the Pack of the second one is refused. That is the rule "a Plugin name is unique within one directory" from its other side.
+- **Seen and left:** the `duplicate` failure says "was already loaded from this directory". A single file can never reach it, because its report starts empty.
+
+## Harness commit 6, `e2d8e1f0`: the two one-prompt finders come back inside an `Arc`
+
+- **Clippy accepts a `new` that returns `Arc<Self>`.** `new_ret_no_self` and the pedantic group said nothing, which settles that risk. The listing diff is the two changed lines, and the count is 3,988.
+- **Seen and left:** one test of `prompt_finders-tests.rs` wrote a `Host` literal that equals a call of `host_over`. This commit left it, and commit 7 moved it.
+
+## Harness commit 7, `0da07fd6`: `Host::builder`, private fields, and `Packs` out of the public API
+
+- **The listing diff is exactly what this plan named,** `Cargo.lock` gained its one line, the count is 3,992, and the example printed `Hello, desk.`. The `auto` line of `Host` is unchanged, and `HostBuilder` is `Send` and lacks `Sync`.
+- **One field of `Host` is `pub(crate)`, and the other two are private.** `prepare.rs` of the runner reads the Host's Packs to make a run's instances, and it is a sibling module of `host.rs`. The public API shows private fields either way, and no code outside `host.rs` can write a `Host` literal, because the finder and the reports are private.
+- **The structural checks accept the edge from the runner to the loader.** Both crates are inside `crates/harness-internal`, and a crate of that container may depend on the crates it holds.
+- **The log lines are `Plugin loaded`, at info, and `Plugin failed`, at warn.** The warn line has the field `path` when the failure names one.
+- **Two more sites became `Host::builder(finder).build()`.** `harness-execute.rs` called `host_finding` twice with the built-ins alone. So `host_finding` has two callers: `host_over`, and the one test with both a filled registry and a finder of its own.
+- **`bare_host()` goes around `host_finding`,** so a Host with the built-ins alone has an empty list of reports, as an application's has.
+- **Nine helpers returned a `Packs`, where this plan counted eight.** `building` in `prepare.rs` is the ninth, and it returns the `Host` too.
+- **The desk test of the facade suite got a Rust Plugin as an application writes one.** `desk_packs() -> Packs` became `install_desk(packs: &mut PackRegistry) -> Result<(), Error>`, which returns the result of `insert`. A refused Pack still fails the test at once, at the parse, which names the Pack as not installed.
+- **Docs outside this plan's list:** the type doc of `PackRegistry`, which named `Packs::new`, and one doc comment in the loader's `pack.rs`.
+- **Seen and left:** the suites write `registry(&[])` for an empty registry that the next lines fill by hand, where `PackRegistry::new()` says the same. The form is the same length, needs one more import in each file, and changes nothing about how the Host is built.
+- **Seen and left:** `host_finding` hands a filled registry to the builder by assignment inside a Rust Plugin. That is a device of the tests. It also shows that a Rust Plugin can replace the registry, which drops the Packs of every Plugin before it.
+
+## Harness commit 8, `3286ca81`: the builder loads the Plugins of the C contract
+
+- **The listing diff is four added lines and one removed line,** `Cargo.lock` gained its one line, and the count is 3,999.
+- **The test of an entry point works as this plan hoped.** It opens a copy of the fixture with `libloading` and takes `runvil_plugin` from it, and the parameter of `with_plugin` fixes the type of the symbol. The suite's dependencies are unchanged, which settles that risk.
+- **Clippy's `type_complexity` refused the boxed function written out inside the enum of steps,** so the type alias of commit 7 stays.
+- **The directory failure says `the Plugin directory could not be read:` and then the system's reason.** Its `Path` fact is the directory as the builder was given it, where the `Path` fact of a library is an absolute path.
+- **`report_of_run` became `report` at 25 places of `run.rs`.** The longer name existed only because `report` was the Plugin report that each test held beside its Host.
+- **One assertion changed its form.** The first test of `run.rs` dropped its report and then asserted that the Host's Packs keep the Plugin loaded. A report can no longer be dropped apart from its Host, so the test asserts, before the Host is dropped, that the Host keeps the Plugin loaded.
+- **Three helpers moved to the suite's `support.rs`,** `fact`, `library_source`, and `library_path`, because the new `host.rs` needs the same three as `insert.rs`.
+- **Docs outside this plan's list:** the type doc of `HostResources` and the doc of `PluginSource::Linked` named `insert_plugin` as what a Host calls, and a comment in `build-xtask` named it as the reason one outside crate is allowed in the facade's listing. Each names the builder method now. One sentence of `testing-and-debugging.md` named `insert_plugin`, which is an internal name from this commit on.
+- **One entry differs from the text this plan gave.** "A Host builds one `Host` at startup, through `Host::builder`" says that a `with_` method names one Plugin or sets the resources that the Host offers its Plugins.
+- **Seen and left:** no test builds a `Host` over a relative Plugin path, because the path would depend on the working directory of the test process.
+
+## The Workshop dry run
+
+- **Workshop built against the local Harness checkout at `3286ca81`** through a temporary `[patch]` section, which was taken out again with `git restore` on `Cargo.toml` and `Cargo.lock`. The lock file changed as this plan expects of the real pin: its 14 source lines for `runvil-harness`, and two added lines under `harness-runner`.
+- **Clippy with warnings denied passed for `workshop-agents` and `workshop-server`.** Their tests passed too: 277 run, with 2 skipped, the same count as before the change.
+- **The production code changed as this plan wrote it.** `server_host` and `with_plugins` return the built `Host`, `agent_finder` returns its finder inside an `Arc`, `load_plugin_dir` and the field `_plugins` are gone, `holds` asks the `Host`, and `setup_for` is one chain. `with_plugins` is the chain shown under The API after this plan.
+- **Three test helpers go beyond this plan.** `directory_report(host)` is the last report of a Host that names a Plugin directory, `loaded(host)` gives the names of the Plugins in it, and `assert_no_failures(host)` asserts on it. They replace six copies of the same lines.
+- **The report of the Plugin directory is "the last report".** Workshop's Host has one step on a thread with no runtime and two on a runtime, so a test cannot name that report by its position from the start.
+- **One assertion changed its form.** A test with no Plugin directory asserted that no report came back. Its Host now has the report of the mcp Plugin, so the test asserts that this is the one report and that it holds no Plugin.
+- **`std_real_directory.rs` compiled unchanged,** as this plan said.
+- **Seen and left:** `with_host_state` in `bindings.rs` keeps struct update syntax. It sets the selected model from an `Option`, and the method of `RunSetup` takes a value.
+- **A mistake of the run, caught and undone.** An edit script was given one pair of strings as a flat list and replaced a single letter throughout `language_guide/tests.rs`. `git status` showed the damage, `git restore` brought the file back, and its five edits were made again one at a time. The script touched no other file wrongly.
+- **The edits wait in Workshop's working tree** for the commit that pins the Harness.
+
+## For the API report
+
+These points were seen at the call sites, and the report takes them up.
+
+- **A build cannot fail.** A test that wants a refused insert to stop it writes `unwrap()` inside its function. A Host application that must not start with a failed Plugin reads `plugin_reports()` itself.
+- **The reports have no label.** A report is known by its position alone, and the position of a step moves when a step before it is added under a condition, as Workshop's mcp Plugin is.
+- **`Host::packs()` yields the `PackInfo` alone.** A Pack that was inserted as unavailable looks like any other, so an application cannot list which Packs no run can use, or why.
+- **A directory that does not exist is a failure for the builder.** Workshop treats it as a state and filters it out before it names the directory.
+- **`Arc::new` is still written around a `PromptSet`, a closure, a recorder, a broker, and a timer.**
+
+## Still to come when this record was written
+
+- The push of the Harness to the fork, and its pull request.
+- The Workshop commit on the real pin, with Workshop's whole verification list, and its pull request.
+- The two merges, the Harness first, once every check on both pull requests is green.
+- The API report.
+
+Each of those is reported in its pull request and in the chat, because a record of them would be one more commit after the merge.
