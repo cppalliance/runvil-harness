@@ -18,7 +18,7 @@ A Pack's fully qualified name has two segments, a vendor and a name, as in `runv
 
 `PackRegistry` refuses a Pack whose id it already holds, whatever the vendor of either Pack. The first Pack that a Plugin inserts keeps the id, and the second insert fails with the reason `pack_id_taken` and a message that names the holder, as in ``Pack `acme/web` cannot take the Pack id web, which `runvil/web` holds``. A Pack that a Plugin inserted as unavailable holds its id too. The owner's rule: "runvil/web and acme/web cannot both be in the host's PackRegistry".
 
-Every Host has the built-in Packs `subagents` and `user`, which the Harness makes itself, so a registry starts empty and holds only what Plugins inserted. The registry still keeps both ids for the built-ins: it refuses a Pack that takes either one with the same reason, `pack_id_taken`, and the message names the built-in, as in ``Pack `acme/user` cannot take the Pack id user, which the built-in Pack `runvil/user` holds``. The Harness makes the built-ins because no Plugin delivers them and no Host can leave them out.
+Every Host has the built-in Packs `subagents` and `user`, which the Harness makes itself, so a registry starts empty and holds only what Plugins inserted. The registry still keeps the id of each built-in: it refuses a Pack that takes one of them with the same reason, `pack_id_taken`, and the message names the built-in, as in ``Pack `acme/user` cannot take the Pack id user, which the built-in Pack `runvil/user` holds``. The Harness makes the built-ins because no Plugin delivers them and no Host can leave them out.
 
 The rule follows from the tool id. A tool id starts with the Pack id and leaves the vendor out, and the Harness finds the Pack for a tool call from that first segment. With one Pack for each id, `web/fetch` names one tool on a Host, and a prompt reaches every Pack of a run by its bare Pack id.
 
@@ -56,7 +56,7 @@ Every entry is required. A prompt that treats a Pack as optional tests `tools.pa
 
 ### A run includes every Pack the Host installed, and a section opts in to the undeclared ones
 
-A run includes every Pack in the Host's registry and the two built-in Packs, whatever the Pack's vendor and whatever the prompt declares. A `uses:` entry marks a Pack as required, so that the run is refused when the Pack is missing or unavailable, and it runs the Pack's prelude. It leaves the run's Packs as they are, except that an entry that names the wrong vendor keeps the installed Pack of that id out of its run, which the first step refuses (see the entry on a bare name). The owner's rule: "Packs are determined by the host, not the prompts. The frontmatter just indicates which packs are *required*."
+A run includes every Pack in the Host's registry and the built-in Packs, whatever the Pack's vendor and whatever the prompt declares. A `uses:` entry marks a Pack as required, so that the run is refused when the Pack is missing or unavailable, and it runs the Pack's prelude. It leaves the run's Packs as they are, except that an entry that names the wrong vendor keeps the installed Pack of that id out of its run, which the first step refuses (see the entry on a bare name). The owner's rule: "Packs are determined by the host, not the prompts. The frontmatter just indicates which packs are *required*."
 
 The guide calls the undeclared Packs extras. A section offers them with `tools.offer(tools.packs.extras())`, as the built-in chat prompt does. The owner's rule: "extras should be a per-section setting. Disabled by default, and opt-in".
 
