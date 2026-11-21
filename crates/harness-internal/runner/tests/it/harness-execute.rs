@@ -42,14 +42,9 @@ impl Drop for Scratch {
     }
 }
 
-/// A Host over `packs` whose finder is `prompts` and whose timer no test
-/// here reaches.
+/// A Host over `packs` whose finder is `prompts`.
 fn host_finding(packs: Packs, prompts: Arc<dyn PromptFinder>) -> Arc<Host> {
-    Arc::new(Host {
-        packs,
-        prompts,
-        timer: Arc::new(PendingTimer::default()),
-    })
+    Arc::new(Host { packs, prompts })
 }
 
 /// A finder that serves `plan` as `plan.md` and `greet` as `greet.md`.

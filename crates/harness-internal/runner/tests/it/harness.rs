@@ -32,7 +32,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread::{self, Thread};
 use std::time::Duration;
 
-use harness_runner::performers::{InferenceBroker, Timer};
+use harness_runner::performers::InferenceBroker;
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder};
 use harness_runner::{Harness, Host, Packs, RunControl, RunReport, RunSetup};
 use runvil_engine::{BoxFuture, Error, ErrorCode};
@@ -67,27 +67,24 @@ mod stop_timing;
 const PATIENCE: Duration = Duration::from_secs(10);
 
 /// The setup of a run recorded through `recorder` and served by `broker`,
-/// with [`MODEL`] selected, the empty object `{}` as its arguments, and
-/// an empty memory filesystem for its tool calls.
+/// with [`MODEL`] selected, a timer whose sleeps never end, the empty
+/// object `{}` as its arguments, and an empty memory filesystem for its
+/// tool calls.
 pub(crate) fn setup(
     recorder: Arc<dyn RunRecorder>,
     broker: impl InferenceBroker + 'static,
 ) -> RunSetup {
-    RunSetup {
-        selected_model: Some(MODEL.to_owned()),
-        ..RunSetup::new(recorder, Arc::new(broker))
-    }
+    RunSetup::new(
+        recorder,
+        Arc::new(broker),
+        Arc::new(PendingTimer::default()),
+    )
+    .selected_model(MODEL)
 }
 
-/// A Harness running `source` with `setup` on a Host over `packs` that
-/// sleeps through `timer`.
-pub(crate) fn launch(
-    packs: Packs,
-    timer: impl Timer + 'static,
-    source: &str,
-    setup: RunSetup,
-) -> Harness {
-    Harness::new(host_over(packs, timer), parsed(source), setup)
+/// A Harness running `source` with `setup` on a Host over `packs`.
+pub(crate) fn launch(packs: Packs, source: &str, setup: RunSetup) -> Harness {
+    Harness::new(host_over(packs), parsed(source), setup)
 }
 
 /// A Host's Packs with none but the built-ins.
@@ -98,12 +95,7 @@ pub(crate) fn no_packs() -> Packs {
 /// A Harness running `source` over `recorder` and `broker` with no Packs
 /// and a timer no test here reaches.
 fn plain_harness(recorder: &Arc<MemoryRecorder>, broker: ScriptedBroker, source: &str) -> Harness {
-    launch(
-        no_packs(),
-        PendingTimer::default(),
-        source,
-        setup(recorder.clone(), broker),
-    )
+    launch(no_packs(), source, setup(recorder.clone(), broker))
 }
 
 /// Yields until `condition` holds, or fails naming `what`. Every
@@ -384,16 +376,12 @@ async fn a_run_with_no_selection_binds_the_first_listed_model() {
     let setup = RunSetup::new(
         Arc::new(MemoryRecorder::new()),
         Arc::new(broker_listing_two()),
+        Arc::new(PendingTimer::default()),
     );
-    let report = launch(
-        no_packs(),
-        PendingTimer::default(),
-        READS_THE_SELECTION,
-        setup,
-    )
-    .run()
-    .await
-    .expect("the run is reported");
+    let report = launch(no_packs(), READS_THE_SELECTION, setup)
+        .run()
+        .await
+        .expect("the run is reported");
     assert_eq!(
         report.result,
         Ok("first".to_owned()),
@@ -477,7 +465,6 @@ async fn two_runs_in_flight_at_once_share_the_prompt_one_parse_returned() {
             found.fetch_add(1, Ordering::SeqCst);
             Ok(RETURNS_A_MESSAGE.to_owned())
         }),
-        timer: Arc::new(PendingTimer::default()),
     });
     let prompt = host.parse("message.md").expect("the prompt parses");
 

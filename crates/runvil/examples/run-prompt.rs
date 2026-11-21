@@ -1,7 +1,7 @@
 //! A Host runs one prompt through a Harness: it builds a Host over a
-//! fresh Pack registry, which holds only the built-ins, a finder that
-//! serves its one prompt, and the stock tokio timer, parses the prompt by
-//! its name, hands the run a recorder, the stock offline broker, and the
+//! fresh Pack registry, which holds only the built-ins, and a finder that
+//! serves its one prompt, parses the prompt by its name, hands the run a
+//! recorder, the stock offline broker, the stock tokio timer, and the
 //! operator's name, and prints the greeting the prompt returns.
 
 use std::sync::Arc;
@@ -24,25 +24,29 @@ const GREET: &str = concat!(
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Build the Host once: its installed Packs, how it finds prompts,
-    //    and its timer. A stock finder serves the one prompt under its
-    //    name and finds no other, and the stock tokio timer comes from
-    //    the Gateway client.
+    // 1. Build the Host once: its installed Packs and how it finds
+    //    prompts. A stock finder serves the one prompt under its name and
+    //    finds no other.
     let host = Arc::new(Host {
         packs: Packs::new(PackRegistry::new()),
         prompts: Arc::new(FindTextPrompt::new(GREET_NAME, GREET)),
-        timer: Arc::new(TokioTimer),
     });
 
     // 2. Find the prompt by its name and parse it.
     let prompt = host.parse(GREET_NAME)?;
 
-    // 3. Give this run its recorder, its broker, and the operator's name.
-    //    The prompt asks no model, so the broker is the stock offline
-    //    one, which lists no model. Every other field keeps its default,
-    //    such as an empty memory filesystem for the run's tool calls.
-    let setup = RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(OfflineBroker))
-        .args(r#"{"text":"desk"}"#);
+    // 3. Give this run its recorder, its broker, its timer, and the
+    //    operator's name. The prompt asks no model, so the broker is the
+    //    stock offline one, which lists no model, and the stock tokio
+    //    timer comes from the Gateway client. Every other field keeps its
+    //    default, such as an empty memory filesystem for the run's tool
+    //    calls.
+    let setup = RunSetup::new(
+        Arc::new(MemoryRecorder::new()),
+        Arc::new(OfflineBroker),
+        Arc::new(TokioTimer),
+    )
+    .args(r#"{"text":"desk"}"#);
 
     // 4. Run it to its end; the Harness is spent. The first `?` is a
     //    recorder's refusal, and the second is how the run ended. A Host

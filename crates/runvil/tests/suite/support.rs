@@ -1,10 +1,8 @@
 //! What every suite Host hands a Harness: a Host over the suite's Packs
-//! that finds the one prompt a test runs and sleeps on the stock tokio
-//! timer.
+//! that finds the one prompt a test runs.
 
 use std::sync::Arc;
 
-use harness_gateway_client::TokioTimer;
 use runvil::harness::{FindTextPrompt, Packs};
 use runvil::plugin::PackRegistry;
 use runvil::{Harness, Host, RunSetup};
@@ -18,12 +16,11 @@ pub(crate) fn no_packs() -> Packs {
 }
 
 /// A Harness running `source` with `setup` on a Host over `packs` that
-/// finds `source` by its name and sleeps on the stock tokio timer.
+/// finds `source` by its name.
 pub(crate) fn launch(packs: Packs, source: &str, setup: RunSetup) -> Harness {
     let host = Arc::new(Host {
         packs,
         prompts: Arc::new(FindTextPrompt::new(PROMPT, source)),
-        timer: Arc::new(TokioTimer),
     });
     let prompt = match host.parse(PROMPT) {
         Ok(prompt) => prompt,

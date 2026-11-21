@@ -1,5 +1,5 @@
-//! What every run of one Host shares: [`Host`], its installed Packs, how
-//! it finds prompts, and its timer, and [`Host::parse`], which finds a
+//! What every run of one Host shares: [`Host`], its installed Packs and
+//! how it finds prompts, and [`Host::parse`], which finds a
 //! prompt by its name, parses it and every prompt it links, and checks
 //! the `uses:` list of each against the Host's Packs.
 
@@ -9,11 +9,9 @@ use std::sync::Arc;
 use runvil_engine::{Error, ErrorCode, Prompt, PromptFinder};
 
 use crate::packs::{Packs, Refused};
-use crate::performers::Timer;
 
-/// What every run of one Host shares: its installed Packs, how it finds
-/// prompts, and its timer. A Host builds one and shares it behind an
-/// `Arc`.
+/// What every run of one Host shares: its installed Packs and how it
+/// finds prompts. A Host builds one and shares it behind an `Arc`.
 pub struct Host {
     /// Every Pack the Host installed in its registry, whose factories
     /// make each run's instances.
@@ -22,8 +20,6 @@ pub struct Host {
     /// asked for, and each prompt the `prompts:` lists reach from it,
     /// which a run of it may execute.
     pub prompts: Arc<dyn PromptFinder>,
-    /// Performs every run's `Timer` effects.
-    pub timer: Arc<dyn Timer>,
 }
 
 impl Host {
@@ -78,7 +74,7 @@ impl Host {
 }
 
 impl fmt::Debug for Host {
-    /// Shows the Packs; omits the finder and the timer.
+    /// Shows the Packs; omits the finder.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Host")
             .field("packs", &self.packs)

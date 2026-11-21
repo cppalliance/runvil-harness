@@ -108,7 +108,7 @@ impl Harness {
     ///
     /// The run is recorded through `setup.recorder`. It resolves its model
     /// and gets the model's replies through `setup.broker`, and it reads
-    /// its start from `host.timer` and sleeps through it. It runs under
+    /// its start from `setup.timer` and sleeps through it. It runs under
     /// `setup.limits`. It makes its own instance of each Pack of
     /// `host.packs` that the prompt picks, and its tool calls go to those
     /// instances, which drop when the run ends; when `setup.has_user` is
@@ -192,7 +192,7 @@ impl Harness {
         } = self;
         let cancel = control.cancel_handle();
 
-        let (run_id, params) = begin(&setup, host.timer.now())
+        let (run_id, params) = begin(&setup)
             .await
             .map_err(|refusal| unrecorded(None, &refusal))?;
         let recorded = |refusal: Error| unrecorded(Some(run_id), &refusal);
@@ -216,15 +216,7 @@ impl Harness {
 
         let (run, packs) = prepare(&host, prompt, &setup, params, model, cancel).await;
 
-        let (result, unread) = drive(
-            run,
-            &setup,
-            Arc::clone(&host.timer),
-            Arc::new(packs),
-            run_id,
-            &control,
-        )
-        .await;
+        let (result, unread) = drive(run, &setup, Arc::new(packs), run_id, &control).await;
         let result = match result {
             Err(refusal) if is_refusal(&refusal) => return Err(recorded(refusal)),
             result => result,

@@ -5,6 +5,7 @@
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use harness_gateway_client::TokioTimer;
 use runvil::effect::Round;
 use runvil::event::ReplyOrigin;
 use runvil::harness::{InferenceBroker, MemoryRecorder};
@@ -80,10 +81,12 @@ async fn a_sections_round_reaches_the_broker_as_chat_and_a_nested_infer_round_as
         catalog,
         rounds: Mutex::new(Vec::new()),
     });
-    let setup = RunSetup {
-        selected_model: Some(MODEL.to_owned()),
-        ..RunSetup::new(Arc::new(MemoryRecorder::new()), broker.clone())
-    };
+    let setup = RunSetup::new(
+        Arc::new(MemoryRecorder::new()),
+        broker.clone(),
+        Arc::new(TokioTimer),
+    )
+    .selected_model(MODEL);
     let report = launch(no_packs(), INFERS_THEN_CHATS, setup)
         .run()
         .await

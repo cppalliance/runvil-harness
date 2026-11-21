@@ -3,7 +3,8 @@
 //! it with the Engine's own notice and no record before its end; a
 //! recorder that refuses the run's first record fails the run naming it;
 //! each run's begin draws a fresh seed and reads its start from the
-//! Host's timer, both handed to the recorder; the setup's limits reach
+//! timer of its setup, both handed to the recorder, so two runs on one
+//! Host each start at their own clock; the setup's limits reach
 //! the prepared run; a setup built in one chain holds each value its
 //! methods set; each run starts with an empty store, which shares no
 //! file with the setup's filesystem; each run makes its own instance of
@@ -90,15 +91,20 @@ pub(crate) fn building(pack: (PackInfo, Make)) -> Packs {
 
 /// The setup of a run recorded through `recorder` and served by the
 /// scripted broker. It selects no model, so the run binds the broker's
-/// one model, and it holds an empty memory filesystem.
+/// one model, and it holds an empty memory filesystem and a timer whose
+/// sleep no test here reaches.
 pub(crate) fn setup_over(recorder: &Arc<MemoryRecorder>) -> RunSetup {
-    RunSetup::new(recorder.clone(), Arc::new(ScriptedBroker::replying()))
+    RunSetup::new(
+        recorder.clone(),
+        Arc::new(ScriptedBroker::replying()),
+        Arc::new(Unused),
+    )
 }
 
-/// Runs `source` with `setup` on a Host over `packs` and a timer no test
-/// here reaches, and returns the run's report.
+/// Runs `source` with `setup` on a Host over `packs`, and returns the
+/// run's report.
 pub(crate) async fn report_of(source: &str, packs: Packs, setup: RunSetup) -> RunReport {
-    launch(packs, Unused, source, setup)
+    launch(packs, source, setup)
         .run()
         .await
         .expect("the run is reported")
@@ -228,8 +234,12 @@ impl RunRecorder for RefusingAppends {
 #[tokio::test]
 async fn a_refused_first_record_fails_the_run_as_a_recorder_failure_naming_the_run() {
     let refusing = Arc::new(RefusingAppends(MemoryRecorder::new()));
-    let setup = RunSetup::new(refusing.clone(), Arc::new(ScriptedBroker::replying()));
-    let error = launch(bare(), Unused, PLAIN, setup)
+    let setup = RunSetup::new(
+        refusing.clone(),
+        Arc::new(ScriptedBroker::replying()),
+        Arc::new(Unused),
+    );
+    let error = launch(bare(), PLAIN, setup)
         .run()
         .await
         .expect_err("the run's first record is refused");
@@ -295,22 +305,52 @@ impl Timer for PinnedClock {
     }
 }
 
+/// The setup of [`setup_over`] with a clock pinned at `instant` as its
+/// timer.
+fn pinned_setup(recorder: &Arc<MemoryRecorder>, instant: Timestamp) -> RunSetup {
+    RunSetup {
+        timer: Arc::new(PinnedClock(instant)),
+        ..setup_over(recorder)
+    }
+}
+
 #[tokio::test]
 async fn a_pinned_timer_stamps_the_runs_start() {
     let recorder = recorder();
     let pinned = Timestamp::from_unix_millis(1_700_000_000_000);
-    let report = launch(bare(), PinnedClock(pinned), PLAIN, setup_over(&recorder))
-        .run()
-        .await
-        .expect("the run is reported");
+    let report = report_of(PLAIN, bare(), pinned_setup(&recorder, pinned)).await;
     assert_eq!(completed(report.result), "plain");
     let meta = recorder
         .meta(report.run_id)
         .expect("the recorder began the run");
     assert_eq!(
         meta.started_at, pinned,
-        "the run starts at the Host's clock"
+        "the run starts at the clock of its setup"
     );
+}
+
+#[tokio::test]
+async fn two_runs_on_one_host_each_start_at_the_clock_of_their_own_setup() {
+    let recorder = recorder();
+    let host = host_over(bare());
+    for millis in [1_700_000_000_000, 1_800_000_000_000] {
+        let pinned = Timestamp::from_unix_millis(millis);
+        let report = Harness::new(
+            Arc::clone(&host),
+            parsed(PLAIN),
+            pinned_setup(&recorder, pinned),
+        )
+        .run()
+        .await
+        .expect("the run is reported");
+        let meta = recorder
+            .meta(report.run_id)
+            .expect("the recorder began the run");
+        assert_eq!(
+            meta.started_at, pinned,
+            "each run on the one Host starts at the clock of its own setup"
+        );
+    }
 }
 
 /// A prompt declaring the fixture Pack whose one section loops over a
@@ -339,7 +379,7 @@ async fn the_setups_limits_reach_the_run() {
     let rounds = broker.rounds();
     let mut limits = RunLimits::default();
     limits.tool_iterations_ceiling = NonZeroU32::new(2).expect("2 is non-zero");
-    let setup = RunSetup::new(recorder(), Arc::new(broker)).limits(limits);
+    let setup = RunSetup::new(recorder(), Arc::new(broker), Arc::new(Unused)).limits(limits);
 
     let report = report_of(LOOPS_ON_ECHO, building(TOOLS), setup).await;
     assert_eq!(completed(report.result), "false|tool_loop_exhausted");
@@ -395,10 +435,7 @@ async fn two_runs_over_one_setup_filesystem_each_start_with_an_empty_store() {
     let recorder = recorder();
     let vfs = VfsRef::default();
     for run in 1..=2 {
-        let setup = RunSetup {
-            vfs: vfs.clone(),
-            ..setup_over(&recorder)
-        };
+        let setup = setup_over(&recorder).vfs(vfs.clone());
         let report = report_of(ASKS_AROUND_A_WRITE, bare(), setup).await;
         assert_eq!(
             completed(report.result),
@@ -422,10 +459,7 @@ async fn the_setups_filesystem_and_the_runs_store_share_no_file() {
     files.write("/paper.md", b"# Paper").unwrap();
     drop(files);
 
-    let setup = RunSetup {
-        vfs: vfs.clone(),
-        ..setup_over(&recorder())
-    };
+    let setup = setup_over(&recorder()).vfs(vfs.clone());
     let report = report_of(STORES_A_REPORT, bare(), setup).await;
     assert_eq!(
         completed(report.result),
@@ -540,7 +574,7 @@ async fn each_run_makes_its_own_instance_and_drops_it_by_the_time_harness_run_re
     packs
         .insert(PackInfo::new("tests/tools"), counting(Arc::clone(&counts)))
         .unwrap();
-    let host = host_over(Packs::new(packs), Unused);
+    let host = host_over(Packs::new(packs));
     assert_eq!(
         counts.made.load(Ordering::SeqCst),
         0,

@@ -348,7 +348,7 @@ pub fn runvil::RunSetup::args(self, args: impl core::convert::Into<alloc::string
 pub fn runvil::RunSetup::has_user(self, has_user: bool) -> runvil::RunSetup
 pub fn runvil::RunSetup::limits(self, limits: runvil::RunLimits) -> runvil::RunSetup
 pub fn runvil::RunSetup::max_tool_calls_in_flight(self, max: core::num::nonzero::NonZeroUsize) -> runvil::RunSetup
-pub fn runvil::RunSetup::new(recorder: alloc::sync::Arc<dyn runvil::harness::RunRecorder>, broker: alloc::sync::Arc<dyn runvil::harness::InferenceBroker>) -> runvil::RunSetup
+pub fn runvil::RunSetup::new(recorder: alloc::sync::Arc<dyn runvil::harness::RunRecorder>, broker: alloc::sync::Arc<dyn runvil::harness::InferenceBroker>, timer: alloc::sync::Arc<dyn runvil::harness::Timer>) -> runvil::RunSetup
 pub fn runvil::RunSetup::selected_model(self, model: impl core::convert::Into<alloc::string::String>) -> runvil::RunSetup
 pub fn runvil::RunSetup::vfs(self, vfs: runvil::vfs::VfsRef) -> runvil::RunSetup
 pub fn runvil::SourceLoc::line(file: impl core::convert::Into<alloc::string::String>, line: core::num::nonzero::NonZeroU32) -> runvil::SourceLoc
@@ -723,7 +723,6 @@ pub runvil::ErrorFact::Tasks
 pub runvil::ErrorFact::ValidUpTo
 pub runvil::Host::packs: runvil::harness::Packs
 pub runvil::Host::prompts: alloc::sync::Arc<dyn runvil::PromptFinder>
-pub runvil::Host::timer: alloc::sync::Arc<dyn runvil::harness::Timer>
 pub runvil::OutputTrust::Trusted
 pub runvil::OutputTrust::Untrusted
 pub runvil::RunLimits::lua_log_events: core::num::nonzero::NonZeroU32
@@ -742,6 +741,7 @@ pub runvil::RunSetup::limits: runvil::RunLimits
 pub runvil::RunSetup::max_tool_calls_in_flight: core::num::nonzero::NonZeroUsize
 pub runvil::RunSetup::recorder: alloc::sync::Arc<dyn runvil::harness::RunRecorder>
 pub runvil::RunSetup::selected_model: core::option::Option<alloc::string::String>
+pub runvil::RunSetup::timer: alloc::sync::Arc<dyn runvil::harness::Timer>
 pub runvil::RunSetup::vfs: runvil::vfs::VfsRef
 pub runvil::SourceLoc::end_column: core::num::nonzero::NonZeroU32
 pub runvil::SourceLoc::end_line: core::num::nonzero::NonZeroU32

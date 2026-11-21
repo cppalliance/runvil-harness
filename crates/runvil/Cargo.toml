@@ -17,7 +17,7 @@ runvil-engine.workspace = true
 runvil-plugin.workspace = true
 
 # The suite and the `run-prompt` example run a Host on tokio, as a real
-# Host does, and each of their Hosts sleeps on the stock tokio timer of
+# Host does, and each of their runs sleeps on the stock tokio timer of
 # the Gateway client; the facade's own items name no tokio type.
 [dev-dependencies]
 harness-gateway-client.workspace = true

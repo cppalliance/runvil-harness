@@ -50,7 +50,7 @@ const CATCHES_A_ROUND: &str = "---\nname: catches\ndescription: d\nrunvil: 0\n\
 
 /// A Harness running `source` with `setup` and no Packs.
 fn harness_with(source: &str, setup: RunSetup) -> Harness {
-    launch(no_packs(), PendingTimer::default(), source, setup)
+    launch(no_packs(), source, setup)
 }
 
 /// A Harness running `source` over `recorder` and `broker` with no Packs.
@@ -261,7 +261,11 @@ async fn a_panicking_broker_answers_its_round_dropped() {
 #[tokio::test]
 async fn a_run_over_the_offline_broker_binds_no_model_and_fails_a_round_where_the_prompt_asks() {
     let recorder = Arc::new(MemoryRecorder::new());
-    let setup = RunSetup::new(recorder.clone(), Arc::new(OfflineBroker));
+    let setup = RunSetup::new(
+        recorder.clone(),
+        Arc::new(OfflineBroker),
+        Arc::new(PendingTimer::default()),
+    );
 
     let report = harness_with(CATCHES_A_ROUND, setup)
         .run()

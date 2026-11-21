@@ -11,7 +11,7 @@ use harness_runner::recorder::MemoryRecorder;
 use runvil_engine::model::{Completion, CompletionResult, ToolCall};
 use serde_json::json;
 
-use super::{PendingTimer, answers_to, answers_where, calls, launch, run_beside, setup, until};
+use super::{answers_to, answers_where, calls, launch, run_beside, setup, until};
 use crate::scripted::{
     Held, MODEL, ScriptedBroker, hold_host, keeping_hold_host, reply, surviving_hold_host,
 };
@@ -118,7 +118,6 @@ async fn a_stop_drops_waiting_calls_without_starting_them() {
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         hold_host(&held),
-        PendingTimer::default(),
         &loops_offering(&[HOLD_TOOL]),
         setup(recorder.clone(), calls_once(vec!["harness_hold"; 11])),
     );
@@ -157,7 +156,6 @@ async fn a_stop_starts_a_waiting_call_that_survives_stops() {
     wire_names.push("keep_hold");
     let harness = launch(
         keeping_hold_host(&held, &kept),
-        PendingTimer::default(),
         &loops_offering(&[HOLD_TOOL, KEEP_TOOL]),
         setup(recorder.clone(), calls_once(wire_names)),
     );
@@ -205,7 +203,6 @@ async fn canceling_a_task_drops_its_call_that_survives_stops() {
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         surviving_hold_host(&held),
-        PendingTimer::default(),
         CANCELS_A_HOLDER,
         setup(recorder.clone(), holds_back(&held)),
     );

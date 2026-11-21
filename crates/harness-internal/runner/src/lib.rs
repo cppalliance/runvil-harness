@@ -1,6 +1,6 @@
 //! harness-runner - the per-run Harness and the effect loop it drives. A
-//! Host builds one [`Host`] at startup, holding its installed [`Packs`],
-//! how it finds prompts, and its timer, and [`Host::parse`] finds a prompt
+//! Host builds one [`Host`] at startup, holding its installed [`Packs`]
+//! and how it finds prompts, and [`Host::parse`] finds a prompt
 //! by its name, parses it and every prompt it links, checks the `uses:`
 //! list of each against those Packs, and returns the parsed prompt behind
 //! an `Arc` that every run of it shares. Three stock finders serve a
@@ -10,7 +10,8 @@
 //! A stock broker, [`performers::OfflineBroker`], serves a Host that runs
 //! prompts without a model.
 //! A launcher hands each run a [`RunSetup`] with everything that
-//! run gets on top of the Host. A [`Harness`] over the Host, the parsed
+//! run gets on top of the Host: the recorder, the broker, and the timer
+//! it waits on, and its own inputs. A [`Harness`] over the Host, the parsed
 //! prompt, and the setup begins the run at the setup's recorder with the
 //! inputs the Engine refuses to draw itself, resolves the run's model
 //! through the setup's broker, prepares an Engine `Run` (making the run's

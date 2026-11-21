@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind};
-use harness_runner::{Harness, Packs, RunSetup};
+use harness_runner::{Harness, Packs};
 use runvil_engine::Error;
 use runvil_engine::vfs::{Origin, VfsRef};
 use runvil_plugin::{
@@ -17,7 +17,7 @@ use runvil_plugin::{
 use serde_json::{Value, json};
 use tokio::sync::Notify;
 
-use super::{PATIENCE, PendingTimer, launch, setup};
+use super::{PATIENCE, launch, setup};
 use crate::scripted::ScriptedBroker;
 use crate::support::{assert_canceled, registry};
 
@@ -108,12 +108,8 @@ fn reading(count: u32, started: &Arc<Notify>) -> (Harness, Arc<MemoryRecorder>) 
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         Packs::new(packs),
-        PendingTimer::default(),
         &source,
-        RunSetup {
-            vfs,
-            ..setup(recorder.clone(), ScriptedBroker::replying())
-        },
+        setup(recorder.clone(), ScriptedBroker::replying()).vfs(vfs),
     );
     (harness, recorder)
 }

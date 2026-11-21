@@ -10,16 +10,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
-use runvil_engine::{BoxFuture, Error, ErrorCode, ErrorFact, PromptFinder};
+use runvil_engine::{Error, ErrorCode, ErrorFact, PromptFinder};
 use runvil_plugin::PackRegistry;
 use serde_json::json;
 
 use super::{FindFilePrompt, FindTextPrompt, PromptSet};
 use crate::host::Host;
 use crate::packs::Packs;
-use crate::performers::Timer;
 
 /// Tells apart the directories one process makes; nextest runs each test
 /// in its own process, so the process id tells those apart.
@@ -477,15 +475,6 @@ fn names_lists_what_the_last_rescan_found() {
 /// A prompt that parses, and names itself `greet`.
 const GREET: &str = "---\nname: greet\ndescription: d\nrunvil: 0\n---\n\n## Only\n\nDone.\n";
 
-/// A timer whose every sleep ends at once.
-struct NoWait;
-
-impl Timer for NoWait {
-    fn sleep(&self, _duration: Duration) -> BoxFuture<'static, ()> {
-        Box::pin(async {})
-    }
-}
-
 #[test]
 fn a_host_parses_a_prompt_added_to_the_set_it_shares_once_its_application_rescans() {
     let dir = Scratch::new("a_host_parses_a_prompt_added_to_the_set");
@@ -495,7 +484,6 @@ fn a_host_parses_a_prompt_added_to_the_set_it_shares_once_its_application_rescan
     let host = Host {
         packs: Packs::new(PackRegistry::new()),
         prompts: prompts.clone(),
-        timer: Arc::new(NoWait),
     };
     assert_eq!(host.parse("greet.md"), Err(missing("greet.md")));
 
@@ -518,7 +506,6 @@ fn host_over(prompts: Arc<PromptSet>) -> Host {
     Host {
         packs: Packs::new(PackRegistry::new()),
         prompts,
-        timer: Arc::new(NoWait),
     }
 }
 

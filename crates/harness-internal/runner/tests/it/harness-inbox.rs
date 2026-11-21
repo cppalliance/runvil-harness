@@ -24,8 +24,8 @@ use serde_json::json;
 use tokio::sync::Notify;
 
 use super::{
-    FIRST_RUN, PendingTimer, answers_to, hooked_recorder, is_event, is_store_write, launch,
-    main_waits, no_packs, plain_harness, run_beside, setup, until,
+    FIRST_RUN, answers_to, hooked_recorder, is_event, is_store_write, launch, main_waits, no_packs,
+    plain_harness, run_beside, setup, until,
 };
 use crate::scripted::{Held, ScriptedBroker, calls_hold_once, held_broker, hold_host, reply};
 use crate::support::{FailingRecorder, assert_canceled};
@@ -242,7 +242,6 @@ async fn a_send_after_the_run_ends_returns_false_and_drops_the_text() {
 async fn a_send_returns_false_once_run_returns_a_recorder_refusal() {
     let harness = launch(
         no_packs(),
-        PendingTimer::default(),
         RECEIVES,
         setup(
             Arc::new(FailingRecorder::failing_on(2)),
@@ -396,7 +395,6 @@ async fn a_stop_during_a_tool_call_leaves_a_message_sent_before_it_queued_for_th
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         hold_host(&tool),
-        PendingTimer::default(),
         LOOPS_THEN_RECEIVES,
         setup(recorder.clone(), broker),
     );
@@ -441,7 +439,6 @@ async fn a_stop_then_a_send_while_a_round_is_in_flight_raise_canceled_and_the_ne
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         hold_host(&Arc::default()),
-        PendingTimer::default(),
         LOOPS_THEN_RECEIVES,
         setup(recorder.clone(), held_broker(&chat)),
     );
@@ -486,7 +483,6 @@ async fn a_stop_and_a_send_raised_as_the_loop_records_a_message_raise_canceled_a
     });
     let harness = launch(
         no_packs(),
-        PendingTimer::default(),
         LOOPS_THEN_RECEIVES_TWICE,
         setup(recorder, held_broker(&chat)),
     );
@@ -531,7 +527,6 @@ async fn a_stop_first_seen_right_after_the_step_that_reissued_a_round_drops_the_
     });
     let harness = launch(
         no_packs(),
-        PendingTimer::default(),
         STEERS_A_CHILD,
         setup(recorder, held_broker(&chat)),
     );
@@ -578,7 +573,6 @@ async fn a_stop_first_seen_right_after_the_step_that_reissued_a_round_still_star
     });
     let harness = launch(
         no_packs(),
-        PendingTimer::default(),
         STEERS_A_CHILD_THEN_LOOPS,
         setup(recorder, broker),
     );
@@ -622,7 +616,6 @@ async fn a_send_while_a_held_round_streams_aborts_it_and_the_loop_asks_again_wit
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         no_packs(),
-        PendingTimer::default(),
         LOOPS,
         setup(recorder.clone(), held_broker(&chat)),
     );
@@ -754,7 +747,6 @@ async fn a_run_that_ends_with_messages_it_never_read_reports_them_unread_oldest_
     });
     let harness = launch(
         no_packs(),
-        PendingTimer::default(),
         RECEIVES_THEN_WRITES,
         setup(recorder, ScriptedBroker::replying()),
     );

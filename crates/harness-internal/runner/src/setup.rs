@@ -7,7 +7,7 @@ use std::sync::Arc;
 use runvil_engine::RunLimits;
 use runvil_engine::vfs::VfsRef;
 
-use crate::performers::InferenceBroker;
+use crate::performers::{InferenceBroker, Timer};
 use crate::recorder::RunRecorder;
 
 /// The tool calls a run has in flight at once unless its setup says
@@ -22,6 +22,8 @@ pub struct RunSetup {
     pub recorder: Arc<dyn RunRecorder>,
     /// Lists the models and performs model rounds.
     pub broker: Arc<dyn InferenceBroker>,
+    /// Stamps the run's start and performs the run's `Timer` effects.
+    pub timer: Arc<dyn Timer>,
     /// The filesystem the run's tool calls work in. No store of the run is
     /// part of it: the Engine makes each run an empty store of its own,
     /// and one more for each prompt the run executes, which no setup fills
@@ -44,16 +46,22 @@ pub struct RunSetup {
 }
 
 impl RunSetup {
-    /// A setup over `recorder` and `broker`. Every other field starts
+    /// A setup over `recorder`, `broker`, and `timer`, the three services
+    /// a run waits on. Every other field starts
     /// empty or at its default: an empty memory filesystem, no selection,
     /// the empty object `{}` as its args, `RunLimits::default()`, at most
     /// 10 tool calls in flight, and no user. Each of those fields has a
     /// method of its name that sets it and returns the setup.
     #[must_use]
-    pub fn new(recorder: Arc<dyn RunRecorder>, broker: Arc<dyn InferenceBroker>) -> RunSetup {
+    pub fn new(
+        recorder: Arc<dyn RunRecorder>,
+        broker: Arc<dyn InferenceBroker>,
+        timer: Arc<dyn Timer>,
+    ) -> RunSetup {
         RunSetup {
             recorder,
             broker,
+            timer,
             vfs: VfsRef::default(),
             selected_model: None,
             args: "{}".to_owned(),
@@ -108,7 +116,7 @@ impl RunSetup {
 }
 
 impl fmt::Debug for RunSetup {
-    /// Shows every field but the recorder and broker.
+    /// Shows every field but the recorder, the broker, and the timer.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RunSetup")
             .field("vfs", &self.vfs)

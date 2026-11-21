@@ -7,14 +7,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use harness_runner::RunSetup;
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind};
 use runvil_engine::model::{Completion, CompletionResult, ToolCall};
 use runvil_engine::vfs::{Origin, VfsRef};
 use serde_json::{Value, json};
 
 use super::files::files_host;
-use super::{PendingTimer, launch, setup};
+use super::{launch, setup};
 use crate::scripted::{MODEL, ScriptedBroker, reply};
 
 /// A prompt that offers the fixture Pack's reader and its changing tool
@@ -97,12 +96,8 @@ async fn order_run(
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         files_host(|| ()),
-        PendingTimer::default(),
         LOOPS,
-        RunSetup {
-            vfs: vfs.clone(),
-            ..setup(recorder.clone(), asking(calls))
-        },
+        setup(recorder.clone(), asking(calls)).vfs(vfs.clone()),
     );
 
     let report = harness.run().await.expect("the run is reported");

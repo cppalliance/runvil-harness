@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind};
-use harness_runner::{Packs, RunControl, RunSetup};
+use harness_runner::{Packs, RunControl};
 use runvil_engine::Error;
 use runvil_engine::vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsPath, VfsRef};
 use runvil_plugin::{
@@ -23,7 +23,7 @@ use runvil_plugin::{
 };
 use serde_json::{Value, json};
 
-use super::{PATIENCE, PendingTimer, hooked_recorder, launch, setup};
+use super::{PATIENCE, hooked_recorder, launch, setup};
 use crate::scripted::ScriptedBroker;
 use crate::support::{assert_canceled, registry};
 
@@ -253,12 +253,8 @@ async fn a_tool_reads_and_writes_through_its_files_and_each_operation_is_recorde
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         files_host(|| ()),
-        PendingTimer::default(),
         COPIES,
-        RunSetup {
-            vfs: vfs.clone(),
-            ..setup(recorder.clone(), ScriptedBroker::replying())
-        },
+        setup(recorder.clone(), ScriptedBroker::replying()).vfs(vfs.clone()),
     );
 
     let report = harness.run().await.expect("the run is reported");
@@ -362,12 +358,8 @@ async fn two_calls_in_flight_at_once_each_get_the_outcomes_of_their_own_requests
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         files_host(|| ()),
-        PendingTimer::default(),
         COPIES_TWICE,
-        RunSetup {
-            vfs: vfs.clone(),
-            ..setup(recorder.clone(), ScriptedBroker::replying())
-        },
+        setup(recorder.clone(), ScriptedBroker::replying()).vfs(vfs.clone()),
     );
 
     let report = harness.run().await.expect("the run is reported");
@@ -470,12 +462,8 @@ async fn pair_run(raise: Raise, at: At) -> PairRun {
     let vfs = VfsRef::default();
     let harness = launch(
         files_host(on_pair),
-        PendingTimer::default(),
         PAIRS,
-        RunSetup {
-            vfs: vfs.clone(),
-            ..setup(recorder, ScriptedBroker::replying())
-        },
+        setup(recorder, ScriptedBroker::replying()).vfs(vfs.clone()),
     );
     slot.set(harness.control()).unwrap();
 

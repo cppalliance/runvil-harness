@@ -9,7 +9,6 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use std::time::Duration;
 
 use runvil_engine::{Error, ErrorCode, Prompt, SourceLoc, make_tool_error};
 use runvil_plugin::{
@@ -19,7 +18,6 @@ use serde_json::Value;
 
 use super::Host;
 use crate::packs::Packs;
-use crate::performers::Timer;
 
 /// A Pack with no tools that answers no call.
 struct Idle;
@@ -58,15 +56,6 @@ fn fails(_id: &PackId) -> Result<Arc<dyn Pack>, Error> {
     ))
 }
 
-/// A timer whose every sleep ends at once.
-struct Instant;
-
-impl Timer for Instant {
-    fn sleep(&self, _duration: Duration) -> BoxFuture<'static, ()> {
-        Box::pin(async {})
-    }
-}
-
 /// A Host holding `acme/kit`, whose factory makes it, `acme/broken`,
 /// whose factory refuses, and `acme/offline`, inserted unavailable, that
 /// finds each prompt in `sources` by its name.
@@ -94,7 +83,6 @@ fn host(sources: &[(&str, String)]) -> Host {
                 .cloned()
                 .ok_or_else(|| missing_prompt(name))
         }),
-        timer: Arc::new(Instant),
     }
 }
 

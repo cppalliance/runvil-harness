@@ -16,9 +16,7 @@ use runvil_engine::Error;
 use runvil_engine::model::{Completion, CompletionResult, ToolCall};
 use serde_json::json;
 
-use super::{
-    FIRST_RUN, PendingTimer, answers_to, launch, main_waits, no_packs, run_beside, setup, until,
-};
+use super::{FIRST_RUN, answers_to, launch, main_waits, no_packs, run_beside, setup, until};
 use crate::scripted::{
     Held, HeldTimer, MODEL, ScriptedBroker, calls_hold_once, held_broker, hold_host, reply,
     surviving_hold_host,
@@ -92,9 +90,11 @@ async fn a_stop_drops_a_chat_round_a_tool_call_and_a_timer_and_a_pcall_keeps_the
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         hold_host(&tool),
-        HeldTimer(Arc::clone(&timer)),
         STOPS_ALL,
-        setup(recorder.clone(), held_broker(&chat)),
+        RunSetup {
+            timer: Arc::new(HeldTimer(Arc::clone(&timer))),
+            ..setup(recorder.clone(), held_broker(&chat))
+        },
     );
     let in_flight = [Arc::clone(&chat), Arc::clone(&tool), Arc::clone(&timer)];
 
@@ -135,7 +135,6 @@ async fn an_uncaught_stopped_round_ends_the_run_canceled() {
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         hold_host(&Arc::default()),
-        PendingTimer::default(),
         STOPS_UNCAUGHT,
         setup(recorder.clone(), held_broker(&chat)),
     );
@@ -181,7 +180,6 @@ async fn two_calls_in_one_round_are_in_flight_at_once_and_a_stop_drops_both() {
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         hold_host(&held),
-        PendingTimer::default(),
         LOOPS_ONCE,
         setup(recorder.clone(), calls_hold_twice()),
     );
@@ -214,12 +212,8 @@ async fn a_chat_shaped_prompt_returns_to_its_inbox_after_a_stop_during_a_tool_ca
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         hold_host(&tool),
-        PendingTimer::default(),
         CHATS,
-        RunSetup {
-            has_user: true,
-            ..setup(recorder.clone(), calls_hold_once())
-        },
+        setup(recorder.clone(), calls_hold_once()).has_user(true),
     );
     let (watched, waits) = (Arc::clone(&tool), Arc::clone(&recorder));
 
@@ -264,12 +258,8 @@ async fn a_stop_while_the_main_chain_waits_on_its_inbox_leaves_the_wait_and_a_la
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         no_packs(),
-        PendingTimer::default(),
         RECEIVES,
-        RunSetup {
-            has_user: true,
-            ..setup(recorder.clone(), ScriptedBroker::replying())
-        },
+        setup(recorder.clone(), ScriptedBroker::replying()).has_user(true),
     );
     let watched = Arc::clone(&recorder);
 
@@ -315,7 +305,6 @@ async fn a_stop_leaves_any_tool_call_whose_info_survives_stops_in_flight() {
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         surviving_hold_host(&tool),
-        PendingTimer::default(),
         HOLDS,
         setup(recorder.clone(), ScriptedBroker::replying()),
     );

@@ -18,7 +18,7 @@ use super::{answers, await_raised, cancel_after, meta};
 use crate::prepare::RefusingAppends;
 use crate::support::{
     FailingRecorder, PendingTimer, TIMED_MAIN, TextTool, Unused, WAITS, loop_setup, run,
-    run_with_child, run_with_child_and_cancel,
+    run_with_child, run_with_child_and_cancel, timed_loop_setup,
 };
 
 /// A run of one store write and one read: its every effect is a Vfs
@@ -36,7 +36,6 @@ async fn a_recorder_that_refuses_its_nth_call_ends_the_drive_with_a_recorder_err
         store_round_trip(),
         &loop_setup(baseline.clone()),
         Arc::new(Unused),
-        Arc::new(Unused),
         run_id,
         CancelHandle::new(),
     )
@@ -51,7 +50,6 @@ async fn a_recorder_that_refuses_its_nth_call_ends_the_drive_with_a_recorder_err
         let error = drive_run(
             store_round_trip(),
             &loop_setup(recorder.clone()),
-            Arc::new(Unused),
             Arc::new(Unused),
             run_id,
             CancelHandle::new(),
@@ -97,7 +95,6 @@ async fn a_recorder_error_under_another_code_ends_the_drive_as_a_recorder_failur
         store_round_trip(),
         &loop_setup(recorder.clone()),
         Arc::new(Unused),
-        Arc::new(Unused),
         run_id,
         CancelHandle::new(),
     )
@@ -125,15 +122,11 @@ async fn a_recorder_that_refuses_an_answer_aborts_the_performers_still_out() {
     // lands shows which call records it: the first answer in the stream.
     let dry = Arc::new(FailingRecorder::never_failing());
     let dry_run = dry.inner().begin_run(meta()).await.unwrap();
-    let timer = Arc::new(PendingTimer {
-        dropped: Arc::new(AtomicBool::new(false)),
-    });
     let cancel = CancelHandle::new();
     cancel_after(&cancel, Duration::from_millis(50));
     let dry_result = drive_run(
         run_with_child_and_cancel(TIMED_MAIN, WAITS, &cancel),
-        &loop_setup(dry.clone()),
-        timer,
+        &timed_loop_setup(dry.clone(), Arc::new(PendingTimer::default())),
         Arc::new(TextTool("hi")),
         dry_run,
         cancel,
@@ -161,8 +154,7 @@ async fn a_recorder_that_refuses_an_answer_aborts_the_performers_still_out() {
     let run_id = recorder.inner().begin_run(meta()).await.unwrap();
     let error = drive_run(
         run_with_child(TIMED_MAIN, WAITS),
-        &loop_setup(recorder.clone()),
-        timer,
+        &timed_loop_setup(recorder.clone(), timer),
         Arc::new(TextTool("hi")),
         run_id,
         CancelHandle::new(),

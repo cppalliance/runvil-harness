@@ -12,13 +12,13 @@ use harness_runner::performers::{InferenceBroker, Timer, ToolPerformer};
 use harness_runner::recorder::{
     MemoryRecorder, Record, RunId, RunMeta, RunRecorder, make_recorder_error,
 };
-use harness_runner::{Host, Packs, RunSetup};
+use harness_runner::{Host, Packs, PromptSet, RunSetup};
 use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::{Round, ToolCallOrigin};
 use runvil_engine::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
 };
-use runvil_engine::{BoxFuture, Error, ErrorCode};
+use runvil_engine::{BoxFuture, Error};
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Timestamp};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
 use runvil_plugin::{Pack, PackId, PackInfo, PackRegistry, ToolFiles};
@@ -51,21 +51,13 @@ pub(crate) fn registry(packs: &[(PackInfo, Make)]) -> PackRegistry {
     registry
 }
 
-/// A Host over `packs` that sleeps through `timer`. Its finder serves no
-/// prompt: a suite parses its own with [`parsed`], so a prompt the Host's
-/// Packs cannot serve still reaches the run.
-pub(crate) fn host_over(packs: Packs, timer: impl Timer + 'static) -> Arc<Host> {
+/// A Host over `packs`. Its finder serves no prompt: a suite parses its
+/// own with [`parsed`], so a prompt the Host's Packs cannot serve still
+/// reaches the run.
+pub(crate) fn host_over(packs: Packs) -> Arc<Host> {
     Arc::new(Host {
         packs,
-        prompts: Arc::new(|name: &str| -> Result<String, Error> {
-            let code = ErrorCode::NotFound;
-            Err(Error::new(
-                code,
-                format!("no prompt named {name}"),
-                code.prose(),
-            ))
-        }),
-        timer: Arc::new(timer),
+        prompts: Arc::new(PromptSet::new()),
     })
 }
 
@@ -194,10 +186,20 @@ impl Timer for Unused {
 }
 
 /// The setup of a run the effect loop drives alone, recorded through
-/// `recorder`, whose broker no test here reaches; a test that issues
-/// `Chat` effects sets its own broker.
+/// `recorder`, whose broker and timer no test here reaches; a test that
+/// issues `Chat` effects sets its own broker, and one that issues `Timer`
+/// effects its own timer.
 pub(crate) fn loop_setup(recorder: Arc<dyn RunRecorder>) -> RunSetup {
-    RunSetup::new(recorder, Arc::new(Unused))
+    RunSetup::new(recorder, Arc::new(Unused), Arc::new(Unused))
+}
+
+/// [`loop_setup`] for a run that issues `Timer` effects, which `timer`
+/// performs.
+pub(crate) fn timed_loop_setup(recorder: Arc<dyn RunRecorder>, timer: Arc<dyn Timer>) -> RunSetup {
+    RunSetup {
+        timer,
+        ..loop_setup(recorder)
+    }
 }
 
 /// Answers every tool call with the same trusted text.

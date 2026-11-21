@@ -317,7 +317,7 @@ async fn a_cancel_while_an_undeclared_pack_of_another_vendor_is_still_starting_e
  {
     let (host, _moves, startup) = slow_host_of(OTHER_SLOW, Phase::Starting);
     let recorder = recorder();
-    let harness = launch(host, Unused, COUNTS_OFFERED, setup_over(&recorder));
+    let harness = launch(host, COUNTS_OFFERED, setup_over(&recorder));
     let control = harness.control();
     let (report, ()) = tokio::time::timeout(PATIENCE, async {
         tokio::join!(harness.run(), async {
@@ -357,7 +357,7 @@ async fn a_cancel_while_a_declared_pack_is_still_starting_ends_the_run_canceled_
  {
     let (host, _moves, startup) = slow_host(Phase::Starting);
     let recorder = recorder();
-    let harness = launch(host, Unused, CALLS_SLOW, setup_over(&recorder));
+    let harness = launch(host, CALLS_SLOW, setup_over(&recorder));
     let control = harness.control();
     let (report, ()) = tokio::time::timeout(PATIENCE, async {
         tokio::join!(harness.run(), async {
@@ -383,7 +383,7 @@ async fn a_refusal_after_a_cancel_cut_the_wait_short_ends_the_run_canceled_with_
     let recorder = recorder();
     let declares_slow_and_web = "---\nname: slow-and-web\ndescription: d\nrunvil: 0\n\
         uses:\n  - slow\n  - web\n---\n\n## Only\n\nDone.\n";
-    let harness = launch(host, Unused, declares_slow_and_web, setup_over(&recorder));
+    let harness = launch(host, declares_slow_and_web, setup_over(&recorder));
     let control = harness.control();
     let (report, ()) = tokio::time::timeout(PATIENCE, async {
         tokio::join!(harness.run(), async {
@@ -413,8 +413,12 @@ async fn a_cancel_that_lands_while_a_refusal_is_recorded_leaves_the_report_holdi
         inner: inner.clone(),
         control: OnceLock::new(),
     });
-    let setup = RunSetup::new(recorder.clone(), Arc::new(ScriptedBroker::replying()));
-    let harness = launch(bare(), Unused, NEEDS_WEB, setup);
+    let setup = RunSetup::new(
+        recorder.clone(),
+        Arc::new(ScriptedBroker::replying()),
+        Arc::new(Unused),
+    );
+    let harness = launch(bare(), NEEDS_WEB, setup);
     recorder.control.set(harness.control()).unwrap();
 
     let report = tokio::time::timeout(PATIENCE, harness.run())

@@ -7,6 +7,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use harness_gateway_client::TokioTimer;
 use runvil::harness::{MemoryRecorder, OfflineBroker, Packs, RecordKind, RunId};
 use runvil::packs::PackId;
 use runvil::plugin::{Pack, PackInfo, PackRegistry, ToolContext};
@@ -203,11 +204,13 @@ async fn a_hosts_edit_of_a_file_the_run_read_applies_while_the_run_waits_on_its_
         .expect("the policy allows a desk file");
 
     let recorder = Arc::new(MemoryRecorder::new());
-    let setup = RunSetup {
-        has_user: true,
-        vfs: vfs.clone(),
-        ..RunSetup::new(recorder.clone(), Arc::new(OfflineBroker))
-    };
+    let setup = RunSetup::new(
+        recorder.clone(),
+        Arc::new(OfflineBroker),
+        Arc::new(TokioTimer),
+    )
+    .vfs(vfs.clone())
+    .has_user(true);
     let harness = launch(desk_packs(), REVIEW, setup);
     let control = harness.control();
     // While the run waits on its inbox, the Host edits the notes the run's
@@ -252,10 +255,12 @@ async fn a_hosts_edit_of_a_file_the_run_read_applies_while_the_run_waits_on_its_
 #[tokio::test]
 async fn a_hosts_policy_and_watcher_never_see_a_store_operation() {
     let (vfs, seen) = watched(Shut);
-    let setup = RunSetup {
-        vfs: vfs.clone(),
-        ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(OfflineBroker))
-    };
+    let setup = RunSetup::new(
+        Arc::new(MemoryRecorder::new()),
+        Arc::new(OfflineBroker),
+        Arc::new(TokioTimer),
+    )
+    .vfs(vfs.clone());
     let report = launch(no_packs(), KEEPS, setup)
         .run()
         .await

@@ -24,7 +24,7 @@ use serde_json::json;
 use crate::support::{
     ClosingTool, PanickingTool, PendingTimer, PendingTool, TEST_SEED, TIMED_MAIN, TextTool, Unused,
     WAITS, assert_canceled, loop_setup, run, run_with_cancel, run_with_child,
-    run_with_child_and_cancel,
+    run_with_child_and_cancel, timed_loop_setup,
 };
 
 #[path = "effect_loop-broker.rs"]
@@ -102,7 +102,6 @@ async fn records_are_events_then_effects_then_answers_per_step() {
     let result = drive_run(
         run(&format!("store.write('notes.md', 'kept')\n{WAITS}")),
         &loop_setup(recorder.clone()),
-        Arc::new(Unused),
         Arc::new(TextTool("hi")),
         run_id,
         CancelHandle::new(),
@@ -203,8 +202,7 @@ async fn a_cancel_writes_one_dropped_answer_per_outstanding_effect() {
     // timeout timer and its child's tool call.
     let result = drive_run(
         run_with_child_and_cancel(TIMED_MAIN, WAITS, &cancel),
-        &loop_setup(recorder.clone()),
-        timer,
+        &timed_loop_setup(recorder.clone(), timer),
         Arc::new(PendingTool),
         run_id,
         cancel,
@@ -259,7 +257,6 @@ async fn a_panicking_performer_drops_its_effect_instead_of_stranding_the_run() {
         drive_run(
             run(WAITS),
             &loop_setup(recorder.clone()),
-            Arc::new(Unused),
             Arc::new(PanickingTool),
             run_id,
             CancelHandle::new(),
@@ -297,8 +294,7 @@ async fn a_refused_recorder_write_returns_the_recorder_error_and_aborts_the_park
     // the main section's timer is still parked at that moment.
     let error = drive_run(
         run_with_child(TIMED_MAIN, WAITS),
-        &loop_setup(recorder.clone()),
-        timer,
+        &timed_loop_setup(recorder.clone(), timer),
         tool,
         run_id,
         CancelHandle::new(),
@@ -349,7 +345,6 @@ async fn an_ended_run_refuses_the_first_write_before_any_performer_starts() {
     let error = drive_run(
         run(WAITS),
         &loop_setup(recorder.clone()),
-        Arc::new(Unused),
         Arc::new(PendingTool),
         run_id,
         CancelHandle::new(),
@@ -385,7 +380,6 @@ async fn a_run_left_with_nothing_to_await_ends_recorded_with_an_internal_error()
         lost,
         &loop_setup(recorder.clone()),
         Arc::new(Unused),
-        Arc::new(Unused),
         run_id,
         CancelHandle::new(),
     )
@@ -418,7 +412,6 @@ async fn a_run_waiting_for_input_with_nothing_in_flight_waits_for_a_cancel_inste
     let result = drive_run(
         run_with_cancel("return tasks.receive()", &cancel),
         &loop_setup(recorder.clone()),
-        Arc::new(Unused),
         Arc::new(Unused),
         run_id,
         cancel,

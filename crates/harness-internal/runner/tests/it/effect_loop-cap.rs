@@ -239,12 +239,11 @@ impl Rig {
         broker: ScriptedBroker,
         steer: impl Future<Output = ()>,
     ) -> Result<String, Error> {
-        let setup = RunSetup::new(self.recorder.clone(), Arc::new(broker))
+        let setup = RunSetup::new(self.recorder.clone(), Arc::new(broker), Arc::new(Unused))
             .max_tool_calls_in_flight(self.cap);
         let drive = drive_run(
             run_of(sections, &self.cancel),
             &setup,
-            Arc::new(Unused),
             self.tool.clone(),
             self.run_id,
             self.cancel.clone(),

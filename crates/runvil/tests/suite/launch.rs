@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use harness_gateway_client::TokioTimer;
 use runvil::harness::{MemoryRecorder, OfflineBroker};
 use runvil::{ErrorCode, Harness, RunSetup};
 
@@ -19,10 +20,12 @@ const SHOUTS: &str = concat!(
 
 /// A Harness running `source` with `hello` as its `text` argument.
 fn harness(source: &str) -> Harness {
-    let setup = RunSetup {
-        args: r#"{"text":"hello"}"#.to_owned(),
-        ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(OfflineBroker))
-    };
+    let setup = RunSetup::new(
+        Arc::new(MemoryRecorder::new()),
+        Arc::new(OfflineBroker),
+        Arc::new(TokioTimer),
+    )
+    .args(r#"{"text":"hello"}"#);
     launch(no_packs(), source, setup)
 }
 

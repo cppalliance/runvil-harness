@@ -2,8 +2,9 @@
 //! effect loop can drive.
 //!
 //! [`begin`] draws the run's seed from the OS CSPRNG and hands it to the
-//! recorder with the start time the caller read, so the record holds both
-//! verbatim. `Harness::run_to_end` begins the run before anything else, so
+//! recorder with the start time the setup's timer reads, so the record
+//! holds both verbatim. `Harness::run_to_end` begins the run before
+//! anything else, so
 //! every run has a record. Then [`prepare`] takes the steps that build the
 //! run: hand the filesystem the run's tool calls work in to the params as
 //! given; make the run's instance of
@@ -25,7 +26,7 @@ use std::sync::Arc;
 use runvil_engine::Error;
 use runvil_engine::cancel::CancelHandle;
 use runvil_engine::model::{ModelInfo, ModelRole};
-use runvil_engine::{Prompt, Run, RunParams, RunSeed, Timestamp};
+use runvil_engine::{Prompt, Run, RunParams, RunSeed};
 
 use crate::host::Host;
 use crate::packs::RunPacks;
@@ -33,16 +34,14 @@ use crate::recorder::{RunId, RunMeta};
 use crate::setup::RunSetup;
 
 /// Begins the run at `setup.recorder`: draws its seed from the OS random
-/// source, records `started_at`, and returns the run id with params
-/// holding the seed and start.
+/// source, reads its start from `setup.timer`, records both, and returns
+/// the run id with params holding the seed and start.
 ///
 /// # Errors
 /// Returns the recorder's refusal to begin the run.
-pub(crate) async fn begin(
-    setup: &RunSetup,
-    started_at: Timestamp,
-) -> Result<(RunId, RunParams), Error> {
+pub(crate) async fn begin(setup: &RunSetup) -> Result<(RunId, RunParams), Error> {
     let seed = RunSeed::from_bytes(rand::random());
+    let started_at = setup.timer.now();
     let run_id = setup
         .recorder
         .begin_run(RunMeta {

@@ -141,7 +141,7 @@ pub struct RunMeta {
     pub seed: RunSeed,
     /// Reserved. No flag is defined, and the Harness records 0.
     pub flags: u32,
-    /// When the run started, as the Host's timer read it. The Engine
+    /// When the run started, as the timer of its setup read it. The Engine
     /// receives the same value as `started_at`, so the record and the
     /// run agree.
     pub started_at: Timestamp,

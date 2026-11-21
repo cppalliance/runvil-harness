@@ -65,7 +65,6 @@ fn host_offering(
     let host = Arc::new(Host {
         packs: Packs::new(packs),
         prompts: Arc::new(FindTextPrompt::new(PROMPT, source)),
-        timer: Arc::new(TokioTimer),
     });
     (host, report)
 }
@@ -84,10 +83,7 @@ fn harness_over(host: &Arc<Host>, vfs: VfsRef) -> Harness {
 /// which records at `recorder`.
 fn harness_recorded(host: &Arc<Host>, vfs: VfsRef, recorder: Arc<dyn RunRecorder>) -> Harness {
     let prompt = host.parse(PROMPT).expect("the prompt parses");
-    let setup = RunSetup {
-        vfs,
-        ..RunSetup::new(recorder, Arc::new(OfflineBroker))
-    };
+    let setup = RunSetup::new(recorder, Arc::new(OfflineBroker), Arc::new(TokioTimer)).vfs(vfs);
     Harness::new(Arc::clone(host), prompt, setup)
 }
 

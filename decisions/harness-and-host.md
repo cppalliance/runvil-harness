@@ -1,6 +1,6 @@
 # The Harness and the Host API: design decisions
 
-This page covers the `runvil` crate, `Host`, `RunSetup`, one Harness for each run, the effect loop, inference brokers, the timer, what a Host hands a Rust Plugin, the resources a Host offers the Plugins of the C contract, the recorder and run events, the run inbox from the Host's side, and stop and cancel. A Host is an application that runs prompts, and it depends on one crate, `runvil`. At startup it builds one `Host` struct: its installed Packs, a prompt finder, and a timer. For each run it fills a `RunSetup` with a recorder, an inference broker, a file system, and the run's settings, and creates one `Harness`. `Harness::run` is one future. It steps the Engine, performs each effect, writes every event, effect, and answer to the recorder, and returns a `RunReport`. A `RunControl` sends messages to the run, stops the work in flight, or cancels the run.
+This page covers the `runvil` crate, `Host`, `RunSetup`, one Harness for each run, the effect loop, inference brokers, the timer, what a Host hands a Rust Plugin, the resources a Host offers the Plugins of the C contract, the recorder and run events, the run inbox from the Host's side, and stop and cancel. A Host is an application that runs prompts, and it depends on one crate, `runvil`. At startup it builds one `Host` struct: its installed Packs and a prompt finder. For each run it fills a `RunSetup` with a recorder, an inference broker, a timer, a file system, and the run's settings, and creates one `Harness`. `Harness::run` is one future. It steps the Engine, performs each effect, writes every event, effect, and answer to the recorder, and returns a `RunReport`. A `RunControl` sends messages to the run, stops the work in flight, or cancels the run.
 
 ## 1. The three layers and the `runvil` crate
 
@@ -42,9 +42,9 @@ A Host's own parts may still need a runtime: the docs of `GatewayBroker` and of 
 
 ### A Host builds one `Host` at startup and one `RunSetup` for each run
 
-`Host` is a struct with the public fields `packs`, `prompts`, and `timer`. A Host builds one and shares it behind an `Arc`. `RunSetup` is a struct of public fields that the Host fills for each run.
+`Host` is a struct with the public fields `packs` and `prompts`. A Host builds one and shares it behind an `Arc`. `RunSetup` is a struct of public fields that the Host fills for each run.
 
-The two structs sort every input by lifetime: `Host` contains what every run of one Host shares, and `RunSetup` contains what one run gets on top of the Host.
+The two structs sort every input by its use: `Host` contains what a parse reads and what every run shares, and `RunSetup` contains what one run uses, which includes the services a run waits on: the recorder, the broker, and the timer.
 
 ### `Harness::new` takes the `Host`, a parsed `Prompt`, and the `RunSetup`, and `run` consumes the Harness
 
@@ -72,19 +72,19 @@ A run that has started holds its parsed prompt and every prompt that one links, 
 
 Every find happens in `Host::parse` because a stock finder reads a file with a blocking call, and a parse runs before the run's future exists. The rule holds for a prompt that executes others because the parse has read them all.
 
-### `RunSetup::new` takes the recorder and the broker, and every other field has a default
+### `RunSetup::new` takes the recorder, the broker, and the timer, and every other field has a default
 
-`RunSetup::new(recorder, broker)` sets the required fields. Every other field starts at a default: an empty in-memory file system in `vfs`, no selection in `selected_model`, the empty object `{}` in `args`, the default `RunLimits` in `limits`, 10 in `max_tool_calls_in_flight`, and `false` in `has_user`. The default limits include 24 loop rounds and 8 concurrent tasks.
+`RunSetup::new(recorder, broker, timer)` sets the required fields. Every other field starts at a default: an empty in-memory file system in `vfs`, no selection in `selected_model`, the empty object `{}` in `args`, the default `RunLimits` in `limits`, 10 in `max_tool_calls_in_flight`, and `false` in `has_user`. The default limits include 24 loop rounds and 8 concurrent tasks.
 
 The default of `args` is `{}`, which is what a caller sends when it leaves every argument out. A Host that leaves the field alone therefore starts a valid run of every prompt whose arguments are all optional.
 
-The broker is a required argument because the Harness asks the broker of every run for its models before it prepares the run. A Host that leaves it out fails to compile. A Host that runs prompts without a model passes `OfflineBroker` (see Inference, the clock, and what a Host hands its Plugins), so the code that builds the setup says so. A broker that a Host could leave out would be missed only when a prompt first asks for a model.
+The broker is a required argument because the Harness asks the broker of every run for its models before it prepares the run. A Host that leaves it out fails to compile. A Host that runs prompts without a model passes `OfflineBroker` (see Inference, the clock, and what a Host hands its Plugins), so the code that builds the setup says so. A broker that a Host could leave out would be missed only when a prompt first asks for a model. The timer is a required argument for a reason of the same kind (see Inference, the clock, and what a Host hands its Plugins).
 
 ### Each optional field of `RunSetup` has a method that sets it and returns the setup
 
-Each field that `RunSetup::new` starts at a default has a method of the same name, which takes the setup, sets the field, and returns the setup. A Host writes a setup as one expression, as in `RunSetup::new(recorder, broker).args(text).has_user(true)`. The method `selected_model` takes the model id itself. The fields are public too, so a Host that holds a setup assigns a field directly.
+Each field that `RunSetup::new` starts at a default has a method of the same name, which takes the setup, sets the field, and returns the setup. A Host writes a setup as one expression, as in `RunSetup::new(recorder, broker, timer).args(text).has_user(true)`. The method `selected_model` takes the model id itself. The fields are public too, so a Host that holds a setup assigns a field directly.
 
-The methods let a Host name only the fields it changes. The recorder and the broker are set by `RunSetup::new` alone, because they are its required arguments.
+The methods let a Host name only the fields it changes. The recorder, the broker, and the timer are set by `RunSetup::new` alone, because they are its required arguments.
 
 ### The Harness reads each `RunSetup` field once, and the run's tool calls work in the one file system that the setup holds
 
@@ -190,11 +190,11 @@ The owner's rule: "the engine, the harness would not know anything about streami
 
 `Timer` is a trait with the methods `sleep(duration)` and `now()`. `sleep` returns the future that the loop polls for a `Timer` effect. `now` returns the time that the Harness records as the run's start and passes to the Engine, and its default reads the system clock.
 
-The timer is a required field of `Host`, so a Host that leaves it out fails to compile. A timer that a Host could leave out would be missed only at a timed wait inside a run.
+The timer is a required argument of `RunSetup::new`, so a Host that leaves it out fails to compile. A timer that a Host could leave out would be missed only at a timed wait inside a run. It is part of the setup because a run is what uses it: the Harness reads the run's start from it and performs the run's sleeps through it, and a parse never waits. A Host that only parses prompts therefore supplies no timer, and two runs of one Host may each have a clock of their own.
 
 ### `TokioTimer` is the stock timer of a Host that runs on tokio
 
-`harness-gateway-client` has a stock timer, `TokioTimer`. Its `sleep` returns one `tokio::time::sleep`, so the future needs a tokio runtime with its timer, and its `now` is the trait's default. A Host on tokio passes `Arc::new(TokioTimer)` as the `timer` of its `Host`, so the code that builds the `Host` still names the timer.
+`harness-gateway-client` has a stock timer, `TokioTimer`. Its `sleep` returns one `tokio::time::sleep`, so the future needs a tokio runtime with its timer, and its `now` is the trait's default. A Host on tokio passes `Arc::new(TokioTimer)` to `RunSetup::new`, so the code that builds the setup still names the timer.
 
 The timer is in `harness-gateway-client` because `runvil` excludes tokio, and the Gateway client is the public Harness crate that depends on tokio. Each Host on tokio would otherwise write that timer itself. A Host on another runtime implements `Timer` over that runtime's sleep.
 

@@ -22,7 +22,6 @@ use tokio::sync::Semaphore;
 
 use crate::harness::{launch, setup};
 use crate::scripted::{MODEL, ScriptedBroker, reply, scripted_model};
-use crate::support::PendingTimer;
 
 #[path = "render-calls.rs"]
 mod calls;
@@ -259,12 +258,7 @@ fn render_harness(
 ) -> Harness {
     let mut packs = PackRegistry::new();
     packs.insert(RENDERER, renderer(seen, config)).unwrap();
-    launch(
-        Packs::new(packs),
-        PendingTimer::default(),
-        source,
-        setup(recorder.clone(), broker),
-    )
+    launch(Packs::new(packs), source, setup(recorder.clone(), broker))
 }
 
 /// A prompt over [`FRONTMATTER`] whose sections are `sections`, each a

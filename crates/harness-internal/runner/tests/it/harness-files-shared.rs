@@ -8,15 +8,15 @@
 
 use std::sync::Arc;
 
+use harness_runner::RunReport;
 use harness_runner::recorder::{MemoryRecorder, Record, RecordKind};
-use harness_runner::{RunReport, RunSetup};
 use runvil_engine::ErrorCode;
 use runvil_engine::model::{Completion, CompletionResult, Role, ToolCall};
 use runvil_engine::vfs::{Origin, VfsRef};
 use serde_json::json;
 
 use super::files::files_host;
-use super::{PendingTimer, launch, setup};
+use super::{launch, setup};
 use crate::scripted::{MODEL, ScriptedBroker, reply};
 
 /// The frontmatter every prompt here opens with: it requires the fixture
@@ -81,12 +81,8 @@ async fn shared_run(sections: &str) -> (RunReport, Vec<Record>, VfsRef) {
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         files_host(|| ()),
-        PendingTimer::default(),
         &format!("{FRONT}{sections}"),
-        RunSetup {
-            vfs: vfs.clone(),
-            ..setup(recorder.clone(), obeying())
-        },
+        setup(recorder.clone(), obeying()).vfs(vfs.clone()),
     );
 
     let report = harness.run().await.expect("the run is reported");

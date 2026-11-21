@@ -142,7 +142,7 @@ const STALLED: &str = "the effect loop has nothing to await for a pending run";
 /// Drives `run` to its end: chat effects go to
 /// `setup.broker`, renders and tool calls to `tool`
 /// with at most `setup.max_tool_calls_in_flight`
-/// calls in flight, and timers to `timer`. Every
+/// calls in flight, and timers to `setup.timer`. Every
 /// event, effect, and answer is recorded at
 /// `setup.recorder` under `run_id`. `cancel` must be
 /// the flag `run` was built with.
@@ -169,13 +169,12 @@ const STALLED: &str = "the effect loop has nothing to await for a pending run";
 pub async fn drive_run(
     run: Run,
     setup: &RunSetup,
-    timer: Arc<dyn Timer>,
     tool: Arc<dyn ToolPerformer>,
     run_id: RunId,
     cancel: CancelHandle,
 ) -> Result<String, Error> {
     let control = RunControl::new(cancel);
-    let (result, _unread) = drive(run, setup, timer, tool, run_id, &control).await;
+    let (result, _unread) = drive(run, setup, tool, run_id, &control).await;
     result
 }
 
@@ -187,7 +186,6 @@ pub async fn drive_run(
 pub(crate) async fn drive(
     run: Run,
     setup: &RunSetup,
-    timer: Arc<dyn Timer>,
     tool: Arc<dyn ToolPerformer>,
     run_id: RunId,
     control: &RunControl,
@@ -196,7 +194,7 @@ pub(crate) async fn drive(
         run,
         broker: Arc::clone(&setup.broker),
         tool,
-        timer,
+        timer: Arc::clone(&setup.timer),
         recorder: Arc::clone(&setup.recorder),
         run_id,
         flights: Flights::new(setup.max_tool_calls_in_flight),

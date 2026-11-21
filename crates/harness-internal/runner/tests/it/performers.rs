@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 use crate::support::{
     PendingTool, RaiseOnDrop, TEST_SEED, TIMED_MAIN, Unused, WAITS, assert_canceled, loop_setup,
-    run, run_with_child, run_with_child_and_cancel,
+    run, run_with_child, run_with_child_and_cancel, timed_loop_setup,
 };
 
 /// A Host's timer: sleeps on the test runtime's clock for the effect's
@@ -145,8 +145,7 @@ async fn a_timer_effect_is_answered_after_its_duration() {
         return tostring(first == nil) .. '|' .. tostring(ok) .. '|' .. result";
     let result = drive_run(
         run_with_child(main, WAITS),
-        &loop_setup(recorder.clone()),
-        Arc::new(SleepTimer::default()),
+        &timed_loop_setup(recorder.clone(), Arc::new(SleepTimer::default())),
         tool,
         run_id,
         CancelHandle::new(),
@@ -207,8 +206,7 @@ async fn a_pending_timer_is_torn_down_by_a_cancel() {
     let started = Instant::now();
     let result = drive_run(
         run_with_child_and_cancel(TIMED_MAIN, WAITS, &cancel),
-        &loop_setup(recorder.clone()),
-        Arc::new(timer),
+        &timed_loop_setup(recorder.clone(), Arc::new(timer)),
         Arc::new(PendingTool),
         run_id,
         cancel,
@@ -245,7 +243,6 @@ async fn an_inline_vfs_answer_performs_the_operation_the_effect_names() {
              local ok, err = pcall(store.read, 'missing.md')\n\
              return store.read('notes.md') .. '|' .. tostring(ok) .. '|' .. tostring(store.exists('notes.md'))"),
         &loop_setup(recorder.clone()),
-        Arc::new(Unused),
         Arc::new(Unused),
         run_id,
         CancelHandle::new(),

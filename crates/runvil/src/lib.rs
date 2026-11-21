@@ -9,17 +9,17 @@
 //! A Host makes a [`plugin::PackRegistry`], calls each Plugin it links,
 //! which inserts its Packs into the registry, and builds one
 //! [`harness::Packs`] over it, which keeps each Pack's factory.
-//! It builds one [`Host`] at startup over those Packs, a
+//! It builds one [`Host`] at startup over those Packs and a
 //! [`PromptFinder`], its own or a stock one such as
-//! [`harness::PromptSet`], and its [`harness::Timer`], which also stamps
-//! each run's start as a [`Timestamp`], and shares it behind an `Arc`.
+//! [`harness::PromptSet`], and shares it behind an `Arc`.
 //! [`Host::parse`] finds a prompt by its name and parses it, with every
 //! prompt its `prompts:` lists reach, which are the prompts a run of it
 //! may execute, and returns it behind an `Arc` that every run of it
 //! shares. For each run the launcher builds a [`RunSetup`] with the
-//! run's recorder, inference broker, filesystem, model selection,
-//! [`RunLimits`], tool-call cap, arguments, and whether a
-//! user answers it, and
+//! run's recorder, inference broker, and [`harness::Timer`], which also
+//! stamps the run's start as a [`Timestamp`], and with its filesystem,
+//! model selection, [`RunLimits`], tool-call cap, arguments, and whether
+//! a user answers it, and
 //! [`Harness::new`] takes the Host, the parsed prompt or a clone of its
 //! `Arc`, and that setup.
 //! [`Harness::run`] runs the prompt to its end and returns its
@@ -45,7 +45,7 @@ pub use harness_runner::RunReport;
 pub use harness_runner::RunSetup;
 
 /* The Engine's prompts, run limits, and run seed, and the start time a
-   Host's timer stamps each run with, which a prompt reads as `sys.when`.
+   run's timer stamps it with, which a prompt reads as `sys.when`.
 */
 pub use runvil_engine::Prompt;
 pub use runvil_engine::PromptFinder;

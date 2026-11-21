@@ -7,7 +7,7 @@ use runvil::harness::Timer;
 
 /// The timer of a Host that runs on tokio.
 ///
-/// A Host passes it as the timer of its `Host`. Each sleep is one
+/// A Host passes it as the timer of each run's `RunSetup`. Each sleep is one
 /// `tokio::time::sleep`. When a stop or a cancel ends a wait, the Harness
 /// drops the future, and the drop removes the sleep from tokio's timer.
 /// `now` is the trait's default, which reads the system clock.
@@ -29,7 +29,7 @@ mod tests {
     //! Tests for the stock tokio timer, each on a paused tokio clock: a
     //! sleep ends once the clock has advanced by its duration and is
     //! still pending one second earlier, and a prompt's timed wait ends
-    //! on the stock timer of its Host. A paused clock jumps to the next
+    //! on the stock timer of its run. A paused clock jumps to the next
     //! timer when the runtime is idle, so a sleep of one hour ends at
     //! once in real time, and only a sleep on tokio's timer does that.
 
@@ -92,15 +92,18 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_prompts_timed_wait_ends_on_the_stock_timer_of_its_host() {
+    async fn a_prompts_timed_wait_ends_on_the_stock_timer_of_its_run() {
         let host = Arc::new(Host {
             packs: Packs::new(PackRegistry::new()),
             prompts: Arc::new(FindTextPrompt::new(PROMPT, WAITS_AN_HOUR)),
-            timer: Arc::new(TokioTimer),
         });
         let prompt = host.parse(PROMPT).expect("the prompt parses");
         let recorder = Arc::new(MemoryRecorder::new());
-        let setup = RunSetup::new(recorder.clone(), Arc::new(OfflineBroker));
+        let setup = RunSetup::new(
+            recorder.clone(),
+            Arc::new(OfflineBroker),
+            Arc::new(TokioTimer),
+        );
         let start = Instant::now();
 
         let report = Harness::new(host, prompt, setup)

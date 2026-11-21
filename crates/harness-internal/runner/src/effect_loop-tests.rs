@@ -147,8 +147,7 @@ async fn a_run_left_with_nothing_to_await_reports_the_message_it_never_delivered
     // nothing to await, so the loop never delivers `second`.
     let (result, unread) = drive(
         lost_run(),
-        &RunSetup::new(recorder.clone(), Arc::new(Unused)),
-        Arc::new(Unused),
+        &RunSetup::new(recorder.clone(), Arc::new(Unused), Arc::new(Unused)),
         Arc::new(Unused),
         run_id,
         &control,

@@ -32,7 +32,6 @@ async fn a_run_of_only_vfs_operations_completes_with_one_answer_per_effect() {
              return store.read('a.md')"),
         &loop_setup(recorder.clone()),
         Arc::new(Unused),
-        Arc::new(Unused),
         run_id,
         CancelHandle::new(),
     )
@@ -119,7 +118,6 @@ async fn a_vfs_chain_keeps_stepping_while_a_tool_call_is_parked() {
     let drive = drive_run(
         run_with_child(WRITES_BESIDE_A_PARKED_CALL, WAITS),
         &setup,
-        Arc::new(Unused),
         tool,
         run_id,
         CancelHandle::new(),
@@ -169,7 +167,6 @@ async fn a_vfs_effect_withdrawn_in_the_step_that_issued_it_is_dropped_unperforme
     let result = drive_run(
         run_of_sections(&WITHDRAWS_A_WRITE),
         &loop_setup(recorder.clone()),
-        Arc::new(Unused),
         Arc::new(Unused),
         run_id,
         CancelHandle::new(),
@@ -227,7 +224,6 @@ async fn a_step_with_a_vfs_effect_records_its_inline_answer_before_the_next_effe
     drive_run(
         run_with_child(WRITES_BESIDE_A_PARKED_CALL, WAITS),
         &loop_setup(recorder.clone()),
-        Arc::new(Unused),
         Arc::new(TextTool("done")),
         run_id,
         CancelHandle::new(),
@@ -341,7 +337,6 @@ async fn a_runs_vfs_records_rebuild_its_store() {
     let returned = drive_run(
         run(EDITS_ITS_STORE),
         &loop_setup(recorder.clone()),
-        Arc::new(Unused),
         Arc::new(Unused),
         run_id,
         CancelHandle::new(),

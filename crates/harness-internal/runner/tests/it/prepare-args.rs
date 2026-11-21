@@ -24,7 +24,11 @@ fn with_args(recorder: &Arc<MemoryRecorder>, args: &str) -> RunSetup {
 
 #[tokio::test]
 async fn a_new_setup_holds_the_empty_object_which_a_prompt_with_no_args_key_runs_on() {
-    let setup = RunSetup::new(recorder(), Arc::new(ScriptedBroker::replying()));
+    let setup = RunSetup::new(
+        recorder(),
+        Arc::new(ScriptedBroker::replying()),
+        Arc::new(Unused),
+    );
     assert_eq!(setup.args, "{}", "a new setup's args are the empty object");
 
     let report = report_of(READS_ARGS, bare(), setup).await;
@@ -45,15 +49,10 @@ async fn args_the_prompt_refuses_end_the_run_as_a_recorded_failed_run_not_an_err
     );
 
     let recorder = recorder();
-    let report = launch(
-        bare(),
-        Unused,
-        GREETS,
-        with_args(&recorder, r#"{"name":5}"#),
-    )
-    .run()
-    .await
-    .expect("refused arguments are the run's result, not an error of `run`");
+    let report = launch(bare(), GREETS, with_args(&recorder, r#"{"name":5}"#))
+        .run()
+        .await
+        .expect("refused arguments are the run's result, not an error of `run`");
 
     let error = report
         .result

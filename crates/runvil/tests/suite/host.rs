@@ -9,6 +9,7 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Poll, Waker};
 
+use harness_gateway_client::TokioTimer;
 use runvil::effect::Round;
 use runvil::event::ReplyOrigin;
 use runvil::harness::{InferenceBroker, MemoryRecorder, OfflineBroker, RecordKind};
@@ -120,7 +121,11 @@ fn stuck_harness(catalog: ModelCatalog, source: &str) -> (Harness, Arc<Started>)
         catalog,
         started: Arc::clone(&started),
     };
-    let setup = RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(broker));
+    let setup = RunSetup::new(
+        Arc::new(MemoryRecorder::new()),
+        Arc::new(broker),
+        Arc::new(TokioTimer),
+    );
     (launch(no_packs(), source, setup), started)
 }
 
@@ -169,10 +174,12 @@ impl InferenceBroker for Streaming {
 #[tokio::test]
 async fn tasks_receive_returns_the_message_the_host_sends_byte_for_byte() {
     let typed = "Hello, desk.\r\n\"quoted\" 🦀";
-    let setup = RunSetup {
-        has_user: true,
-        ..RunSetup::new(Arc::new(MemoryRecorder::new()), Arc::new(OfflineBroker))
-    };
+    let setup = RunSetup::new(
+        Arc::new(MemoryRecorder::new()),
+        Arc::new(OfflineBroker),
+        Arc::new(TokioTimer),
+    )
+    .has_user(true);
     let harness = launch(no_packs(), RECEIVES, setup);
     assert!(
         harness.control().send(typed.to_owned()),
@@ -205,7 +212,11 @@ async fn a_run_canceled_before_it_begins_is_recorded_as_canceled_before_it_start
     let harness = launch(
         no_packs(),
         PATIENT,
-        RunSetup::new(recorder.clone(), Arc::new(OfflineBroker)),
+        RunSetup::new(
+            recorder.clone(),
+            Arc::new(OfflineBroker),
+            Arc::new(TokioTimer),
+        ),
     );
     harness.control().cancel();
     let report = harness.run().await.expect("the run is reported");
@@ -239,7 +250,7 @@ async fn a_hosts_own_broker_streams_a_section_round_under_the_round_id_the_run_r
     let harness = launch(
         no_packs(),
         CHATS,
-        RunSetup::new(recorder.clone(), Arc::new(broker)),
+        RunSetup::new(recorder.clone(), Arc::new(broker), Arc::new(TokioTimer)),
     );
     let report = harness.run().await.expect("the run is reported");
 
