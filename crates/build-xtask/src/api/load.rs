@@ -47,8 +47,8 @@ impl Facade {
 /// Engine's, then the one a Host depends on. The second passes on the
 /// Engine's items, which rustdoc names by the crate that defines them, so
 /// its containers are the Harness's and the Engine's, and it passes on
-/// the Plugin contract's items too. `insert_plugin` takes the C contract's
-/// entry point, a type of a crate in another repository.
+/// the Plugin contract's items too. `HostBuilder::with_plugin` takes the C
+/// contract's entry point, a type of a crate in another repository.
 pub(super) const FACADES: [Facade; 2] = [
     Facade {
         package: "runvil-engine",

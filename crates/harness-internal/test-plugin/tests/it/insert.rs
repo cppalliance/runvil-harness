@@ -8,35 +8,15 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use harness_plugin_loader::{
-    HostResources, PluginReport, PluginSource, insert_plugin_dir, insert_plugin_file,
-};
-use runvil_plugin::{Error, ErrorFact, PackRegistry};
+use harness_plugin_loader::{HostResources, PluginReport, insert_plugin_dir, insert_plugin_file};
+use runvil_plugin::{ErrorFact, PackRegistry};
 
-use crate::support::{copy_fixture, remove, scratch};
+use crate::support::{copy_fixture, fact, library_path, library_source, remove, scratch};
 
 /// Inserts every library in `dir` into a fresh Pack registry.
 fn insert(dir: &Path) -> PluginReport {
     insert_plugin_dir(&mut PackRegistry::new(), dir, &HostResources::new())
         .expect("the directory reads")
-}
-
-/// The path `std::path::absolute` makes of `path`, as a library source.
-fn library_source(path: &Path) -> PluginSource {
-    PluginSource::Library(std::path::absolute(path).expect("the working directory is known"))
-}
-
-/// The fact `key` of a load failure, as text.
-fn fact(failure: &Error, key: ErrorFact) -> Option<&str> {
-    failure.facts.get(&key)?.as_str()
-}
-
-/// The `Path` fact a failure of the library at `path` holds.
-fn library_path(path: &Path) -> String {
-    std::path::absolute(path)
-        .expect("the working directory is known")
-        .display()
-        .to_string()
 }
 
 #[test]

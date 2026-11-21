@@ -1,13 +1,16 @@
 //! Where the fixture library is, copies of it, the scratch directories
-//! the tests put the copies in, and a second handle on a library the
-//! loader opened, through which a test reads the fixture's counters.
+//! the tests put the copies in, what a report says of a copy, and a
+//! second handle on a library the loader opened, through which a test
+//! reads the fixture's counters.
 
 use std::env::consts::{DLL_EXTENSION, DLL_PREFIX, DLL_SUFFIX};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use harness_plugin_loader::PluginSource;
 use libloading::Library;
+use runvil_plugin::{Error, ErrorFact};
 
 /// Tells apart the directories one process makes; nextest runs each test
 /// in its own process, so the process id tells those apart.
@@ -43,6 +46,24 @@ pub(crate) fn copy_fixture(dir: &Path, stem: &str) -> PathBuf {
     let copy = dir.join(format!("{stem}.{DLL_EXTENSION}"));
     fs::copy(fixture_library(), &copy).expect("the fixture library is copied");
     copy
+}
+
+/// The path `std::path::absolute` makes of `path`, as a library source.
+pub(crate) fn library_source(path: &Path) -> PluginSource {
+    PluginSource::Library(std::path::absolute(path).expect("the working directory is known"))
+}
+
+/// The `Path` fact a failure of the library at `path` holds.
+pub(crate) fn library_path(path: &Path) -> String {
+    std::path::absolute(path)
+        .expect("the working directory is known")
+        .display()
+        .to_string()
+}
+
+/// The fact `key` of a load failure, as text.
+pub(crate) fn fact(failure: &Error, key: ErrorFact) -> Option<&str> {
+    failure.facts.get(&key)?.as_str()
 }
 
 /// Removes `dir` and requires success. Windows refuses to delete an open

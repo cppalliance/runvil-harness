@@ -94,7 +94,7 @@ The `test-support` feature of `runvil-plugin` exports a helper for one test call
 
 A Plugin that follows the C contract tests through the test support of the Plugin SDK, which the SDK's own `test-support` feature exports. It is a fake Host: it sends `RV_PLUGIN_LOAD` to the Plugin's entry point, sends `RV_PACK_NEW`, and runs one tool call to its end. It holds one file tree for the calls of a run, performs each file request of a call on that tree once the step that asked has returned, and lends the tree back, so a test reads what a call left there. The fake Host checks each call that the Plugin makes back the way the loader does, so a Plugin that passes there loads in the Harness. The `std` Plugin, the bashkit Plugin, and the web Plugin test their tools this way.
 
-The loader's end-to-end tests load `harness-test-plugin`, a dynamic library with a private copy of the C types. The private copy proves that a library Plugin builds independently of every Runvil crate. The loader's unit tests insert entry points that are compiled into the test binary, through `insert_plugin`.
+The loader's end-to-end tests load `harness-test-plugin`, a dynamic library with a private copy of the C types. The private copy proves that a library Plugin builds independently of every Runvil crate. The loader's unit tests load entry points that are compiled into the test binary, as a Host that names one with `with_plugin` does.
 
 ## 5. Logs, traces, and dev tools
 
@@ -112,7 +112,7 @@ Stored JSON reads back as the identical value, so that a replay can compare the 
 
 ### The Harness reports operational problems through `tracing`, and Workshop discards those lines
 
-The Harness reports operational problems with `tracing` macros, such as the error `Pack factory panicked; the Pack is unavailable to this run`. Workshop lacks a `tracing` subscriber, so its process discards these lines.
+The Harness reports operational problems with `tracing` macros, such as the error `Pack factory panicked; the Pack is unavailable to this run` and the warning `Plugin failed` for a Plugin that failed to load. The build of a `Host` also logs each Plugin that it loaded, at the info level. Workshop lacks a `tracing` subscriber, so its process discards these lines.
 
 ## 6. Planned work
 

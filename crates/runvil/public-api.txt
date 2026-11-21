@@ -337,6 +337,10 @@ pub fn runvil::Host::packs(&self) -> impl core::iter::traits::iterator::Iterator
 pub fn runvil::Host::parse(&self, name: &str) -> core::result::Result<alloc::sync::Arc<runvil::Prompt>, runvil::Error>
 pub fn runvil::Host::plugin_reports(&self) -> &[runvil::harness::PluginReport]
 pub fn runvil::HostBuilder::build(self) -> alloc::sync::Arc<runvil::Host>
+pub fn runvil::HostBuilder::with_plugin(self, entry: runvil_plugin_sys::PluginEntry) -> runvil::HostBuilder
+pub fn runvil::HostBuilder::with_plugin_dir(self, directory: impl core::convert::Into<std::path::PathBuf>) -> runvil::HostBuilder
+pub fn runvil::HostBuilder::with_plugin_file(self, path: impl core::convert::Into<std::path::PathBuf>) -> runvil::HostBuilder
+pub fn runvil::HostBuilder::with_resources(self, resources: runvil::harness::HostResources) -> runvil::HostBuilder
 pub fn runvil::HostBuilder::with_rust_plugin(self, install: impl core::ops::function::FnOnce(&mut runvil::plugin::PackRegistry) -> core::result::Result<(), runvil::Error> + core::marker::Send + 'static) -> runvil::HostBuilder
 pub fn runvil::Prompt::file(&self) -> &str
 pub fn runvil::Prompt::frontmatter(&self) -> &runvil::prompt::Frontmatter
@@ -404,7 +408,6 @@ pub fn runvil::harness::RunRecorder::end_run(&self, run: runvil::harness::RunId,
 pub fn runvil::harness::Timer::now(&self) -> runvil::Timestamp { .. }
 pub fn runvil::harness::Timer::sleep(&self, duration: core::time::Duration) -> runvil::BoxFuture<'static, ()>
 pub fn runvil::harness::display_chain(error: &dyn core::error::Error) -> alloc::string::String
-pub fn runvil::harness::insert_plugin(packs: &mut runvil::plugin::PackRegistry, entry: runvil_plugin_sys::PluginEntry, resources: &runvil::harness::HostResources) -> runvil::harness::PluginReport
 pub fn runvil::harness::insert_plugin_dir(packs: &mut runvil::plugin::PackRegistry, directory: &std::path::Path, resources: &runvil::harness::HostResources) -> core::io::error::Result<runvil::harness::PluginReport>
 pub fn runvil::harness::make_recorder_error(cause: impl core::convert::Into<alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>) -> runvil::Error
 pub fn runvil::ids::AbandonReason::why(self) -> &'static str

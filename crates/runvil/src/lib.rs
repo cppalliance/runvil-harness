@@ -8,13 +8,16 @@
 //!
 //! A Host builds one [`Host`] at startup. [`Host::builder`] takes a
 //! [`PromptFinder`], the Host's own or a stock one such as
-//! [`harness::PromptSet`], and returns a [`HostBuilder`]. Each `with_`
-//! method of the builder names one Plugin, and [`HostBuilder::build`]
-//! lends each Plugin a [`plugin::PackRegistry`], into which the Plugin
-//! inserts its Packs, keeps each Pack's factory, adds the two built-in
-//! Packs that every Host has, and returns the `Host` inside an `Arc`,
-//! which is how every run shares it. The `Host` keeps a
-//! [`harness::PluginReport`] for each Plugin, with what failed.
+//! [`harness::PromptSet`], and returns a [`HostBuilder`]. A `with_`
+//! method of the builder names one Plugin: every library Plugin of a
+//! directory, the library Plugin in one file, a Plugin of the C contract
+//! that is linked into the Host, or a Rust Plugin, which is a function
+//! that inserts its Packs into the [`plugin::PackRegistry`] it is lent.
+//! [`HostBuilder::build`] loads the Plugins in the order written, keeps
+//! each Pack's factory, adds the two built-in Packs that every Host has,
+//! and returns the `Host` inside an `Arc`, which is how every run shares
+//! it. The `Host` keeps a [`harness::PluginReport`] for each of those
+//! steps, with each Plugin that loaded and what failed.
 //! [`Host::parse`] finds a prompt by its name and parses it, with every
 //! prompt its `prompts:` lists reach, which are the prompts a run of it
 //! may execute, and returns it behind an `Arc` that every run of it
@@ -81,25 +84,24 @@ pub mod harness {
     //! What a Host gives the Harness beside a run's setup, and what the
     //! Harness hands back: the inference broker and the timer a Host
     //! supplies, beside a stock broker for a Host that runs prompts
-    //! without a model, the report a `Host` keeps for each Plugin its
-    //! builder named, the functions that insert Plugins into a Pack
-    //! registry apart from a `Host`, from the dynamic libraries in a
-    //! Plugin directory or linked into the Host, with what each insert
-    //! loaded,
+    //! without a model, the report a `Host` keeps for each step of its
+    //! builder that named a Plugin, with each Plugin the step loaded,
+    //! the function that inserts the library Plugins of a directory into
+    //! a Pack registry apart from a `Host`,
     //! and the recorder that receives every effect, answer, and event of
     //! a run and the result each run ends with, beside an in-memory
     //! recorder, and three stock prompt finders: one prompt from text,
     //! one from a file, and a set a Host fills from text, files, and
     //! directories.
-    //! A Host hands each insert its [`HostResources`], the JSON values
-    //! it offers those Plugins under `vendor/name` names, and every tool
-    //! call of a Plugin is lent them as they are when the call starts.
+    //! A Host hands its builder its [`HostResources`], the JSON values
+    //! it offers its Plugins of the C contract under `vendor/name` names,
+    //! and every tool call of such a Plugin is lent them as they are when
+    //! the call starts.
 
     pub use harness_plugin_loader::HostResources;
     pub use harness_plugin_loader::Plugin;
     pub use harness_plugin_loader::PluginReport;
     pub use harness_plugin_loader::PluginSource;
-    pub use harness_plugin_loader::insert_plugin;
     pub use harness_plugin_loader::insert_plugin_dir;
     pub use harness_runner::FindFilePrompt;
     pub use harness_runner::FindTextPrompt;

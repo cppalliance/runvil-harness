@@ -17,13 +17,12 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use harness_gateway_client::TokioTimer;
-use harness_plugin_loader::{HostResources, PluginReport, insert_plugin_dir};
 use runvil::harness::{
-    FindTextPrompt, MemoryRecorder, OfflineBroker, Record, RecordKind, RunId, RunMeta, RunRecorder,
+    FindTextPrompt, HostResources, MemoryRecorder, OfflineBroker, Record, RecordKind, RunId,
+    RunMeta, RunRecorder,
 };
 use runvil::vfs::{MemoryBackend, Op, Origin, Policy, Verdict, VfsError, VfsPath, VfsRef};
 use runvil::{BoxFuture, Error, Harness, Host, RunControl, RunReport, RunSetup};
-use runvil_plugin::PackRegistry;
 use serde_json::{Value, json};
 
 use crate::support::{already_loaded, copy_fixture, counter, remove, scratch};
@@ -45,31 +44,25 @@ fn prompt(lua: &str) -> String {
 }
 
 /// A Host over the library Plugins in `dir` that offers them no
-/// resources and finds `source` by [`PROMPT`], and the report of what
-/// `dir` loaded.
-fn host_over(dir: &Path, source: String) -> (Arc<Host>, PluginReport) {
-    host_offering(dir, source, &HostResources::new())
+/// resources and finds `source` by [`PROMPT`].
+fn host_over(dir: &Path, source: String) -> Arc<Host> {
+    host_offering(dir, source, HostResources::new())
 }
 
 /// A Host over the library Plugins in `dir` that offers them `resources`
-/// and finds `source` by [`PROMPT`], and the report of what `dir` loaded.
-fn host_offering(
-    dir: &Path,
-    source: String,
-    resources: &HostResources,
-) -> (Arc<Host>, PluginReport) {
-    let mut packs = PackRegistry::new();
-    let report = insert_plugin_dir(&mut packs, dir, resources).expect("the directory reads");
-    assert!(report.failures().is_empty(), "{:?}", report.failures());
-    // One Rust Plugin puts the filled registry in the place of the empty
-    // one the build lends it.
+/// and finds `source` by [`PROMPT`]. The resources stand after the
+/// directory in the chain, and the Plugins are offered them all the
+/// same.
+fn host_offering(dir: &Path, source: String, resources: HostResources) -> Arc<Host> {
     let host = Host::builder(FindTextPrompt::new(PROMPT, source))
-        .with_rust_plugin(move |registry| {
-            *registry = packs;
-            Ok(())
-        })
+        .with_plugin_dir(dir)
+        .with_resources(resources)
         .build();
-    (host, report)
+    let [report] = host.plugin_reports() else {
+        panic!("one report for the directory: {:?}", host.plugin_reports());
+    };
+    assert!(report.failures().is_empty(), "{:?}", report.failures());
+    host
 }
 
 /// A Harness for one run of the Host's prompt.
@@ -173,7 +166,7 @@ async fn a_prompt_calls_a_one_step_tool_and_a_three_step_tool_of_the_library() {
     let lua = "local hello = tools.call('test/hello', { name = 'x' })\n\
                local steps = tools.call('test/steps', {})\n\
                return hello .. '|' .. steps";
-    let (host, report) = host_over(&dir, prompt(lua));
+    let host = host_over(&dir, prompt(lua));
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     for run in 1..=2 {
@@ -196,11 +189,10 @@ async fn a_prompt_calls_a_one_step_tool_and_a_three_step_tool_of_the_library() {
         );
     }
 
-    drop(report);
     assert_eq!(
         counter(&library, "live"),
         1,
-        "the Host's Packs keep the Plugin loaded"
+        "the Host keeps the Plugin loaded"
     );
     drop(host);
     assert_eq!(
@@ -234,7 +226,7 @@ async fn each_call_of_a_library_tool_is_lent_the_hosts_resources_as_they_were_wh
     let lua = "local first = tools.call('test/resources', {})\n\
                local second = tools.call('test/resources', {})\n\
                return first .. '|' .. second";
-    let (host, report) = host_offering(&dir, prompt(lua), &resources);
+    let host = host_offering(&dir, prompt(lua), resources);
     let library = already_loaded(&file).expect("the loader holds the library open");
     assert_eq!(
         reads.load(Ordering::SeqCst),
@@ -242,11 +234,11 @@ async fn each_call_of_a_library_tool_is_lent_the_hosts_resources_as_they_were_wh
         "loading the library reads no resource"
     );
 
-    let report_of_run = run_woken(harness(&host)).await;
+    let report = run_woken(harness(&host)).await;
     // The tool answers in its second step, with what that step is lent.
     // Each call saw one reading, the one made as the call started.
     assert_eq!(
-        report_of_run.result,
+        report.result,
         Ok([
             r#"{"acme/fixed":{"url":"http://127.0.0.1:9/"},"fixture/reading":1}"#,
             r#"{"acme/fixed":{"url":"http://127.0.0.1:9/"},"fixture/reading":2}"#,
@@ -263,7 +255,7 @@ async fn each_call_of_a_library_tool_is_lent_the_hosts_resources_as_they_were_wh
         (0, 0)
     );
 
-    drop((host, report));
+    drop(host);
     assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);
@@ -274,16 +266,16 @@ async fn a_call_that_a_thread_of_the_library_wakes_stays_parked_until_then_and_f
     let dir = scratch("a_call_that_a_thread_of_the_library_wakes");
     let file =
         std::path::absolute(copy_fixture(&dir, "plugin")).expect("the working directory is known");
-    let (host, report) = host_over(&dir, prompt("return tools.call('test/later', {})"));
+    let host = host_over(&dir, prompt("return tools.call('test/later', {})"));
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     // The first step of `later` starts a thread in the library, which
     // wakes the call a little later, from outside this test's runtime.
     // Nothing else is due meanwhile, so the run goes on only when that
     // wake reaches the task that polls it.
-    let report_of_run = run_woken(harness(&host)).await;
+    let report = run_woken(harness(&host)).await;
     assert_eq!(
-        report_of_run.result,
+        report.result,
         Ok("woken".to_owned()),
         "the call got its second step after the thread's wake, and not before"
     );
@@ -298,7 +290,7 @@ async fn a_call_that_a_thread_of_the_library_wakes_stays_parked_until_then_and_f
         "the call's state is gone, and with it the thread the call started"
     );
 
-    drop((host, report));
+    drop(host);
     assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);
@@ -318,7 +310,7 @@ async fn a_prompt_reads_the_files_of_its_run_through_the_librarys_file_tools() {
                \x20 tool('read', '/absent'), tool('list', '/notes/a.md'),\n\
                \x20 tool('read', '/notes'),\n\
                }, '|')";
-    let (host, report) = host_over(&dir, prompt(lua));
+    let host = host_over(&dir, prompt(lua));
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     let vfs = VfsRef::default();
@@ -331,12 +323,12 @@ async fn a_prompt_reads_the_files_of_its_run_through_the_librarys_file_tools() {
         .expect("a seeded file is written");
     drop(seed);
 
-    let report_of_run = harness_over(&host, vfs)
+    let report = harness_over(&host, vfs)
         .run()
         .await
         .expect("the recorder takes the run");
     assert_eq!(
-        report_of_run.result,
+        report.result,
         Ok([
             "file 5",
             "directory",
@@ -353,7 +345,7 @@ async fn a_prompt_reads_the_files_of_its_run_through_the_librarys_file_tools() {
         (0, 0)
     );
 
-    drop((host, report));
+    drop(host);
     assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);
@@ -466,17 +458,17 @@ async fn each_file_operation_of_a_library_tool_is_performed_on_the_runs_files_an
     let dir = scratch("each_file_operation_of_a_library_tool");
     let file =
         std::path::absolute(copy_fixture(&dir, "plugin")).expect("the working directory is known");
-    let (host, report) = host_over(&dir, prompt(EVERY_OPERATION));
+    let host = host_over(&dir, prompt(EVERY_OPERATION));
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     let vfs = VfsRef::default();
     let recorder = Arc::new(MemoryRecorder::new());
-    let report_of_run = harness_recorded(&host, vfs.clone(), recorder.clone())
+    let report = harness_recorded(&host, vfs.clone(), recorder.clone())
         .run()
         .await
         .expect("the recorder takes the run");
     assert_eq!(
-        report_of_run.result,
+        report.result,
         Ok(EVERY_ANSWER.join("|")),
         "each tool got the answer to its request, a failure included, and the run went on"
     );
@@ -494,15 +486,14 @@ async fn each_file_operation_of_a_library_tool_is_performed_on_the_runs_files_an
         .expect("a memory filesystem acquires");
     assert_eq!(files.exists("/made"), Ok(false), "the remove took the tree");
 
-    let asked: Vec<Vec<(Value, Value)>> =
-        asked_by_each_call(&recorder.records(report_of_run.run_id))
-            .into_iter()
-            .map(|call| {
-                call.into_iter()
-                    .map(|(op, receipt)| (op, plain(receipt)))
-                    .collect()
-            })
-            .collect();
+    let asked: Vec<Vec<(Value, Value)>> = asked_by_each_call(&recorder.records(report.run_id))
+        .into_iter()
+        .map(|call| {
+            call.into_iter()
+                .map(|(op, receipt)| (op, plain(receipt)))
+                .collect()
+        })
+        .collect();
     assert_eq!(
         asked,
         every_recorded_operation().map(|asked| vec![asked]),
@@ -514,7 +505,7 @@ async fn each_file_operation_of_a_library_tool_is_performed_on_the_runs_files_an
         (0, 0)
     );
 
-    drop((host, report));
+    drop(host);
     assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);
@@ -580,7 +571,7 @@ async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run
                \x20 tool('read', { path = '/broken/a.md' }),\n\
                \x20 tool('read', { path = '/notes/a.md' }),\n\
                }, '|')";
-    let (host, report) = host_over(&dir, prompt(lua));
+    let host = host_over(&dir, prompt(lua));
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     let vfs = VfsRef::builder()
@@ -597,7 +588,7 @@ async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run
     drop(seed);
 
     let recorder = Arc::new(MemoryRecorder::new());
-    let report_of_run = harness_recorded(&host, vfs.clone(), recorder.clone())
+    let report = harness_recorded(&host, vfs.clone(), recorder.clone())
         .run()
         .await
         .expect("the recorder takes the run");
@@ -605,7 +596,7 @@ async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run
     let locked = "failed (4): This run may not change files under /locked.";
     let panicked = "failed (0): the file operation panicked";
     assert_eq!(
-        report_of_run.result,
+        report.result,
         Ok([&[unread; 5][..], &[locked; 4], &[panicked, "hello"]]
             .concat()
             .join("|")),
@@ -624,7 +615,7 @@ async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run
         [Ok(false), Ok(false), Ok(true)],
         "the denied copy and the denied rename made nothing and moved nothing"
     );
-    let receipts: Vec<Value> = asked_by_each_call(&recorder.records(report_of_run.run_id))
+    let receipts: Vec<Value> = asked_by_each_call(&recorder.records(report.run_id))
         .into_iter()
         .flatten()
         .map(|(_, receipt)| kind_or_receipt(receipt))
@@ -640,7 +631,7 @@ async fn an_operation_the_policy_denies_or_panics_on_is_a_file_error_and_the_run
         (0, 0)
     );
 
-    drop((host, report));
+    drop(host);
     assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);
@@ -668,7 +659,7 @@ async fn two_tasks_that_write_one_path_both_succeed_and_the_later_write_is_the_c
         writer("Right", "right"),
     ]
     .concat();
-    let (host, report) = host_over(&dir, prompt_of(&sections));
+    let host = host_over(&dir, prompt_of(&sections));
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     let vfs = VfsRef::default();
@@ -677,16 +668,16 @@ async fn two_tasks_that_write_one_path_both_succeed_and_the_later_write_is_the_c
         .write("/shared.md", b"old")
         .expect("a seeded file is written");
     let recorder = Arc::new(MemoryRecorder::new());
-    let report_of_run = harness_recorded(&host, vfs.clone(), recorder.clone())
+    let report = harness_recorded(&host, vfs.clone(), recorder.clone())
         .run()
         .await
         .expect("the recorder takes the run");
     assert_eq!(
-        report_of_run.result,
+        report.result,
         Ok("done|done".to_owned()),
         "the write of each task succeeded"
     );
-    let records = recorder.records(report_of_run.run_id);
+    let records = recorder.records(report.run_id);
     let written: Vec<String> = records
         .iter()
         .filter(|record| is_call_file_effect(record))
@@ -720,7 +711,7 @@ async fn two_tasks_that_write_one_path_both_succeed_and_the_later_write_is_the_c
         (0, 0)
     );
 
-    drop((host, report));
+    drop(host);
     assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);
@@ -735,7 +726,7 @@ async fn a_canceled_run_cancels_its_parked_call_and_deletes_its_pack_instance() 
     let dir = scratch("a_canceled_run_cancels_its_parked_call");
     let file =
         std::path::absolute(copy_fixture(&dir, "plugin")).expect("the working directory is known");
-    let (host, report) = host_over(&dir, prompt("return tools.call('test/never', {})"));
+    let host = host_over(&dir, prompt("return tools.call('test/never', {})"));
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     let harness = harness(&host);
@@ -743,7 +734,7 @@ async fn a_canceled_run_cancels_its_parked_call_and_deletes_its_pack_instance() 
     let mut run = std::pin::pin!(harness.run());
     let mut parked_turns = 0;
     let mut canceled = false;
-    let report_of_run = loop {
+    let report = loop {
         tokio::select! {
             biased;
             report = &mut run => break report.expect("the recorder takes the run"),
@@ -774,9 +765,9 @@ async fn a_canceled_run_cancels_its_parked_call_and_deletes_its_pack_instance() 
         "the cancel sent the call no step"
     );
     assert!(
-        report_of_run.result.as_ref().is_err_and(Error::is_canceled),
+        report.result.as_ref().is_err_and(Error::is_canceled),
         "the run ends canceled: {:?}",
-        report_of_run.result
+        report.result
     );
     assert_eq!(
         (counter(&library, "calls"), counter(&library, "packs")),
@@ -784,7 +775,7 @@ async fn a_canceled_run_cancels_its_parked_call_and_deletes_its_pack_instance() 
         "the cancel freed the call's state, and the run's end deleted its instance"
     );
 
-    drop((host, report));
+    drop(host);
     assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);
@@ -832,7 +823,7 @@ async fn a_cancel_between_a_request_and_its_answer_leaves_the_operation_done_and
     let file =
         std::path::absolute(copy_fixture(&dir, "plugin")).expect("the working directory is known");
     let lua = "return tools.call('test/write', { path = '/out.md', text = 'kept' })";
-    let (host, report) = host_over(&dir, prompt(lua));
+    let host = host_over(&dir, prompt(lua));
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     let vfs = VfsRef::default();
@@ -846,18 +837,18 @@ async fn a_cancel_between_a_request_and_its_answer_leaves_the_operation_done_and
         recorder.control.set(harness.control()).is_ok(),
         "the control is set once"
     );
-    let report_of_run = harness.run().await.expect("the recorder takes the run");
+    let report = harness.run().await.expect("the recorder takes the run");
 
     assert!(
-        report_of_run.result.as_ref().is_err_and(Error::is_canceled),
+        report.result.as_ref().is_err_and(Error::is_canceled),
         "the run ends canceled: {:?}",
-        report_of_run.result
+        report.result
     );
     // Each effect and answer record of the run, in order: the call's own
     // effect as `ToolCall`, a file effect as its operation, and an
     // answer as its payload.
     let trail: Vec<Value> = records
-        .records(report_of_run.run_id)
+        .records(report.run_id)
         .iter()
         .filter(|record| record.kind != RecordKind::Event)
         .map(|record| {
@@ -892,7 +883,7 @@ async fn a_cancel_between_a_request_and_its_answer_leaves_the_operation_done_and
         "the cancel freed the call's state, and the run's end deleted its instance"
     );
 
-    drop((host, report));
+    drop(host);
     assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);
@@ -918,7 +909,7 @@ async fn measure_100_000_reads_of_one_library_tool_call_under_the_harness() {
     let file =
         std::path::absolute(copy_fixture(&dir, "plugin")).expect("the working directory is known");
     let lua = format!("return tools.call('test/read_many', {{ path = '/many', count = {READS} }})");
-    let (host, report) = host_over(&dir, prompt(&lua));
+    let host = host_over(&dir, prompt(&lua));
     let library = already_loaded(&file).expect("the loader holds the library open");
 
     let vfs = VfsRef::default();
@@ -934,15 +925,15 @@ async fn measure_100_000_reads_of_one_library_tool_call_under_the_harness() {
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = harness_recorded(&host, vfs, recorder.clone());
     let started = Instant::now();
-    let report_of_run = harness.run().await.expect("the recorder takes the run");
+    let report = harness.run().await.expect("the recorder takes the run");
     let elapsed = started.elapsed();
 
     let bytes = u64::from(READS) * u64::try_from(SMALL_FILE.len()).expect("a small length");
     assert_eq!(
-        report_of_run.result,
+        report.result,
         Ok(format!("read {READS} files, {bytes} bytes, 0 failed"))
     );
-    let records = recorder.records(report_of_run.run_id);
+    let records = recorder.records(report.run_id);
     let file_effects = records
         .iter()
         .filter(|record| is_call_file_effect(record))
@@ -964,7 +955,7 @@ async fn measure_100_000_reads_of_one_library_tool_call_under_the_harness() {
         records.len()
     );
 
-    drop((host, report));
+    drop(host);
     assert_eq!(counter(&library, "live"), 0);
     drop(library);
     remove(&dir);

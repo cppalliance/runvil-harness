@@ -13,7 +13,9 @@ publish = false
 # the run's cancel.
 futures-util.workspace = true
 # The `PluginReport` that a `Host` keeps for each Plugin its builder
-# names, and the function that makes the report of a Rust Plugin.
+# names, the functions that load a Plugin of the C contract, the
+# `HostResources` those Plugins are offered, and the function that makes
+# the report of a Rust Plugin.
 harness-plugin-loader.workspace = true
 # The Plugin contract: the registry a Host's Plugins fill, the `PackInfo`
 # values it holds, the Pack objects they build, and the context each call
@@ -22,6 +24,9 @@ runvil-plugin.workspace = true
 # The Engine's public API: the Run this crate drives, the effects and
 # answers it correlates, and the run's VFS handle.
 runvil-engine.workspace = true
+# The type of an entry point of the C contract, which the builder of a
+# `Host` takes for a Plugin that is linked into the Host.
+runvil-plugin-sys.workspace = true
 # The run seed's 32 bytes are drawn from the OS CSPRNG at preparation: it
 # is the untrusted-envelope nonce's source, so it must be unguessable.
 rand.workspace = true

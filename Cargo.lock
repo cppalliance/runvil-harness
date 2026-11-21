@@ -688,6 +688,7 @@ dependencies = [
  "rand 0.9.5",
  "runvil-engine",
  "runvil-plugin",
+ "runvil-plugin-sys",
  "serde_json",
  "thiserror",
  "tokio",

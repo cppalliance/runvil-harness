@@ -331,7 +331,8 @@ pub enum PluginSource {
     /// A dynamic library at this absolute path, as `std::path::absolute`
     /// made it.
     Library(PathBuf),
-    /// Compiled into the Host and inserted with `insert_plugin`.
+    /// Compiled into the Host, which names its entry point with
+    /// `HostBuilder::with_plugin`.
     Linked,
 }
 

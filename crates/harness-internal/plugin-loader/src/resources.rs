@@ -24,8 +24,9 @@ type Read = Arc<dyn Fn() -> Option<Value> + Send + Sync>;
 /// `runvil/web-search`. What a resource holds is between the Host and the
 /// Plugins that read it.
 ///
-/// A Host fills one and hands it to `insert_plugin_dir` and
-/// `insert_plugin`. Every tool call of a Plugin they load is then lent
+/// A Host fills one and hands it to the builder of its `Host`, with
+/// `HostBuilder::with_resources`, or to `insert_plugin_dir`. Every tool
+/// call of a Plugin loaded with it is then lent
 /// the resources as they are when the call starts. A clone shares the
 /// functions. Its `Debug` lists the names and never a value, because a
 /// value can hold a key.
