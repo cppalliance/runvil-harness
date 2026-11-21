@@ -6,7 +6,7 @@
 
 use harness_plugin_loader::{HostResources, insert_plugin_dir};
 use libloading::Library;
-use runvil_plugin::{PackOrigin, PackRegistry};
+use runvil_plugin::PackRegistry;
 
 use crate::support::{already_loaded, copy_fixture, counter, remove, scratch};
 
@@ -47,18 +47,13 @@ fn the_fixture_is_loaded_invoked_unloaded_once_and_closed() {
         "test-plugin 0.1.0",
         "the load described the Plugin, so its entry point was invoked"
     );
-    let inserted: Vec<(&str, &str, PackOrigin)> = packs
+    let inserted: Vec<(&str, &str)> = packs
         .list()
-        .filter(|(_, origin)| *origin != PackOrigin::Builtin)
-        .map(|(info, origin)| (info.fqn, info.description, origin))
+        .map(|info| (info.fqn, info.description))
         .collect();
     assert_eq!(
         inserted,
-        [(
-            "fixture/test",
-            "The loader's test fixture",
-            PackOrigin::Plugin
-        )],
+        [("fixture/test", "The loader's test fixture")],
         "the load inserted the fixture's one Pack"
     );
 

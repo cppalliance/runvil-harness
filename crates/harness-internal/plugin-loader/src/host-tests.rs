@@ -622,7 +622,7 @@ fn a_pack_name_and_a_description_at_their_bounds_are_accepted() {
     let fqn = format!("{}/{}", "v".repeat(64), "p".repeat(64));
     let description = packs
         .list()
-        .find(|(info, _)| info.fqn == fqn)
-        .map(|(info, _)| info.description);
+        .find(|info| info.fqn == fqn)
+        .map(|info| info.description);
     assert_eq!(description, Some("d".repeat(1024).as_str()));
 }

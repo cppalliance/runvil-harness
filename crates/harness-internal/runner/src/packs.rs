@@ -1,11 +1,14 @@
 //! The Host's installed Packs: [`Packs`], which keeps the factory of
-//! every Pack a [`PackRegistry`] holds, the pick of each run's Packs, the
+//! every Pack a [`PackRegistry`] holds and of the two built-in Packs,
+//! the pick of each run's Packs, the
 //! instance each run makes of each of them, and the snapshot each run
 //! takes of those instances.
 //!
 //! The Host's Plugins insert Packs into the registry, each with its
 //! factory or unavailable for a reason, and every run that declares a
-//! Pack inserted unavailable is refused naming that reason.
+//! Pack inserted unavailable is refused naming that reason. The runner
+//! adds the built-ins `runvil/subagents` and `runvil/user` itself, so
+//! every Host has both.
 //!
 //! A run's Packs are every Pack the Host installed, whatever each one's
 //! vendor and whatever the run's prompt declares under `uses:`. A declared
@@ -58,6 +61,7 @@ use runvil_plugin::{
 };
 use serde_json::Value;
 
+use crate::packs_builtin::{BUILTIN, builtin, builtin_id};
 use crate::performers::ToolPerformer;
 
 /// The vendor a bare `uses:` entry means.
@@ -73,7 +77,8 @@ const USER: &str = "runvil/user";
 /// The reason [`USER`] is unavailable to a run with no user.
 const NO_USER: &str = "this run has no user";
 
-/// Every Pack a Host installed in its registry, one per Pack id, each
+/// Every Pack a Host installed in its registry and the two built-in
+/// Packs, one per Pack id, each
 /// with its factory or the reason it was inserted unavailable. Built once
 /// and shared by every run of that Host; each run makes its own instance
 /// of each Pack it holds.
@@ -162,25 +167,35 @@ struct Made<'a> {
 
 impl Packs {
     /// Takes every Pack `packs` holds, keeping each factory for the runs
-    /// to call, and warns once per Pack inserted unavailable.
+    /// to call, warns once per Pack inserted unavailable, and adds the
+    /// two built-in Packs, which no registry holds.
     #[must_use]
     pub fn new(packs: PackRegistry) -> Packs {
-        let installed = packs
-            .into_entries()
-            .map(|(info, id, factory)| {
-                let factory = factory.map_err(|error| {
-                    tracing::warn!(
-                        pack = %id,
-                        fqn = info.fqn,
-                        %error,
-                        "Pack was inserted unavailable"
-                    );
-                    error.to_string()
-                });
-                (info.fqn, Installed { id, info, factory })
-            })
-            .collect();
-        Packs { installed }
+        let inserted = packs.into_entries().map(|(info, id, factory)| {
+            let factory = factory.map_err(|error| {
+                tracing::warn!(
+                    pack = %id,
+                    fqn = info.fqn,
+                    %error,
+                    "Pack was inserted unavailable"
+                );
+                error.to_string()
+            });
+            (info.fqn, Installed { id, info, factory })
+        });
+        let builtins = BUILTIN.into_iter().filter_map(|info| {
+            let id = builtin_id(&info)?;
+            let factory: Arc<dyn PackFactory> = Arc::new(builtin);
+            let installed = Installed {
+                id,
+                info,
+                factory: Ok(factory),
+            };
+            Some((info.fqn, installed))
+        });
+        Packs {
+            installed: inserted.chain(builtins).collect(),
+        }
     }
 
     /// Picks the Packs a run of `prompt` holds, makes

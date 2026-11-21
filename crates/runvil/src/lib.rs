@@ -8,7 +8,8 @@
 //!
 //! A Host makes a [`plugin::PackRegistry`], calls each Plugin it links,
 //! which inserts its Packs into the registry, and builds one
-//! [`harness::Packs`] over it, which keeps each Pack's factory.
+//! [`harness::Packs`] over it, which keeps each Pack's factory and adds
+//! the two built-in Packs that every Host has.
 //! It builds one [`Host`] at startup over those Packs and a
 //! [`PromptFinder`], its own or a stock one such as
 //! [`harness::PromptSet`], and shares it behind an `Arc`.
@@ -116,7 +117,7 @@ pub mod harness {
 pub mod plugin {
     //! The Plugin contract: a Pack and the factory that makes each run's
     //! instance of it, the registry a Host's Plugins insert Packs into,
-    //! where each of its Packs came from, and what a tool call and a
+    //! and what a tool call and a
     //! render are lent, the files through which a tool call asks for
     //! file operations among them. A Plugin written against these items
     //! is a function that inserts its Packs into the Host's registry. A
@@ -127,7 +128,6 @@ pub mod plugin {
     pub use runvil_plugin::Pack;
     pub use runvil_plugin::PackFactory;
     pub use runvil_plugin::PackInfo;
-    pub use runvil_plugin::PackOrigin;
     pub use runvil_plugin::PackRegistry;
     pub use runvil_plugin::RenderContext;
     pub use runvil_plugin::ToolContext;

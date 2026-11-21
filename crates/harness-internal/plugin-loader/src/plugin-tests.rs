@@ -257,17 +257,13 @@ fn a_load_that_sets_an_instance_and_misuses_the_load_functions_is_never_unloaded
 fn inserting_a_plugin_leaves_the_pack_registry_as_it_was() {
     fake!(plug, |call| describe(call, "acme-url", "1.0.0"));
     let mut packs = PackRegistry::new();
-    let listed = |packs: &PackRegistry| {
-        packs
-            .list()
-            .map(|(info, origin)| (info.fqn, origin))
-            .collect::<Vec<_>>()
-    };
-    let before = listed(&packs);
-    assert!(!before.is_empty(), "the registry holds its built-in Pack");
     let _plugin =
         insert_plugin(&mut packs, plug::entry, &HostResources::new()).expect("the Plugin loads");
-    assert_eq!(listed(&packs), before);
+    assert_eq!(
+        packs.list().count(),
+        0,
+        "a Plugin that inserts no Pack leaves the registry empty"
+    );
 }
 
 #[test]

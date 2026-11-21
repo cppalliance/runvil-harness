@@ -1,6 +1,5 @@
-//! The Packs a Host builds: [`PackRegistry`], holding the built-ins
-//! from the start and each Pack a Plugin inserts with its factory, and the
-//! [`PackOrigin`] that says which a Pack is.
+//! The Packs a Host's Plugins insert: [`PackRegistry`], which starts
+//! empty and holds each Pack a Plugin inserts with its factory.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -8,10 +7,9 @@ use std::sync::Arc;
 
 use runvil_types::error::{Error, ErrorCode, ErrorFact};
 use runvil_types::packs::PackId;
-use runvil_types::tools::{ToolInfo, ToolOutput, make_tool_error};
 use serde_json::Value;
 
-use crate::{BoxFuture, Pack, PackFactory, PackInfo, ToolContext};
+use crate::{PackFactory, PackInfo};
 
 #[cfg(test)]
 #[path = "registry-tests.rs"]
@@ -25,13 +23,16 @@ mod tests;
 /// by calling [`insert`](PackRegistry::insert) or
 /// [`insert_unavailable`](PackRegistry::insert_unavailable) from its
 /// `install` function. The Host makes the registry with
-/// [`new`](PackRegistry::new), which holds the built-ins
-/// `runvil/subagents` and `runvil/user` from the start, and calls each
+/// [`new`](PackRegistry::new), which starts empty, and calls each
 /// Plugin it links. Then it hands the registry to `Packs::new`, which
-/// reads it through [`into_entries`](PackRegistry::into_entries) and keeps
-/// each Pack's factory. Every run that starts holds every Pack of the
-/// registry, and each run calls the factory of each Pack it holds to make
-/// that run's instance.
+/// reads it through [`into_entries`](PackRegistry::into_entries), keeps
+/// each Pack's factory, and adds the built-in Packs `runvil/subagents`
+/// and `runvil/user`, which the Harness makes itself. So the registry
+/// refuses a Pack that takes the Pack id of either. Every run that
+/// starts holds every Pack of the registry and both built-ins, and each
+/// run calls the factory of each Pack it holds to make that run's
+/// instance.
+#[derive(Default)]
 pub struct PackRegistry {
     entries: BTreeMap<&'static str, Registered>,
 }
@@ -39,50 +40,13 @@ pub struct PackRegistry {
 /// One Pack the registry holds.
 struct Registered {
     info: PackInfo,
-    origin: PackOrigin,
     id: PackId,
     /// The Pack's factory, or the reason it was inserted unavailable.
     factory: Result<Arc<dyn PackFactory>, Error>,
 }
 
-/// Where a Pack comes from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PackOrigin {
-    /// Built into every registry, with no tools of its own:
-    /// `runvil/subagents`, whose behavior will live in the Engine and which
-    /// has none yet, and `runvil/user`, which marks a prompt that needs a
-    /// human.
-    Builtin,
-    /// Inserted by a Plugin with [`PackRegistry::insert`] or
-    /// [`PackRegistry::insert_unavailable`]: by a linked Plugin's
-    /// `install`, or by the Harness for a Plugin's C entry point, linked
-    /// or from a dynamic library.
-    Plugin,
-}
-
-impl Default for PackRegistry {
-    /// A registry holding only the built-ins.
-    fn default() -> PackRegistry {
-        let entries = BUILTIN
-            .into_iter()
-            .filter_map(|info| {
-                let id = pack_id(info.fqn)?;
-                let registered = Registered {
-                    info,
-                    origin: PackOrigin::Builtin,
-                    id,
-                    factory: Ok(Arc::new(builtin)),
-                };
-                Some((info.fqn, registered))
-            })
-            .collect();
-        PackRegistry { entries }
-    }
-}
-
 impl PackRegistry {
-    /// A registry holding only the built-ins.
+    /// A registry holding no Pack.
     #[must_use]
     pub fn new() -> PackRegistry {
         PackRegistry::default()
@@ -102,13 +66,12 @@ impl PackRegistry {
     ///
     /// - `invalid_fqn` when the FQN is not a `vendor/name` pair of valid
     ///   one-segment names;
-    /// - `duplicate_pack` when the registry holds the FQN already, as it
-    ///   holds each built-in's from the start;
+    /// - `duplicate_pack` when the registry holds the FQN already;
     /// - `reserved_pack_id` when the Pack id is
     ///   [reserved](PackId::is_reserved), such as `adhoc`;
-    /// - `pack_id_taken` when the registry holds a Pack of that Pack id
-    ///   under another FQN, a built-in or any other Pack, which the
-    ///   message names.
+    /// - `pack_id_taken` when a built-in Pack holds that Pack id, as
+    ///   `runvil/user` holds `user`, or when the registry holds a Pack of
+    ///   that Pack id under another FQN. The message names the holder.
     ///
     /// A Pack whose factory refuses a run is not refused here; that run
     /// holds the Pack as unavailable instead.
@@ -160,6 +123,16 @@ impl PackRegistry {
                 fqn,
             ));
         }
+        if let Some(builtin) = builtin_holding(&id) {
+            return Err(make_refusal_error(
+                "pack_id_taken",
+                format!(
+                    "Pack `{fqn}` cannot take the Pack id {id}, which the built-in Pack \
+                     `{builtin}` holds"
+                ),
+                fqn,
+            ));
+        }
         if let Some(holder) = self.holder(&id) {
             return Err(make_refusal_error(
                 "pack_id_taken",
@@ -167,29 +140,19 @@ impl PackRegistry {
                 fqn,
             ));
         }
-        self.entries.insert(
-            info.fqn,
-            Registered {
-                info,
-                origin: PackOrigin::Plugin,
-                id,
-                factory,
-            },
-        );
+        self.entries
+            .insert(info.fqn, Registered { info, id, factory });
         Ok(())
     }
 
-    /// Every Pack the registry holds, built-ins included, with its origin,
-    /// in FQN order.
-    pub fn list(&self) -> impl Iterator<Item = (&PackInfo, PackOrigin)> {
-        self.entries
-            .values()
-            .map(|registered| (&registered.info, registered.origin))
+    /// Every Pack the registry holds, in FQN order.
+    pub fn list(&self) -> impl Iterator<Item = &PackInfo> {
+        self.entries.values().map(|registered| &registered.info)
     }
 
-    /// Every Pack the registry holds, built-ins included, with its Pack
-    /// id and its factory, or the reason it was inserted unavailable, in
-    /// FQN order: what a Host builds its Packs from.
+    /// Every Pack the registry holds, with its Pack id and its factory,
+    /// or the reason it was inserted unavailable, in FQN order: what a
+    /// Host builds its Packs from.
     pub fn into_entries(
         self,
     ) -> impl Iterator<Item = (PackInfo, PackId, Result<Arc<dyn PackFactory>, Error>)> {
@@ -209,12 +172,12 @@ impl PackRegistry {
 }
 
 impl fmt::Debug for PackRegistry {
-    /// Shows each Pack's FQN, origin, and Pack id.
+    /// Shows each Pack's FQN and Pack id.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let entries: Vec<(&str, PackOrigin, &PackId)> = self
+        let entries: Vec<(&str, &PackId)> = self
             .entries
             .values()
-            .map(|registered| (registered.info.fqn, registered.origin, &registered.id))
+            .map(|registered| (registered.info.fqn, &registered.id))
             .collect();
         f.debug_struct("PackRegistry")
             .field("entries", &entries)
@@ -232,61 +195,16 @@ fn make_refusal_error(reason: &'static str, message: String, fqn: &str) -> Error
     error
 }
 
-/// The Packs every registry holds from the start: `runvil/subagents`, and
-/// `runvil/user`, which marks a prompt that needs a human. Neither offers
-/// tools or has a prelude. A run holds `runvil/user` only when its setup
-/// has a user.
-///
-/// A built-in Pack's behavior and tools live in the Engine. Its instance
-/// exists only so making, readiness, and the run snapshot treat it like
-/// any other Pack, so a built-in must never offer tools or carry a
-/// prelude, and its factory never refuses a run. A built-in can still be
-/// unavailable to a run: `runvil/user` is unavailable in a run without a
-/// user, which the Harness decides from the run's setup instead of making
-/// the Pack. Its `call` is unreachable, because the Engine never issues a
-/// call under a built-in's id: a built-in lists no tools, so no section
-/// offers one of its tools and no render of it adds one. A built-in never
-/// takes a [reserved](PackId::is_reserved) Pack id: every run's roster
-/// names every Pack of the registry, so a reserved one would refuse every
-/// run.
-const BUILTIN: [PackInfo; 2] = [
-    PackInfo::new("runvil/subagents").description(
-        "Reserves the subagents name for the Engine's subagent tools, which are not built yet",
-    ),
-    PackInfo::new("runvil/user")
-        .description("Marks a prompt that needs a human; only a run with a user holds it"),
-];
+/// The built-in Packs, by FQN. Every Host has both, and the Harness makes
+/// them itself, so no registry holds one. Each still holds its Pack id:
+/// a Plugin's Pack can take neither the name nor the Pack id of one.
+const BUILTIN: [&str; 2] = ["runvil/subagents", "runvil/user"];
 
-/// The factory of every built-in: makes each run's [`Builtin`] instance;
-/// see [`BUILTIN`].
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the PackFactory signature fixes the return type"
-)]
-fn builtin(_id: &PackId) -> Result<Arc<dyn Pack>, Error> {
-    Ok(Arc::new(Builtin))
-}
-
-/// The instance of a built-in Pack, which offers no tools; see
-/// [`BUILTIN`].
-struct Builtin;
-
-impl Pack for Builtin {
-    fn tools(&self) -> Vec<ToolInfo> {
-        Vec::new()
-    }
-
-    fn call<'a>(
-        &'a self,
-        cx: ToolContext<'a>,
-        _args: Value,
-    ) -> BoxFuture<'a, Result<ToolOutput, Error>> {
-        let message = format!(
-            "{} belongs to a built-in Pack, whose calls the Engine answers",
-            cx.tool()
-        );
-        Box::pin(async move { Err(make_tool_error(ErrorCode::ToolOther, message)) })
-    }
+/// The FQN of the built-in Pack that holds the Pack id `id`.
+fn builtin_holding(id: &PackId) -> Option<&'static str> {
+    BUILTIN
+        .into_iter()
+        .find(|fqn| pack_id(fqn).is_some_and(|held| held == *id))
 }
 
 /// The Pack id of the FQN `vendor/name`: its second segment, when both

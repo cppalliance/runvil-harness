@@ -1,8 +1,8 @@
-//! A Host runs one prompt through a Harness: it builds a Host over a
-//! fresh Pack registry, which holds only the built-ins, and a finder that
-//! serves its one prompt, parses the prompt by its name, hands the run a
-//! recorder, the stock offline broker, the stock tokio timer, and the
-//! operator's name, and prints the greeting the prompt returns.
+//! A Host runs one prompt through a Harness: it builds a Host over an
+//! empty Pack registry, so its only Packs are the built-ins, and a finder
+//! that serves its one prompt, parses the prompt by its name, hands the
+//! run a recorder, the stock offline broker, the stock tokio timer, and
+//! the operator's name, and prints the greeting the prompt returns.
 
 use std::sync::Arc;
 

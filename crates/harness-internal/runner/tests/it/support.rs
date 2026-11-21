@@ -41,8 +41,8 @@ pub(crate) fn assert_canceled(result: &Result<String, Error>) {
 /// under the Pack id it receives.
 pub(crate) type Make = fn(&PackId) -> Result<Arc<dyn Pack>, Error>;
 
-/// A registry holding the built-ins and each of `packs`, an info beside
-/// its factory, which a suite builds its Host over.
+/// A registry holding each of `packs`, an info beside its factory, which
+/// a suite builds its Host over.
 pub(crate) fn registry(packs: &[(PackInfo, Make)]) -> PackRegistry {
     let mut registry = PackRegistry::new();
     for (info, make) in packs {

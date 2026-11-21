@@ -64,10 +64,11 @@
 //!   from the run's own word (`Step` and the effects it withdraws), the
 //!   cancel flag, the Host's stop, and the messages the Host sends.
 //! - A Host's [`Packs`] keeps the factory of every Pack its
-//!   `PackRegistry` holds, and only those. The registry holds the
-//!   built-ins `runvil/subagents` and `runvil/user` from the start and
-//!   refuses a duplicate FQN and a Pack id it holds already, so it holds
-//!   one Pack per Pack id and no other Pack can take `subagents` or
+//!   `PackRegistry` holds and of the two built-in Packs,
+//!   `runvil/subagents` and `runvil/user`, which the Harness makes
+//!   itself, and only those. The registry refuses a duplicate FQN, a
+//!   Pack id it holds already, and the Pack id of a built-in, so a Host
+//!   has one Pack per Pack id and no other Pack can take `subagents` or
 //!   `user`. A run whose [`RunSetup`] has no user holds `runvil/user`
 //!   unavailable, with the reason "this run has no user", and never makes
 //!   it.
@@ -96,6 +97,7 @@ mod environment;
 mod harness;
 mod host;
 mod packs;
+mod packs_builtin;
 pub mod performers;
 mod performers_offline;
 mod prepare;

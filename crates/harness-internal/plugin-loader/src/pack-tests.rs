@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use runvil_plugin::{ErrorCode, ErrorFact, PackOrigin, PackRegistry};
+use runvil_plugin::{ErrorCode, ErrorFact, PackRegistry};
 use serde_json::json;
 
 use crate::fakes::*;
@@ -55,12 +55,11 @@ fn a_plugins_pack_goes_into_the_registry_under_its_name_with_its_description() {
     let plugin =
         insert_plugin(&mut packs, good::entry, &HostResources::new()).expect("the Plugin loads");
     assert_eq!(plugin.name(), "fake");
-    let listed: Vec<(&str, &str, PackOrigin)> = packs
+    let listed: Vec<(&str, &str)> = packs
         .list()
-        .filter(|(info, _)| info.fqn == FAKE_PACK)
-        .map(|(info, origin)| (info.fqn, info.description, origin))
+        .map(|info| (info.fqn, info.description))
         .collect();
-    assert_eq!(listed, [(FAKE_PACK, "A fake Pack", PackOrigin::Plugin)]);
+    assert_eq!(listed, [(FAKE_PACK, "A fake Pack")]);
 }
 
 #[test]

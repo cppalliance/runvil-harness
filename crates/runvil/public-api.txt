@@ -8,7 +8,6 @@
 #[non_exhaustive] pub enum runvil::model::ModelRole
 #[non_exhaustive] pub enum runvil::model::Role
 #[non_exhaustive] pub enum runvil::model::ThinkingMode
-#[non_exhaustive] pub enum runvil::plugin::PackOrigin
 #[non_exhaustive] pub enum runvil::vfs::FileType
 #[non_exhaustive] pub enum runvil::vfs::Mode
 #[non_exhaustive] pub enum runvil::vfs::Op
@@ -117,7 +116,6 @@ auto runvil::packs::GlobalName: Freeze, RefUnwindSafe, Send, Sync, Unpin, Unwind
 auto runvil::packs::PackId: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::packs::PackRef: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::PackInfo: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
-auto runvil::plugin::PackOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::PackRegistry: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::plugin::RenderContext: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::ToolContext: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
@@ -219,7 +217,6 @@ derives runvil::packs::GlobalName: Clone, Debug, Eq, Hash, Ord, PartialEq, Parti
 derives runvil::packs::PackId: Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize
 derives runvil::packs::PackRef: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil::plugin::PackInfo: Clone, Copy, Debug
-derives runvil::plugin::PackOrigin: Clone, Copy, Debug, Eq, PartialEq
 derives runvil::plugin::PackRegistry: Debug, Default
 derives runvil::plugin::RenderContext: Debug
 derives runvil::plugin::ToolContext: Debug
@@ -531,7 +528,7 @@ pub fn runvil::plugin::PackFactory::new_pack(&self, id: &runvil::packs::PackId) 
 pub fn runvil::plugin::PackRegistry::insert(&mut self, info: runvil::plugin::PackInfo, factory: impl runvil::plugin::PackFactory + 'static) -> core::result::Result<(), runvil::Error>
 pub fn runvil::plugin::PackRegistry::insert_unavailable(&mut self, info: runvil::plugin::PackInfo, reason: runvil::Error) -> core::result::Result<(), runvil::Error>
 pub fn runvil::plugin::PackRegistry::into_entries(self) -> impl core::iter::traits::iterator::Iterator<Item = (runvil::plugin::PackInfo, runvil::packs::PackId, core::result::Result<alloc::sync::Arc<dyn runvil::plugin::PackFactory>, runvil::Error>)>
-pub fn runvil::plugin::PackRegistry::list(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&runvil::plugin::PackInfo, runvil::plugin::PackOrigin)>
+pub fn runvil::plugin::PackRegistry::list(&self) -> impl core::iter::traits::iterator::Iterator<Item = &runvil::plugin::PackInfo>
 pub fn runvil::plugin::PackRegistry::new() -> runvil::plugin::PackRegistry
 pub fn runvil::plugin::RenderContext::new(entry: &'a str, model: &'a runvil::model::ModelInfo) -> Self
 pub fn runvil::plugin::ToolContext::files(&self) -> &'a dyn runvil::plugin::ToolFiles
@@ -1042,8 +1039,6 @@ pub runvil::model::ThinkingMode::Switchable
 pub runvil::plugin::PackInfo::description: &'static str
 pub runvil::plugin::PackInfo::fqn: &'static str
 pub runvil::plugin::PackInfo::prelude: core::option::Option<&'static str>
-pub runvil::plugin::PackOrigin::Builtin
-pub runvil::plugin::PackOrigin::Plugin
 pub runvil::plugin::RenderContext::entry: &'a str
 pub runvil::plugin::RenderContext::model: &'a runvil::model::ModelInfo
 pub runvil::vfs::Entry::description: core::option::Option<alloc::string::String>

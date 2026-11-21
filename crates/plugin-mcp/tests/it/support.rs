@@ -23,10 +23,6 @@ pub(crate) const SECRET: &str = "ghp_secret_token_value_0042";
 /// A factory or the reason its Pack was inserted unavailable.
 pub(crate) type Inserted = Result<Arc<dyn PackFactory>, Error>;
 
-/// The built-ins every fresh registry holds, which `install` does not
-/// insert.
-const BUILTINS: [&str; 2] = ["runvil/subagents", "runvil/user"];
-
 /// Each Pack `install` inserts into a fresh registry for the server map
 /// `servers`, on the test's runtime, beside its Pack id and its factory
 /// or the reason it was inserted unavailable.
@@ -34,10 +30,7 @@ pub(crate) fn inserted(servers: Value) -> Vec<(PackInfo, PackId, Inserted)> {
     let mut packs = PackRegistry::new();
     plugin_mcp::install(&mut packs, servers, Handle::current())
         .expect("a fresh registry takes the Pack");
-    packs
-        .into_entries()
-        .filter(|(info, _, _)| !BUILTINS.contains(&info.fqn))
-        .collect()
+    packs.into_entries().collect()
 }
 
 /// The factory `install` inserts for the server map `servers`, on the

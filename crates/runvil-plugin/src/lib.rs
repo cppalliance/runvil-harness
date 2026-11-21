@@ -25,14 +25,15 @@
 //! The Harness loads these entry points when a Host inserts them, and
 //! inserts each Pack they offer with a factory that reaches the Pack
 //! through its entry point.
-//! Every registry holds two built-in Packs: `runvil/subagents`, which
-//! reserves its id for the Engine's subagent tools, and `runvil/user`,
-//! which a prompt that needs a human declares and which the Harness
-//! makes unavailable to a run with no user.
+//! Every Host has two built-in Packs, which the Harness makes itself:
+//! `runvil/subagents`, which reserves its id for the Engine's subagent
+//! tools, and `runvil/user`, which a prompt that needs a human declares
+//! and which the Harness makes unavailable to a run with no user.
 //!
 //! The Host owns the [`PackRegistry`]; a Plugin only inserts its Packs into it.
-//! The registry holds one Pack per Pack id, so it refuses a Pack whose
-//! Pack id another Pack holds, whatever the vendor of either.
+//! The registry starts empty and holds one Pack per Pack id, so it
+//! refuses a Pack whose Pack id another Pack holds, whatever the vendor
+//! of either, and a Pack that takes the Pack id of a built-in.
 //!
 //! Each Pack is a [`PackInfo`], built with [`PackInfo::new`]: its FQN, an
 //! optional Lua prelude, and a one-line description. Its [`PackFactory`]
@@ -123,7 +124,7 @@ pub mod testing;
 
 pub use context::{RenderContext, ToolContext, ToolFiles};
 pub use pack::{Pack, PackFactory, PackInfo};
-pub use registry::{PackOrigin, PackRegistry};
+pub use registry::PackRegistry;
 
 pub use runvil_types::error::{Error, ErrorCode, ErrorFact, SourceLoc};
 pub use runvil_types::future::BoxFuture;

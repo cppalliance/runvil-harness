@@ -16,7 +16,9 @@ A Pack's fully qualified name has two segments, a vendor and a name, as in `runv
 
 ### A registry holds one Pack for each Pack id
 
-`PackRegistry` refuses a Pack whose id it already holds, whatever the vendor of either Pack. The first Pack that a Plugin inserts keeps the id, and the second insert fails with the reason `pack_id_taken` and a message that names the holder, as in ``Pack `acme/web` cannot take the Pack id web, which `runvil/web` holds``. A Pack that a Plugin inserted as unavailable holds its id too. The built-in Packs, `subagents` and `user`, are in every registry from the start, so the same rule keeps those ids for them. The owner's rule: "runvil/web and acme/web cannot both be in the host's PackRegistry".
+`PackRegistry` refuses a Pack whose id it already holds, whatever the vendor of either Pack. The first Pack that a Plugin inserts keeps the id, and the second insert fails with the reason `pack_id_taken` and a message that names the holder, as in ``Pack `acme/web` cannot take the Pack id web, which `runvil/web` holds``. A Pack that a Plugin inserted as unavailable holds its id too. The owner's rule: "runvil/web and acme/web cannot both be in the host's PackRegistry".
+
+Every Host has the built-in Packs `subagents` and `user`, which the Harness makes itself, so a registry starts empty and holds only what Plugins inserted. The registry still keeps both ids for the built-ins: it refuses a Pack that takes either one with the same reason, `pack_id_taken`, and the message names the built-in, as in ``Pack `acme/user` cannot take the Pack id user, which the built-in Pack `runvil/user` holds``. The Harness makes the built-ins because no Plugin delivers them and no Host can leave them out.
 
 The rule follows from the tool id. A tool id starts with the Pack id and leaves the vendor out, and the Harness finds the Pack for a tool call from that first segment. With one Pack for each id, `web/fetch` names one tool on a Host, and a prompt reaches every Pack of a run by its bare Pack id.
 
@@ -54,7 +56,7 @@ Every entry is required. A prompt that treats a Pack as optional tests `tools.pa
 
 ### A run includes every Pack the Host installed, and a section opts in to the undeclared ones
 
-A run includes every Pack in the Host's registry, whatever the Pack's vendor and whatever the prompt declares. A `uses:` entry marks a Pack as required, so that the run is refused when the Pack is missing or unavailable, and it runs the Pack's prelude. It leaves the run's Packs as they are, except that an entry that names the wrong vendor keeps the installed Pack of that id out of its run, which the first step refuses (see the entry on a bare name). The owner's rule: "Packs are determined by the host, not the prompts. The frontmatter just indicates which packs are *required*."
+A run includes every Pack in the Host's registry and the two built-in Packs, whatever the Pack's vendor and whatever the prompt declares. A `uses:` entry marks a Pack as required, so that the run is refused when the Pack is missing or unavailable, and it runs the Pack's prelude. It leaves the run's Packs as they are, except that an entry that names the wrong vendor keeps the installed Pack of that id out of its run, which the first step refuses (see the entry on a bare name). The owner's rule: "Packs are determined by the host, not the prompts. The frontmatter just indicates which packs are *required*."
 
 The guide calls the undeclared Packs extras. A section offers them with `tools.offer(tools.packs.extras())`, as the built-in chat prompt does. The owner's rule: "extras should be a per-section setting. Disabled by default, and opt-in".
 
@@ -444,11 +446,11 @@ The Pack uses `rmcp`'s own HTTP client, which refuses redirects, so the client s
 
 ### `user` marks a prompt that needs a person
 
-`runvil/user` is built into every registry. A prompt that needs a person declares `uses: [user]` and reads the person's messages with `tasks.receive()`. When `RunSetup::has_user` is false, the Harness marks the Pack unavailable, and the run's first step refuses a prompt that declares it. The Pack's tool list is empty. A model asks the person a question in its reply: the reply ends `models.loop`, and the prompt then returns to `tasks.receive()`.
+`runvil/user` is a Pack of every Host, and the Harness makes it itself. A prompt that needs a person declares `uses: [user]` and reads the person's messages with `tasks.receive()`. When `RunSetup::has_user` is false, the Harness marks the Pack unavailable, and the run's first step refuses a prompt that declares it. The Pack's tool list is empty. A model asks the person a question in its reply: the reply ends `models.loop`, and the prompt then returns to `tasks.receive()`.
 
 ### `subagents` reserves a name
 
-`runvil/subagents` is built into every registry and reserves its name for subagent tools that the Engine will provide. It is a Pack so that a prompt can name it under `uses:`. `tasks` is a language feature, because an option to leave the `tasks` table out of a run would be useless.
+`runvil/subagents` is a Pack of every Host, and the Harness makes it itself. It reserves its name for subagent tools that the Engine will provide. It is a Pack so that a prompt can name it under `uses:`. `tasks` is a language feature, because an option to leave the `tasks` table out of a run would be useless.
 
 ## 10. Planned work
 
