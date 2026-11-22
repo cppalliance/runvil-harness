@@ -204,7 +204,7 @@ impl Timer for Unused {
 /// issues `Chat` effects sets its own broker, and one that issues `Timer`
 /// effects its own timer.
 pub(crate) fn loop_setup(recorder: Arc<dyn RunRecorder>) -> RunSetup {
-    RunSetup::new(recorder, Arc::new(Unused), Arc::new(Unused))
+    RunSetup::new(recorder, Unused, Unused)
 }
 
 /// [`loop_setup`] for a run that issues `Timer` effects, which `timer`

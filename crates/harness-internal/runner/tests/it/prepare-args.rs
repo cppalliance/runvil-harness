@@ -24,11 +24,7 @@ fn with_args(recorder: &Arc<MemoryRecorder>, args: &str) -> RunSetup {
 
 #[tokio::test]
 async fn a_new_setup_holds_the_empty_object_which_a_prompt_with_no_args_key_runs_on() {
-    let setup = RunSetup::new(
-        recorder(),
-        Arc::new(ScriptedBroker::replying()),
-        Arc::new(Unused),
-    );
+    let setup = RunSetup::new(recorder(), ScriptedBroker::replying(), Unused);
     assert_eq!(setup.args, "{}", "a new setup's args are the empty object");
 
     let report = report_of(READS_ARGS, bare_host(), setup).await;

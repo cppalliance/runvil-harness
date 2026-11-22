@@ -79,7 +79,7 @@ fn harness_over(host: &Arc<Host>, vfs: VfsRef) -> Harness {
 /// which records at `recorder`.
 fn harness_recorded(host: &Arc<Host>, vfs: VfsRef, recorder: Arc<dyn RunRecorder>) -> Harness {
     let prompt = host.parse(PROMPT).expect("the prompt parses");
-    let setup = RunSetup::new(recorder, Arc::new(OfflineBroker), Arc::new(TokioTimer)).vfs(vfs);
+    let setup = RunSetup::new(recorder, OfflineBroker, TokioTimer).vfs(vfs);
     Harness::new(Arc::clone(host), prompt, setup)
 }
 

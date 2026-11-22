@@ -73,12 +73,7 @@ pub(crate) fn setup(
     recorder: Arc<dyn RunRecorder>,
     broker: impl InferenceBroker + 'static,
 ) -> RunSetup {
-    RunSetup::new(
-        recorder,
-        Arc::new(broker),
-        Arc::new(PendingTimer::default()),
-    )
-    .selected_model(MODEL)
+    RunSetup::new(recorder, broker, PendingTimer::default()).selected_model(MODEL)
 }
 
 /// A Harness running `source` with `setup` on `host`.
@@ -368,9 +363,9 @@ async fn a_prompt_reads_the_selected_model_through_a_roles_handle() {
 #[tokio::test]
 async fn a_run_with_no_selection_binds_the_first_listed_model() {
     let setup = RunSetup::new(
-        Arc::new(MemoryRecorder::new()),
-        Arc::new(broker_listing_two()),
-        Arc::new(PendingTimer::default()),
+        MemoryRecorder::new(),
+        broker_listing_two(),
+        PendingTimer::default(),
     );
     let report = launch(bare_host(), READS_THE_SELECTION, setup)
         .run()

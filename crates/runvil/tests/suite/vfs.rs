@@ -201,13 +201,9 @@ async fn a_hosts_edit_of_a_file_the_run_read_applies_while_the_run_waits_on_its_
         .expect("the policy allows a desk file");
 
     let recorder = Arc::new(MemoryRecorder::new());
-    let setup = RunSetup::new(
-        recorder.clone(),
-        Arc::new(OfflineBroker),
-        Arc::new(TokioTimer),
-    )
-    .vfs(vfs.clone())
-    .has_user(true);
+    let setup = RunSetup::new(recorder.clone(), OfflineBroker, TokioTimer)
+        .vfs(vfs.clone())
+        .has_user(true);
     let harness = launch_with(install_desk, REVIEW, setup);
     let control = harness.control();
     // While the run waits on its inbox, the Host edits the notes the run's
@@ -252,12 +248,7 @@ async fn a_hosts_edit_of_a_file_the_run_read_applies_while_the_run_waits_on_its_
 #[tokio::test]
 async fn a_hosts_policy_and_watcher_never_see_a_store_operation() {
     let (vfs, seen) = watched(Shut);
-    let setup = RunSetup::new(
-        Arc::new(MemoryRecorder::new()),
-        Arc::new(OfflineBroker),
-        Arc::new(TokioTimer),
-    )
-    .vfs(vfs.clone());
+    let setup = RunSetup::new(MemoryRecorder::new(), OfflineBroker, TokioTimer).vfs(vfs.clone());
     let report = launch(KEEPS, setup)
         .run()
         .await

@@ -415,11 +415,7 @@ async fn a_cancel_that_lands_while_a_refusal_is_recorded_leaves_the_report_holdi
         inner: inner.clone(),
         control: OnceLock::new(),
     });
-    let setup = RunSetup::new(
-        recorder.clone(),
-        Arc::new(ScriptedBroker::replying()),
-        Arc::new(Unused),
-    );
+    let setup = RunSetup::new(recorder.clone(), ScriptedBroker::replying(), Unused);
     let harness = launch(bare_host(), NEEDS_WEB, setup);
     recorder.control.set(harness.control()).unwrap();
 

@@ -4,8 +4,6 @@
 //! run a recorder, the stock offline broker, the stock tokio timer, and
 //! the operator's name, and prints the greeting the prompt returns.
 
-use std::sync::Arc;
-
 use harness_gateway_client::TokioTimer;
 use runvil::harness::{FindTextPrompt, MemoryRecorder, OfflineBroker};
 use runvil::{Harness, Host, RunSetup};
@@ -34,17 +32,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prompt = host.parse(GREET_NAME)?;
 
     // 3. Give this run its recorder, its broker, its timer, and the
-    //    operator's name. The prompt asks no model, so the broker is the
-    //    stock offline one, which lists no model, and the stock tokio
-    //    timer comes from the Gateway client. Every other field keeps its
-    //    default, such as an empty memory filesystem for the run's tool
-    //    calls.
-    let setup = RunSetup::new(
-        Arc::new(MemoryRecorder::new()),
-        Arc::new(OfflineBroker),
-        Arc::new(TokioTimer),
-    )
-    .args(r#"{"text":"desk"}"#);
+    //    operator's name. The Host passes each service itself, and the
+    //    setup puts it into the `Arc` through which the run shares it.
+    //    The prompt asks no model, so the broker is the stock offline
+    //    one, which lists no model, and the stock tokio timer comes from
+    //    the Gateway client. Every other field keeps its default, such
+    //    as an empty memory filesystem for the run's tool calls.
+    let setup =
+        RunSetup::new(MemoryRecorder::new(), OfflineBroker, TokioTimer).args(r#"{"text":"desk"}"#);
 
     // 4. Run it to its end; the Harness is spent. The first `?` is a
     //    recorder's refusal, and the second is how the run ended. A Host

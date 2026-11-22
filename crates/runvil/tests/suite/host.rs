@@ -121,11 +121,7 @@ fn stuck_harness(catalog: ModelCatalog, source: &str) -> (Harness, Arc<Started>)
         catalog,
         started: Arc::clone(&started),
     };
-    let setup = RunSetup::new(
-        Arc::new(MemoryRecorder::new()),
-        Arc::new(broker),
-        Arc::new(TokioTimer),
-    );
+    let setup = RunSetup::new(MemoryRecorder::new(), broker, TokioTimer);
     (launch(source, setup), started)
 }
 
@@ -174,12 +170,7 @@ impl InferenceBroker for Streaming {
 #[tokio::test]
 async fn tasks_receive_returns_the_message_the_host_sends_byte_for_byte() {
     let typed = "Hello, desk.\r\n\"quoted\" 🦀";
-    let setup = RunSetup::new(
-        Arc::new(MemoryRecorder::new()),
-        Arc::new(OfflineBroker),
-        Arc::new(TokioTimer),
-    )
-    .has_user(true);
+    let setup = RunSetup::new(MemoryRecorder::new(), OfflineBroker, TokioTimer).has_user(true);
     let harness = launch(RECEIVES, setup);
     assert!(
         harness.control().send(typed.to_owned()),
@@ -211,11 +202,7 @@ async fn a_run_canceled_before_it_begins_is_recorded_as_canceled_before_it_start
     let recorder = Arc::new(MemoryRecorder::new());
     let harness = launch(
         PATIENT,
-        RunSetup::new(
-            recorder.clone(),
-            Arc::new(OfflineBroker),
-            Arc::new(TokioTimer),
-        ),
+        RunSetup::new(recorder.clone(), OfflineBroker, TokioTimer),
     );
     harness.control().cancel();
     let report = harness.run().await.expect("the run is reported");
@@ -246,10 +233,7 @@ async fn a_hosts_own_broker_streams_a_section_round_under_the_round_id_the_run_r
         catalog: stub_catalog().expect("the stub catalog builds"),
         window,
     };
-    let harness = launch(
-        CHATS,
-        RunSetup::new(recorder.clone(), Arc::new(broker), Arc::new(TokioTimer)),
-    );
+    let harness = launch(CHATS, RunSetup::new(recorder.clone(), broker, TokioTimer));
     let report = harness.run().await.expect("the run is reported");
 
     let records = recorder.records(report.run_id);

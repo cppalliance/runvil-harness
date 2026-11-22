@@ -93,11 +93,7 @@ mod tests {
         let host = Host::builder(FindTextPrompt::new(PROMPT, WAITS_AN_HOUR)).build();
         let prompt = host.parse(PROMPT).expect("the prompt parses");
         let recorder = Arc::new(MemoryRecorder::new());
-        let setup = RunSetup::new(
-            recorder.clone(),
-            Arc::new(OfflineBroker),
-            Arc::new(TokioTimer),
-        );
+        let setup = RunSetup::new(recorder.clone(), OfflineBroker, TokioTimer);
         let start = Instant::now();
 
         let report = Harness::new(host, prompt, setup)

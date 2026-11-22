@@ -89,11 +89,7 @@ pub(crate) fn building(pack: (PackInfo, Make)) -> Arc<Host> {
 /// one model, and it holds an empty memory filesystem and a timer whose
 /// sleep no test here reaches.
 pub(crate) fn setup_over(recorder: &Arc<MemoryRecorder>) -> RunSetup {
-    RunSetup::new(
-        recorder.clone(),
-        Arc::new(ScriptedBroker::replying()),
-        Arc::new(Unused),
-    )
+    RunSetup::new(recorder.clone(), ScriptedBroker::replying(), Unused)
 }
 
 /// Runs `source` with `setup` on `host`, and returns the run's report.
@@ -228,11 +224,7 @@ impl RunRecorder for RefusingAppends {
 #[tokio::test]
 async fn a_refused_first_record_fails_the_run_as_a_recorder_failure_naming_the_run() {
     let refusing = Arc::new(RefusingAppends(MemoryRecorder::new()));
-    let setup = RunSetup::new(
-        refusing.clone(),
-        Arc::new(ScriptedBroker::replying()),
-        Arc::new(Unused),
-    );
+    let setup = RunSetup::new(refusing.clone(), ScriptedBroker::replying(), Unused);
     let error = launch(bare_host(), PLAIN, setup)
         .run()
         .await
@@ -373,7 +365,7 @@ async fn the_setups_limits_reach_the_run() {
     let rounds = broker.rounds();
     let mut limits = RunLimits::default();
     limits.tool_iterations_ceiling = NonZeroU32::new(2).expect("2 is non-zero");
-    let setup = RunSetup::new(recorder(), Arc::new(broker), Arc::new(Unused)).limits(limits);
+    let setup = RunSetup::new(recorder(), broker, Unused).limits(limits);
 
     let report = report_of(LOOPS_ON_ECHO, building(TOOLS), setup).await;
     assert_eq!(completed(report.result), "false|tool_loop_exhausted");

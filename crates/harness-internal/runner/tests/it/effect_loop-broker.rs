@@ -93,10 +93,7 @@ impl InferenceBroker for RecordingBroker {
 fn recording(recorder: Arc<dyn RunRecorder>) -> (RunSetup, Arc<Mutex<Vec<Seen>>>) {
     let broker = RecordingBroker::default();
     let rounds = Arc::clone(&broker.rounds);
-    (
-        RunSetup::new(recorder, Arc::new(broker), Arc::new(Unused)),
-        rounds,
-    )
+    (RunSetup::new(recorder, broker, Unused), rounds)
 }
 
 #[tokio::test]

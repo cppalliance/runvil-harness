@@ -261,11 +261,7 @@ async fn a_panicking_broker_answers_its_round_dropped() {
 #[tokio::test]
 async fn a_run_over_the_offline_broker_binds_no_model_and_fails_a_round_where_the_prompt_asks() {
     let recorder = Arc::new(MemoryRecorder::new());
-    let setup = RunSetup::new(
-        recorder.clone(),
-        Arc::new(OfflineBroker),
-        Arc::new(PendingTimer::default()),
-    );
+    let setup = RunSetup::new(recorder.clone(), OfflineBroker, PendingTimer::default());
 
     let report = harness_with(CATCHES_A_ROUND, setup)
         .run()

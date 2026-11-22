@@ -81,12 +81,8 @@ async fn a_sections_round_reaches_the_broker_as_chat_and_a_nested_infer_round_as
         catalog,
         rounds: Mutex::new(Vec::new()),
     });
-    let setup = RunSetup::new(
-        Arc::new(MemoryRecorder::new()),
-        broker.clone(),
-        Arc::new(TokioTimer),
-    )
-    .selected_model(MODEL);
+    let setup =
+        RunSetup::new(MemoryRecorder::new(), broker.clone(), TokioTimer).selected_model(MODEL);
     let report = launch(INFERS_THEN_CHATS, setup)
         .run()
         .await
