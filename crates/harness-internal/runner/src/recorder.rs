@@ -7,6 +7,13 @@
 //! storage path. [`MemoryRecorder`] keeps runs in memory for tests and
 //! simple Hosts.
 //!
+//! An effect and an answer each reach the recorder as a [`Record`],
+//! through [`RunRecorder::append`]. An event reaches it through
+//! [`RunRecorder::append_event`], as its record and as the event itself,
+//! so a Host that shows a run's progress reads the value and parses
+//! nothing. The default of that method stores the record through
+//! `append`.
+//!
 //! The Harness awaits each call before it goes on, so a step's events
 //! reach the recorder before the step's effects start. Calls within one
 //! run never overlap. Calls from different runs may, so an implementation
@@ -24,6 +31,7 @@
 
 use std::fmt;
 
+use runvil_engine::event::Event;
 use runvil_engine::{BoxFuture, Error, ErrorCode, ErrorFact};
 use runvil_engine::{RunSeed, Timestamp};
 
@@ -69,7 +77,8 @@ pub(crate) fn refused(run: RunId, error: Error) -> Error {
 /// The storage that the Harness writes each run's history to.
 ///
 /// For each run, the Harness calls [`begin_run`](Self::begin_run) once,
-/// then [`append`](Self::append) for every record, then
+/// then [`append`](Self::append) for the record of every effect and
+/// answer and [`append_event`](Self::append_event) for every event, then
 /// [`end_run`](Self::end_run) once. The recorder issues each run's
 /// [`RunId`]. If a write returns an error, the Harness stops the run it
 /// belongs to and hands the error on as a `RecorderFailed` refusal,
@@ -85,12 +94,43 @@ pub trait RunRecorder: Send + Sync {
     /// Returns the recorder's own failure, built with [`make_recorder_error`].
     fn begin_run(&self, meta: RunMeta) -> BoxFuture<'_, Result<RunId, Error>>;
 
-    /// Adds one record to an open run.
+    /// Adds one record to an open run: the record of an effect or of an
+    /// answer, and the record of an event when
+    /// [`append_event`](Self::append_event) keeps its default.
     ///
     /// # Errors
     ///
     /// Returns the recorder's own failure, built with [`make_recorder_error`].
     fn append(&self, run: RunId, record: Record) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Adds the record of one event to an open run, with the event
+    /// itself.
+    ///
+    /// The Harness calls it in place of [`append`](Self::append) for an
+    /// event. `record` is the record that `append` would take: its kind
+    /// is [`RecordKind::Event`], and its payload is `event`, serialized.
+    /// The default stores the record through `append`, so a recorder that
+    /// only stores a run leaves this method as it is.
+    ///
+    /// A recorder that shows a run's progress, or that stores a part of
+    /// an event in a place of its own, overrides it and reads `event`.
+    /// It has the record and the event in one call, so it decides in
+    /// which order it stores and shows, and an error from it stops the
+    /// run as an error from `append` does. A recorder that wraps another
+    /// recorder passes the call on to the `append_event` of that
+    /// recorder, so that recorder is handed the event too.
+    ///
+    /// # Errors
+    ///
+    /// Returns the recorder's own failure, built with [`make_recorder_error`].
+    fn append_event<'a>(
+        &'a self,
+        run: RunId,
+        record: Record,
+        _event: &'a Event,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        self.append(run, record)
+    }
 
     /// Closes a run with its result: the run's final text, or the error
     /// that ended it, where a cancel is the error whose code is

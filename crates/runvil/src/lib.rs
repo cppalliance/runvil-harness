@@ -89,7 +89,8 @@ pub mod harness {
     //! the function that inserts the library Plugins of a directory into
     //! a Pack registry apart from a `Host`,
     //! and the recorder that receives every effect, answer, and event of
-    //! a run and the result each run ends with, beside an in-memory
+    //! a run, an event as its record and as the event itself, and the
+    //! result each run ends with, beside an in-memory
     //! recorder, and three stock prompt finders: one prompt from text,
     //! one from a file, and a set a Host fills from text, files, and
     //! directories.
@@ -155,7 +156,8 @@ pub mod effect {
 }
 
 pub mod event {
-    //! The events a run reports for its recorder to log.
+    //! The events a run reports. The run's recorder is handed each one
+    //! with its record, to log it and to show the run's progress.
 
     pub use runvil_engine::event::Event;
     pub use runvil_engine::event::ReplyOrigin;

@@ -415,6 +415,7 @@ pub fn runvil::harness::PromptSet::new() -> runvil::harness::PromptSet
 pub fn runvil::harness::PromptSet::rescan(&self) -> alloc::vec::Vec<runvil::Error>
 pub fn runvil::harness::RecordKind::parse(text: &str) -> core::option::Option<Self>
 pub fn runvil::harness::RunRecorder::append(&self, run: runvil::harness::RunId, record: runvil::harness::Record) -> runvil::BoxFuture<'_, core::result::Result<(), runvil::Error>>
+pub fn runvil::harness::RunRecorder::append_event<'a>(&'a self, run: runvil::harness::RunId, record: runvil::harness::Record, _event: &'a runvil::event::Event) -> runvil::BoxFuture<'a, core::result::Result<(), runvil::Error>> { .. }
 pub fn runvil::harness::RunRecorder::begin_run(&self, meta: runvil::harness::RunMeta) -> runvil::BoxFuture<'_, core::result::Result<runvil::harness::RunId, runvil::Error>>
 pub fn runvil::harness::RunRecorder::end_run(&self, run: runvil::harness::RunId, result: core::result::Result<alloc::string::String, runvil::Error>) -> runvil::BoxFuture<'_, core::result::Result<(), runvil::Error>>
 pub fn runvil::harness::Timer::now(&self) -> runvil::Timestamp { .. }

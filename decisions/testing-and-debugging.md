@@ -100,7 +100,7 @@ The loader's end-to-end tests load `harness-test-plugin`, a dynamic library with
 
 ### The Harness writes every effect, answer, and event of a run to the Host's recorder
 
-The Harness calls `RunRecorder::append` for each effect, answer, and event, in the order of its effect loop (see [The Harness and the Host API](harness-and-host.md)). Workshop's recorder writes them to a database in its state directory, and a developer who debugs a run reads that database. Workshop runs prompts, and each facade has an example program.
+The Harness calls `RunRecorder::append` for each effect and answer and `RunRecorder::append_event` for each event, in the order of its effect loop (see [The Harness and the Host API](harness-and-host.md)). Workshop's recorder writes them to a database in its state directory, and a developer who debugs a run reads that database. Workshop runs prompts, and each facade has an example program.
 
 Stored JSON reads back as the identical value, so that a replay can compare the results of a second run against the stored ones. The replay is still to be built.
 

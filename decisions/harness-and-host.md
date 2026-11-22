@@ -246,9 +246,11 @@ A Host that uses the Gateway offers it to the Plugins it loads through the C con
 
 ### The Host supplies the `RunRecorder` and receives a run's events through it
 
-`RunRecorder` is a trait with the methods `begin_run(meta)`, `append(run, record)`, and `end_run(run, result)`. `begin_run` returns a `RunId`, `append` adds one record, and `end_run` closes the run. The Host chooses the storage: `MemoryRecorder` stores runs in memory, and Workshop's recorder writes a Turso database. Calls for different runs may overlap, so each recorder locks its own state.
+`RunRecorder` is a trait with the methods `begin_run(meta)`, `append(run, record)`, `append_event(run, record, event)`, and `end_run(run, result)`. `begin_run` returns a `RunId`, `append` adds the record of one effect or one answer, `append_event` adds the record of one event, and `end_run` closes the run. The Host chooses the storage: `MemoryRecorder` stores runs in memory, and Workshop's recorder writes a Turso database. Calls for different runs may overlap, so each recorder locks its own state.
 
-A Host sees a run's events through its recorder: `append` is the only call in which the Harness passes an event to the Host.
+A Host sees a run's events through its recorder: `append_event` is the one call in which the Harness passes an event to the Host. The call hands over the event's record and the event itself. Its default stores the record through `append`, so a recorder that only stores a run implements `append` and leaves `append_event` as it is. A recorder that wraps another recorder passes the call on to the `append_event` of that recorder.
+
+The record is JSON because a store keeps it as text. The event itself is for a Host that shows a run's progress, or that stores a part of an event in a place of its own: such a Host reads the value, where it would otherwise parse the JSON of the record back. Both arrive in one call, so the recorder decides in which order it stores and shows an event, and it refuses an event as it refuses any write.
 
 ### The Harness writes every event, effect, and answer in loop order
 
