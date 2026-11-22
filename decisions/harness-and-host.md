@@ -110,7 +110,7 @@ A run has one way in, its arguments, and one way out, its result. The owner's ru
 
 ### `Harness::run` returns a `RunReport` for every run, and its one error is `RecorderFailed`
 
-`RunReport` has the fields `run_id`, `result`, and `unread`. `result` is the final text or the `Error` that ended the run, and a cancel is the error whose code is `canceled`. The record begins before the model lookup, so a failed lookup and an early cancel each produce a report. `Harness::run` returns `Err` in one case, a recorder that refused a write, with the code `RecorderFailed`.
+`RunReport` has the fields `run_id`, `result`, and `unread`. `result` is the final text or the `Error` that ended the run, and a cancel is the error whose code is `canceled`. The record begins before the model lookup, so a failed lookup and an early cancel each produce a report. `Harness::run` returns `Err` in one case, a recorder that refused a write, with the code `RecorderFailed`. A report that a Host drops unread is a compiler warning, because a run that failed is an `Err` inside the report and an `Ok` from `Harness::run`.
 
 The Harness delivers a failed prompt as a result that says why the prompt failed, the same way it delivers a text that the prompt produced through inference.
 

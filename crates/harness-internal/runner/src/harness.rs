@@ -66,7 +66,13 @@ impl fmt::Debug for Harness {
 /// How one run ended.
 ///
 /// The recorder holds the same result under the same run id.
+///
+/// A run that failed is an `Err` in `result`, inside the `Ok` that
+/// [`Harness::run`] returns. So the compiler warns about a report that
+/// is dropped unread: `run().await?` alone reads the recorder's refusal
+/// and nothing of how the run ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "the report says how the run ended: a failed run is an `Err` in `result`"]
 pub struct RunReport {
     /// The id the recorder issued for the run.
     pub run_id: RunId,

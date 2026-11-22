@@ -190,10 +190,15 @@ async fn a_recorder_failure_returns_the_recorder_error_holding_the_issued_run_id
     // Every later call names the run the recorder issued: the loop's
     // records and the run's end.
     let baseline = Arc::new(FailingRecorder::never_failing());
-    harness_over(&baseline, ScriptedBroker::replying(), STORES)
+    let report = harness_over(&baseline, ScriptedBroker::replying(), STORES)
         .run()
         .await
         .expect("the baseline run is reported");
+    assert_eq!(
+        report.result,
+        Ok("1".to_owned()),
+        "the baseline run completes, so its call count is that of a whole run"
+    );
     let total = baseline.calls();
     assert!(
         total >= 6,
