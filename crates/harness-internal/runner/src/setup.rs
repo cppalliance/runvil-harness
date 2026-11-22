@@ -1,4 +1,5 @@
-//! What one run gets on top of its Host: [`RunSetup`].
+//! What one run gets on top of its Host: [`RunSetup`], and the forms in
+//! which a setup takes a service, [`IntoShared`].
 
 use std::fmt;
 use std::num::NonZeroUsize;
@@ -9,6 +10,89 @@ use runvil_engine::vfs::VfsRef;
 
 use crate::performers::{InferenceBroker, Timer};
 use crate::recorder::RunRecorder;
+
+/// A value that becomes a service that a run shares: the service itself,
+/// an `Arc` of it, or an `Arc<dyn ..>` of its trait.
+///
+/// `D` is the trait of the service as a trait object: `dyn RunRecorder`,
+/// `dyn InferenceBroker`, or `dyn Timer`. [`RunSetup::new`] takes each
+/// service through this trait, so a Host passes a service in the form in
+/// which it holds it:
+///
+/// - The service itself, such as `MemoryRecorder::new()`. It goes into a
+///   new `Arc`.
+/// - An `Arc` of the service, such as a clone of the handle that a Host
+///   keeps to read its recorder after the run. That `Arc` is kept as it
+///   is, so the Host and the run hold the same object.
+/// - An `Arc<dyn ..>`, such as the broker that a function of the Host
+///   picks at run time. That `Arc` is kept as it is.
+///
+/// A function of a Host takes a service in the same forms through a
+/// parameter such as `impl IntoShared<dyn RunRecorder>`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be handed over as a shared `{D}`",
+    label = "this is not a service of that kind",
+    note = "pass a value that implements the trait of the service, an `Arc` of one, or an `Arc<dyn ..>` of that trait"
+)]
+pub trait IntoShared<D: ?Sized> {
+    /// Returns the service inside the `Arc` through which a run shares
+    /// it.
+    fn into_shared(self) -> Arc<D>;
+}
+
+impl<T: RunRecorder + 'static> IntoShared<dyn RunRecorder> for T {
+    fn into_shared(self) -> Arc<dyn RunRecorder> {
+        Arc::new(self)
+    }
+}
+
+impl<T: RunRecorder + 'static> IntoShared<dyn RunRecorder> for Arc<T> {
+    fn into_shared(self) -> Arc<dyn RunRecorder> {
+        self
+    }
+}
+
+impl IntoShared<dyn RunRecorder> for Arc<dyn RunRecorder> {
+    fn into_shared(self) -> Arc<dyn RunRecorder> {
+        self
+    }
+}
+
+impl<T: InferenceBroker + 'static> IntoShared<dyn InferenceBroker> for T {
+    fn into_shared(self) -> Arc<dyn InferenceBroker> {
+        Arc::new(self)
+    }
+}
+
+impl<T: InferenceBroker + 'static> IntoShared<dyn InferenceBroker> for Arc<T> {
+    fn into_shared(self) -> Arc<dyn InferenceBroker> {
+        self
+    }
+}
+
+impl IntoShared<dyn InferenceBroker> for Arc<dyn InferenceBroker> {
+    fn into_shared(self) -> Arc<dyn InferenceBroker> {
+        self
+    }
+}
+
+impl<T: Timer + 'static> IntoShared<dyn Timer> for T {
+    fn into_shared(self) -> Arc<dyn Timer> {
+        Arc::new(self)
+    }
+}
+
+impl<T: Timer + 'static> IntoShared<dyn Timer> for Arc<T> {
+    fn into_shared(self) -> Arc<dyn Timer> {
+        self
+    }
+}
+
+impl IntoShared<dyn Timer> for Arc<dyn Timer> {
+    fn into_shared(self) -> Arc<dyn Timer> {
+        self
+    }
+}
 
 /// The tool calls a run has in flight at once unless its setup says
 /// otherwise.
@@ -52,16 +136,22 @@ impl RunSetup {
     /// the empty object `{}` as its args, `RunLimits::default()`, at most
     /// 10 tool calls in flight, and no user. Each of those fields has a
     /// method of its name that sets it and returns the setup.
+    ///
+    /// Each service is taken in the form in which the Host holds it, as
+    /// [`IntoShared`] lists them: the service itself, which goes into a
+    /// new `Arc`, or an `Arc` of it, which is kept as it is. So a Host
+    /// that reads its recorder after the run keeps a handle and passes a
+    /// clone of it, and the Host and the run hold the same recorder.
     #[must_use]
     pub fn new(
-        recorder: Arc<dyn RunRecorder>,
-        broker: Arc<dyn InferenceBroker>,
-        timer: Arc<dyn Timer>,
+        recorder: impl IntoShared<dyn RunRecorder>,
+        broker: impl IntoShared<dyn InferenceBroker>,
+        timer: impl IntoShared<dyn Timer>,
     ) -> RunSetup {
         RunSetup {
-            recorder,
-            broker,
-            timer,
+            recorder: recorder.into_shared(),
+            broker: broker.into_shared(),
+            timer: timer.into_shared(),
             vfs: VfsRef::default(),
             selected_model: None,
             args: "{}".to_owned(),
@@ -126,5 +216,88 @@ impl fmt::Debug for RunSetup {
             .field("max_tool_calls_in_flight", &self.max_tool_calls_in_flight)
             .field("has_user", &self.has_user)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the forms in which a setup takes a service: the service
+    //! itself, an `Arc` of it, and an `Arc<dyn ..>` each give the setup
+    //! the service that was handed over, and an `Arc` that is handed
+    //! over stays the one `Arc` around its service.
+
+    use std::time::Duration;
+
+    use runvil_engine::{BoxFuture, Timestamp};
+
+    use super::*;
+    use crate::performers::OfflineBroker;
+    use crate::recorder::MemoryRecorder;
+
+    /// The instant every clock here reads, far from the time of any test
+    /// run.
+    const INSTANT: Timestamp = Timestamp::from_unix_millis(1_700_000_000_000);
+
+    /// A clock pinned at one instant. No test here reaches its sleep.
+    struct Pinned(Timestamp);
+
+    impl Timer for Pinned {
+        fn sleep(&self, _duration: Duration) -> BoxFuture<'static, ()> {
+            unreachable!("no test here issues a Timer effect")
+        }
+
+        fn now(&self) -> Timestamp {
+            self.0
+        }
+    }
+
+    #[test]
+    fn a_setup_takes_a_service_as_itself_inside_an_arc_and_as_an_erased_arc() {
+        let itself = RunSetup::new(MemoryRecorder::new(), OfflineBroker, Pinned(INSTANT));
+        let inside_an_arc = RunSetup::new(
+            Arc::new(MemoryRecorder::new()),
+            Arc::new(OfflineBroker),
+            Arc::new(Pinned(INSTANT)),
+        );
+        let recorder: Arc<dyn RunRecorder> = Arc::new(MemoryRecorder::new());
+        let broker: Arc<dyn InferenceBroker> = Arc::new(OfflineBroker);
+        let timer: Arc<dyn Timer> = Arc::new(Pinned(INSTANT));
+        let erased = RunSetup::new(recorder, broker, timer);
+
+        // The trait's default `now` reads the system clock, so a setup
+        // that reads the pinned instant holds the clock it was handed.
+        for (form, setup) in [
+            ("itself", itself),
+            ("inside an `Arc`", inside_an_arc),
+            ("as an `Arc<dyn Timer>`", erased),
+        ] {
+            assert_eq!(
+                setup.timer.now(),
+                INSTANT,
+                "a clock handed over {form} reads its own time"
+            );
+        }
+    }
+
+    #[test]
+    fn a_handle_handed_to_a_setup_stays_the_one_arc() {
+        let recorder = Arc::new(MemoryRecorder::new());
+        let setup = RunSetup::new(recorder.clone(), OfflineBroker, Pinned(INSTANT));
+        assert_eq!(
+            Arc::strong_count(&recorder),
+            2,
+            "the setup holds one share of the handle's `Arc`"
+        );
+        assert!(
+            std::ptr::addr_eq(Arc::as_ptr(&setup.recorder), Arc::as_ptr(&recorder)),
+            "the setup's `Arc` points at the recorder itself, with no second `Arc` around it"
+        );
+
+        let erased: Arc<dyn RunRecorder> = recorder;
+        let setup = RunSetup::new(erased.clone(), OfflineBroker, Pinned(INSTANT));
+        assert!(
+            Arc::ptr_eq(&setup.recorder, &erased),
+            "an `Arc<dyn RunRecorder>` is kept as it is too"
+        );
     }
 }

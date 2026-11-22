@@ -93,6 +93,10 @@ pub mod harness {
     //! recorder, and three stock prompt finders: one prompt from text,
     //! one from a file, and a set a Host fills from text, files, and
     //! directories.
+    //! A run's setup takes its recorder, its broker, and its timer each
+    //! in the form in which the Host holds it, the service itself, an
+    //! `Arc` of it, or an `Arc<dyn ..>` of its trait, and [`IntoShared`]
+    //! names those forms.
     //! A Host hands its builder its [`HostResources`], the JSON values
     //! it offers its Plugins of the C contract under `vendor/name` names,
     //! and every tool call of such a Plugin is lent them as they are when
@@ -105,6 +109,7 @@ pub mod harness {
     pub use harness_plugin_loader::insert_plugin_dir;
     pub use harness_runner::FindFilePrompt;
     pub use harness_runner::FindTextPrompt;
+    pub use harness_runner::IntoShared;
     pub use harness_runner::PromptSet;
     pub use harness_runner::display_chain;
     pub use harness_runner::performers::InferenceBroker;

@@ -82,6 +82,8 @@ Every find happens in `Host::parse` because a stock finder reads a file with a b
 
 `RunSetup::new(recorder, broker, timer)` sets the required fields. Every other field starts at a default: an empty in-memory file system in `vfs`, no selection in `selected_model`, the empty object `{}` in `args`, the default `RunLimits` in `limits`, 10 in `max_tool_calls_in_flight`, and `false` in `has_user`. The default limits include 24 loop rounds and 8 concurrent tasks.
 
+`RunSetup::new` takes each service in the form in which the Host holds it: the service itself, an `Arc` of it, or an `Arc<dyn ..>` of its trait. A run shares each service, so the setup holds each one inside an `Arc`. `RunSetup::new` puts a service that arrives by itself into a new `Arc`, and it keeps an `Arc` that the Host hands over as it is. A Host that reads its recorder after the run therefore keeps a handle and hands over a clone of it, and the Host and the run hold the same recorder. The trait `IntoShared` names the forms, so a function of the Host takes a service in the same way.
+
 The default of `args` is `{}`, which is what a caller sends when it leaves every argument out. A Host that leaves the field alone therefore starts a valid run of every prompt whose arguments are all optional.
 
 The broker is a required argument because the Harness asks the broker of every run for its models before it prepares the run. A Host that leaves it out fails to compile. A Host that runs prompts without a model passes `OfflineBroker` (see Inference, the clock, and what a Host hands its Plugins), so the code that builds the setup says so. A broker that a Host could leave out would be missed only when a prompt first asks for a model. The timer is a required argument for a reason of the same kind (see Inference, the clock, and what a Host hands its Plugins).
@@ -200,7 +202,7 @@ The timer is a required argument of `RunSetup::new`, so a Host that leaves it ou
 
 ### `TokioTimer` is the stock timer of a Host that runs on tokio
 
-`harness-gateway-client` has a stock timer, `TokioTimer`. Its `sleep` returns one `tokio::time::sleep`, so the future needs a tokio runtime with its timer, and its `now` is the trait's default. A Host on tokio passes `Arc::new(TokioTimer)` to `RunSetup::new`, so the code that builds the setup still names the timer.
+`harness-gateway-client` has a stock timer, `TokioTimer`. Its `sleep` returns one `tokio::time::sleep`, so the future needs a tokio runtime with its timer, and its `now` is the trait's default. A Host on tokio passes `TokioTimer` to `RunSetup::new`, so the code that builds the setup still names the timer.
 
 The timer is in `harness-gateway-client` because `runvil` excludes tokio, and the Gateway client is the public Harness crate that depends on tokio. Each Host on tokio would otherwise write that timer itself. A Host on another runtime implements `Timer` over that runtime's sleep.
 

@@ -118,4 +118,4 @@ pub use prompt_finders::{FindFilePrompt, FindTextPrompt, PromptSet};
 pub use recorder::{
     MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder, make_recorder_error,
 };
-pub use setup::RunSetup;
+pub use setup::{IntoShared, RunSetup};

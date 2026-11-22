@@ -284,6 +284,9 @@ impl runvil::PromptFinder for runvil::harness::FindFilePrompt
 impl runvil::PromptFinder for runvil::harness::FindTextPrompt
 impl runvil::PromptFinder for runvil::harness::PromptSet
 impl runvil::harness::InferenceBroker for runvil::harness::OfflineBroker
+impl runvil::harness::IntoShared<dyn runvil::harness::InferenceBroker> for alloc::sync::Arc<dyn runvil::harness::InferenceBroker>
+impl runvil::harness::IntoShared<dyn runvil::harness::RunRecorder> for alloc::sync::Arc<dyn runvil::harness::RunRecorder>
+impl runvil::harness::IntoShared<dyn runvil::harness::Timer> for alloc::sync::Arc<dyn runvil::harness::Timer>
 impl runvil::harness::RunRecorder for runvil::harness::MemoryRecorder
 impl runvil::vfs::Policy for runvil::vfs::AllowAll
 impl runvil::vfs::Policy for runvil::vfs::ModePolicy
@@ -297,6 +300,14 @@ impl<'a> runvil::plugin::ToolContext<'a>
 impl<'a> runvil::vfs::OpEvent<'a>
 impl<Func> runvil::PromptFinder for Func where Func: core::ops::function::Fn(&str) -> core::result::Result<alloc::string::String, runvil::Error> + core::marker::Send + core::marker::Sync
 impl<Func> runvil::plugin::PackFactory for Func where Func: core::ops::function::Fn(&runvil::packs::PackId) -> core::result::Result<alloc::sync::Arc<dyn runvil::plugin::Pack>, runvil::Error> + core::marker::Send + core::marker::Sync
+impl<T: runvil::harness::InferenceBroker + 'static> runvil::harness::IntoShared<dyn runvil::harness::InferenceBroker> for T
+impl<T: runvil::harness::InferenceBroker + 'static> runvil::harness::IntoShared<dyn runvil::harness::InferenceBroker> for alloc::sync::Arc<T>
+impl<T: runvil::harness::RunRecorder + 'static> runvil::harness::IntoShared<dyn runvil::harness::RunRecorder> for T
+impl<T: runvil::harness::RunRecorder + 'static> runvil::harness::IntoShared<dyn runvil::harness::RunRecorder> for alloc::sync::Arc<T>
+impl<T: runvil::harness::Timer + 'static> runvil::harness::IntoShared<dyn runvil::harness::Timer> for T
+impl<T: runvil::harness::Timer + 'static> runvil::harness::IntoShared<dyn runvil::harness::Timer> for alloc::sync::Arc<T>
+impl<T> runvil::harness::IntoShared<dyn runvil::harness::InferenceBroker> for runvil::harness::OfflineBroker where T: runvil::harness::InferenceBroker + 'static
+impl<T> runvil::harness::IntoShared<dyn runvil::harness::RunRecorder> for runvil::harness::MemoryRecorder where T: runvil::harness::RunRecorder + 'static
 pub async fn runvil::Harness::run(self) -> core::result::Result<runvil::RunReport, runvil::Error>
 pub const fn runvil::ErrorCode::number(self) -> u16
 pub const fn runvil::ErrorCode::prose(self) -> &'static str
@@ -354,7 +365,7 @@ pub fn runvil::RunSetup::args(self, args: impl core::convert::Into<alloc::string
 pub fn runvil::RunSetup::has_user(self, has_user: bool) -> runvil::RunSetup
 pub fn runvil::RunSetup::limits(self, limits: runvil::RunLimits) -> runvil::RunSetup
 pub fn runvil::RunSetup::max_tool_calls_in_flight(self, max: core::num::nonzero::NonZeroUsize) -> runvil::RunSetup
-pub fn runvil::RunSetup::new(recorder: alloc::sync::Arc<dyn runvil::harness::RunRecorder>, broker: alloc::sync::Arc<dyn runvil::harness::InferenceBroker>, timer: alloc::sync::Arc<dyn runvil::harness::Timer>) -> runvil::RunSetup
+pub fn runvil::RunSetup::new(recorder: impl runvil::harness::IntoShared<dyn runvil::harness::RunRecorder>, broker: impl runvil::harness::IntoShared<dyn runvil::harness::InferenceBroker>, timer: impl runvil::harness::IntoShared<dyn runvil::harness::Timer>) -> runvil::RunSetup
 pub fn runvil::RunSetup::selected_model(self, model: impl core::convert::Into<alloc::string::String>) -> runvil::RunSetup
 pub fn runvil::RunSetup::vfs(self, vfs: runvil::vfs::VfsRef) -> runvil::RunSetup
 pub fn runvil::SourceLoc::line(file: impl core::convert::Into<alloc::string::String>, line: core::num::nonzero::NonZeroU32) -> runvil::SourceLoc
@@ -386,6 +397,7 @@ pub fn runvil::harness::HostResources::new() -> runvil::harness::HostResources
 pub fn runvil::harness::HostResources::provide(&mut self, name: &str, read: impl core::ops::function::Fn() -> core::option::Option<serde_json::value::Value> + core::marker::Send + core::marker::Sync + 'static) -> core::result::Result<(), runvil::Error>
 pub fn runvil::harness::InferenceBroker::chat(&self, binding: runvil::model::ModelBinding, messages: alloc::vec::Vec<runvil::model::Message>, tools: alloc::vec::Vec<runvil::model::ToolSchema>, options: runvil::model::CompletionOptions, round: runvil::effect::Round) -> runvil::BoxFuture<'static, core::result::Result<alloc::boxed::Box<runvil::model::Completion>, runvil::Error>>
 pub fn runvil::harness::InferenceBroker::models(&self) -> runvil::BoxFuture<'static, core::result::Result<runvil::model::ModelCatalog, runvil::Error>>
+pub fn runvil::harness::IntoShared::into_shared(self) -> alloc::sync::Arc<D>
 pub fn runvil::harness::MemoryRecorder::meta(&self, run: runvil::harness::RunId) -> core::option::Option<runvil::harness::RunMeta>
 pub fn runvil::harness::MemoryRecorder::new() -> Self
 pub fn runvil::harness::MemoryRecorder::records(&self, run: runvil::harness::RunId) -> alloc::vec::Vec<runvil::harness::Record>
@@ -1259,6 +1271,7 @@ pub struct runvil::vfs::VfsRef { /* private fields */ }
 pub struct runvil::vfs::VfsRefBuilder { /* private fields */ }
 pub trait runvil::PromptFinder: core::marker::Send + core::marker::Sync
 pub trait runvil::harness::InferenceBroker: core::marker::Send + core::marker::Sync
+pub trait runvil::harness::IntoShared<D: ?core::marker::Sized>
 pub trait runvil::harness::RunRecorder: core::marker::Send + core::marker::Sync
 pub trait runvil::harness::Timer: core::marker::Send + core::marker::Sync
 pub trait runvil::plugin::Pack: core::marker::Send + core::marker::Sync
