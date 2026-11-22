@@ -4,25 +4,25 @@ overview: "Three changes to the run side of the Harness API, as four code commit
 todos:
   - id: prep
     content: "Harness commit 0, the first step: check that both trees are clean and that both upstream heads are `665ff7d8` and `73e4fccd` (fast-forward and rerun the base counts if one moved); give commit.mdc and check-message.ps1 the plan line; copy the approved plan alone to runvil-harness/plan/<date>-<n>-run-services-and-event-values.plan.md; commit it with the plan line `Plan: /plan/<file>`"
-    status: pending
+    status: completed
   - id: into-shared
     content: "Harness commit 1: the trait `IntoShared<D>` and its nine impls in setup.rs; `RunSetup::new` takes `impl IntoShared<dyn ..>` three times; every call site stays as it is, which tests that today's spelling still compiles; two new unit tests in setup.rs; two page entries; the wrong line of the Gateway client's crate doc; bless the listing (one changed line, plus the new lines of the trait and its impls); verify.ps1 -Tag h1 (4,001 tests); commit with the plan line"
-    status: pending
+    status: completed
   - id: tidy-calls
     content: "Harness commit 2: at each of the 23 calls of `RunSetup::new`, an argument written as `Arc::new(x)` becomes `x` (52 places), the example among them; imports that are left unused go; verify.ps1 -Tag h2 (4,001 tests, listing unchanged); commit with the plan line"
-    status: pending
+    status: completed
   - id: must-use
     content: "Harness commit 3: `#[must_use]` with a message on `RunReport`; build once and confirm that clippy refuses harness-errors.rs lines 193 to 196 with `unused_must_use`; bind that report and assert `Ok(\"1\")`; one sentence in the page entry; verify.ps1 -Tag h3 (4,001 tests, listing unchanged); commit with the plan line"
-    status: pending
+    status: completed
   - id: events
     content: "Harness commit 4: `RunRecorder::append_event` with a default body that calls `append`; `commit_event` calls it in place of `append`; two new tests in effect_loop-recorder.rs; the page entry and the docs of the trait and of the facade modules `harness` and `event`; bless the listing (one new line); verify.ps1 -Tag h4 (4,003 tests); commit with the plan line"
-    status: pending
+    status: completed
   - id: workshop-dry-run
     content: "Workshop dry run under a temporary [patch] on the local Harness: first Workshop's code as it is, then with the edits of Workshop commits 2 and 3; each time clippy with warnings denied and nextest for workshop-agents and workshop-server; save the edits as two patch files with git diff --output; git restore the tree"
-    status: pending
+    status: completed
   - id: record
     content: "Harness commit 5: add 'What the build found', with each commit under its id, and the todo statuses to the repo copy of the plan, and commit it alone with the plan line"
-    status: pending
+    status: completed
   - id: harness-pr
     content: "Run cargo doc for runvil with warnings denied and cargo deny check; git push origin master in the Harness; open the pull request from vinniefalco:master with the sections of #61"
     status: pending
@@ -480,3 +480,82 @@ Your approval of this plan is the go-ahead for both merges. When step 4 is done,
 - **`ChatRequest`,** one argument for `InferenceBroker::chat`. It comes with the first new field of a round.
 - **Starting a run by the name of a prompt.** A parse at every launch hides its cost, and Workshop parses on a blocking thread.
 - **`TursoRecorder::new` in Workshop.** It is wrapped in `Arc::new` at all 8 places that call it. It is handed to `for_agent`, and what reaches `RunSetup::new` is the `AgentRecorder` that `for_agent` returns, so this plan leaves it.
+
+# What the build found
+
+The plan held in both repos. This record was written after the four Harness code commits and the Workshop dry run, and before anything was pushed. These points differ from the plan above, or add to it.
+
+## Before the first commit
+
+- **Both repos were where this plan said.** Local `master`, the fork, and upstream were `665ff7d8` in the Harness and `73e4fccd` in Workshop, both trees were clean, and the open pull requests were the same seven.
+- **The commit rule and the message check gained the plan line first.** `check-message.ps1 -Plan <path>` failed a message with another path when it was tried. It also asks for a blank line before the plan line.
+- **The message check now runs every check and then fails,** where it stopped at the first failure.
+
+## Harness commit 0, `742e1349`: the plan
+
+- **The copy is the approved text, with every todo `pending`.** The Cursor plan file showed the first todo as `in_progress` when the copy was taken. So the copy was made from the text that the owner attached, which differs from that file in the one line.
+- **`git` reads the plan line as a trailer.** `git log --format="%(trailers:key=Plan,valueonly)"` prints the path for each commit of this work.
+
+## Harness commit 1, `9700b0cb`: `RunSetup::new` takes each service in any of three forms
+
+- **The first build on the real crates was clean.** The nine impls stand side by side, and each of the 23 existing calls of `RunSetup::new` compiled unchanged. The count is 4,001.
+- **The listing gained two lines that this plan did not name.** Beside the changed line of `RunSetup::new`, the trait, its method, and the nine impls, it holds one line each for `MemoryRecorder` and `OfflineBroker`, of the form `impl<T> IntoShared<dyn RunRecorder> for MemoryRecorder where T: RunRecorder + 'static`. Rustdoc lists a blanket impl again on the page of each type that it covers, and the listing keeps such a line when the trait is one of the facade's own. These are the first blanket impls of a facade trait that cover named types of the facade. `TokioTimer` is outside the facade, so the listing holds no such line for it.
+- **The tests use the stock recorder and broker, and one clock of their own.** This plan said three small services of their own. `MemoryRecorder` and `OfflineBroker` are less code, and they are what a Host passes.
+- **The holder count alone cannot show that a handle stays the one `Arc`.** `Arc::strong_count` is 2 whether the setup keeps the handle or puts it into a second `Arc`, because the clone is counted either way. The assertion that fails for a second `Arc` compares the address that the setup holds with the address of the handle. The test keeps both assertions, and each message says what it shows.
+- **The second test also hands over an `Arc<dyn RunRecorder>`,** and checks with `Arc::ptr_eq` that the setup holds that same `Arc`.
+- **The compiler's words for a wrong argument** come from a call with a timer in the broker's place, built by hand and taken out again. The compiler adds a help line of its own, which names the trait that the type lacks.
+
+  ```text
+  error[E0277]: `setup::tests::Pinned` cannot be handed over as a shared `(dyn performers::InferenceBroker + 'static)`
+    = note: pass a value that implements the trait of the service, an `Arc` of one, or an `Arc<dyn ..>` of that trait
+  ```
+
+- **Docs outside this plan's list:** the module doc of `setup.rs`.
+- **Seen and left:** the type doc of `GatewayBroker` says that a Host passes the broker to the Harness. It names no function, so it is true as it stands.
+
+## Harness commit 2, `c5baae01`: the calls of `RunSetup::new` drop their wrappers
+
+- **52 wrappers went, in the 23 calls, as counted,** and 16 files changed. The count stays 4,001, the listings match with no bless, and the example printed `Hello, desk.`.
+- **Two files lost their import of `Arc`:** the example and `launch.rs` of the facade suite.
+- **The example's setup is one statement.** `cargo fmt` breaks it after `let setup =`.
+
+## Harness commit 3, `bb715154`: a `RunReport` that is dropped unread is a warning
+
+- **The attribute fired at the one statement that this plan named, and at no other place of the workspace.** Built with the test as it was, clippy with warnings denied refused lines 193 to 196 of `harness-errors.rs`:
+
+  ```text
+  warning: unused `harness_runner::RunReport` that must be used
+    = note: the report says how the run ended: a failed run is an `Err` in `result`
+  help: use `let _ = ...` to ignore the resulting value
+  ```
+
+- **The doc of `RunReport` gained a paragraph** that says why the compiler warns. This plan named the attribute and the page.
+- **The count stays 4,001,** and the listings match with no bless.
+
+## Harness commit 4, `8dce444c`: the recorder is handed each event with its record
+
+- **The listing diff is the one line of `append_event`,** and the count is 4,003.
+- **The listing shows the parameter as `_event`.** The default body leaves it unused, and the listing prints the name that the code has. `ToolPerformer::render` names its unused parameters the same way.
+- **The run of the two new tests hands `append` four records:** effect, answer, effect, answer. Each event went to `append_event`.
+- **The refusal of the second test has the code `Io`.** So the test also shows that the loop turns another code into `RecorderFailed` on this path, as an existing test shows for `append`.
+- **Clippy's `large_enum_variant` refused the call log of the tests,** because an `Event` is at least 432 bytes. The log holds the event in a `Box`.
+- **One more page sentence changed.** `testing-and-debugging.md` said that the Harness calls `RunRecorder::append` for each event. It names `append_event` now. The module doc of `effect_loop.rs` gained one sentence.
+- **Every other recorder is as it was.** `MemoryRecorder` and the seven recorders of the tests take each event through the default, and the recorder that counts its calls counts the same calls as before.
+
+## The Workshop dry run
+
+- **Workshop built against the local Harness checkout at `8dce444c`** through a temporary `[patch]` section. Cargo locked 14 packages to that checkout, so the patch was in use.
+- **Workshop as written runs on the new Harness.** With its code as it is, clippy with warnings denied passed for `workshop-agents` and `workshop-server`, and their tests passed: 278 run, with 2 skipped. That is the early form of the test of Workshop commit 1.
+- **Each set of edits passed by itself, and both passed together,** with the same 278 tests, the five tests of the tee among them.
+- **The edits are two patch files,** one of five files for the services and one of two files for the tee. Each passes `git apply --check` on the clean tree, and `git restore .` left Workshop clean at `73e4fccd`.
+- **The edits are as this plan wrote them.** `Conversation::recorder` takes `impl IntoShared<dyn RunRecorder>`, `setup_for` is free of `Arc::new`, seven wrapped arguments of three test files are plain, and the tee overrides `append_event`. `bindings-tests.rs` lost its import of `Arc`, and `tee.rs` its import of `RecordKind`.
+- **Two docs go beyond this plan.** The doc of `Conversation::recorder` names the three forms, and the doc of the test recorder `Watching` says that it leaves `append_event` at its default.
+
+## Still to come when this record was written
+
+- The push of the Harness to the fork, and its pull request.
+- The three Workshop commits on the real pin, each with Workshop's whole verification list, and Workshop's pull request.
+- The two merges, the Harness first, once GitHub Actions is green on both pull requests.
+- The correction of the API report.
+
+Each of those is reported in its pull request and in the chat, because a record of them would be one more commit after the merge.
