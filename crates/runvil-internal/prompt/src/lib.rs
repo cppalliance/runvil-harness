@@ -27,6 +27,10 @@
 //! it, and [`detail::accept_args_value`] the arguments a chain passes when
 //! it executes the prompt.
 //!
+//! The frontmatter's `title` and `annotations` keys describe the prompt
+//! for publishing it as a tool: a display name beside its `name`, and the
+//! four behavior hints ([`Annotations`]). The Engine reads neither.
+//!
 //! The frontmatter's `prompts` key lists the prompts the prompt's Lua may
 //! run with `execute`, by the names a [`PromptFinder`] finds them under.
 //! [`Prompt::parse`] finds and parses every prompt those lists reach, so a
@@ -56,7 +60,7 @@ mod sections;
 pub mod test_support;
 
 pub use body_text::BodyText;
-pub use contract::{ArgsSchema, RoleRequirements};
+pub use contract::{Annotations, ArgsSchema, RoleRequirements};
 use error::Result;
 pub use finder::PromptFinder;
 pub use frontmatter::{Frontmatter, MAX_TOOL_ITERATIONS};

@@ -212,10 +212,12 @@ pub mod packs {
 }
 
 pub mod prompt {
-    //! What a prompt's frontmatter declares: its Packs, arguments, model
-    //! roles, and the prompts it lists, which its Lua may run with
+    //! What a prompt's frontmatter declares: its title, its Packs,
+    //! arguments, model roles, behavior hints for a Host that publishes it
+    //! as a tool, and the prompts it lists, which its Lua may run with
     //! `execute`.
 
+    pub use runvil_engine::prompt::Annotations;
     pub use runvil_engine::prompt::ArgsSchema;
     pub use runvil_engine::prompt::Frontmatter;
     pub use runvil_engine::prompt::RoleRequirements;

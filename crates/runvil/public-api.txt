@@ -119,6 +119,7 @@ auto runvil::plugin::PackInfo: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindS
 auto runvil::plugin::PackRegistry: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
 auto runvil::plugin::RenderContext: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::plugin::ToolContext: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
+auto runvil::prompt::Annotations: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::prompt::ArgsSchema: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::prompt::Frontmatter: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::prompt::RoleRequirements: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
@@ -220,6 +221,7 @@ derives runvil::plugin::PackInfo: Clone, Copy, Debug
 derives runvil::plugin::PackRegistry: Debug, Default
 derives runvil::plugin::RenderContext: Debug
 derives runvil::plugin::ToolContext: Debug
+derives runvil::prompt::Annotations: Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq
 derives runvil::prompt::ArgsSchema: Clone, Debug, Default, Deserialize, Eq, PartialEq
 derives runvil::prompt::Frontmatter: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil::prompt::RoleRequirements: Clone, Copy, Debug, Deserialize, Eq, PartialEq
@@ -556,7 +558,12 @@ pub fn runvil::plugin::ToolContext::new(tool: &'a runvil::ToolId, origin: &'a ru
 pub fn runvil::plugin::ToolContext::origin(&self) -> &'a runvil::effect::ToolCallOrigin
 pub fn runvil::plugin::ToolContext::tool(&self) -> &'a runvil::ToolId
 pub fn runvil::plugin::ToolFiles::request(&self, op: runvil::vfs::VfsOp) -> runvil::BoxFuture<'_, core::result::Result<runvil::vfs::VfsOutcome, runvil::vfs::VfsError>>
+pub fn runvil::prompt::Annotations::destructive_hint(&self) -> core::option::Option<bool>
+pub fn runvil::prompt::Annotations::idempotent_hint(&self) -> core::option::Option<bool>
+pub fn runvil::prompt::Annotations::open_world_hint(&self) -> core::option::Option<bool>
+pub fn runvil::prompt::Annotations::read_only_hint(&self) -> core::option::Option<bool>
 pub fn runvil::prompt::ArgsSchema::as_json(&self) -> &serde_json::value::Value
+pub fn runvil::prompt::Frontmatter::annotations(&self) -> &runvil::prompt::Annotations
 pub fn runvil::prompt::Frontmatter::args(&self) -> &runvil::prompt::ArgsSchema
 pub fn runvil::prompt::Frontmatter::description(&self) -> &str
 pub fn runvil::prompt::Frontmatter::max_tool_iterations(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
@@ -564,6 +571,7 @@ pub fn runvil::prompt::Frontmatter::name(&self) -> &str
 pub fn runvil::prompt::Frontmatter::prompts(&self) -> &[alloc::string::String]
 pub fn runvil::prompt::Frontmatter::role_requirements(&self, role: runvil::model::ModelRole) -> core::option::Option<&runvil::prompt::RoleRequirements>
 pub fn runvil::prompt::Frontmatter::runvil(&self) -> core::option::Option<u32>
+pub fn runvil::prompt::Frontmatter::title(&self) -> core::option::Option<&str>
 pub fn runvil::prompt::Frontmatter::uses(&self) -> &[runvil::packs::PackRef]
 pub fn runvil::prompt::RoleRequirements::min_context(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
 pub fn runvil::prompt::RoleRequirements::thinking(&self) -> core::option::Option<bool>
@@ -1255,6 +1263,7 @@ pub struct runvil::packs::GlobalName { /* private fields */ }
 pub struct runvil::packs::PackRef { /* private fields */ }
 pub struct runvil::plugin::PackRegistry { /* private fields */ }
 pub struct runvil::plugin::ToolContext<'a> { /* private fields */ }
+pub struct runvil::prompt::Annotations { /* private fields */ }
 pub struct runvil::prompt::ArgsSchema { /* private fields */ }
 pub struct runvil::prompt::Frontmatter { /* private fields */ }
 pub struct runvil::prompt::RoleRequirements { /* private fields */ }

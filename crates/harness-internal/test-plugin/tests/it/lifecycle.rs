@@ -1,8 +1,8 @@
 //! One fixture library's whole lifecycle through `insert_plugin_dir`: it is
-//! loaded, invoked, unloaded exactly once, and closed. The fixture's own
-//! counters show the first three, read through a second handle on the
-//! library the loader opened; the operating system's already-loaded query
-//! shows the last.
+//! loaded, invoked, unloaded exactly once, and closed where the operating
+//! system permits unmapping. The fixture's own counters show the first
+//! three, read through a second handle on the library the loader opened;
+//! the operating system's already-loaded query shows the last.
 
 use harness_plugin_loader::{HostResources, insert_plugin_dir};
 use libloading::Library;
@@ -88,6 +88,9 @@ fn the_fixture_is_loaded_invoked_unloaded_once_and_closed() {
         "dropping the last holder sent exactly one unload, which freed the instance"
     );
     drop(library);
+    // dyld keeps libraries with thread-local storage mapped after dlclose:
+    // https://github.com/rust-lang/rust/issues/47974
+    #[cfg(not(target_os = "macos"))]
     assert!(
         already_loaded(&file).is_err(),
         "the library closed once the loader and this test both let go of it"

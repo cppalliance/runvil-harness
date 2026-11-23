@@ -111,6 +111,7 @@ auto runvil_engine::packs::PackId: Freeze, RefUnwindSafe, Send, Sync, Unpin, Unw
 auto runvil_engine::packs::PackRef: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::packs::Prelude: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::packs::RosterEntry: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil_engine::prompt::Annotations: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::prompt::ArgsSchema: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::prompt::Frontmatter: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil_engine::prompt::RoleRequirements: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
@@ -203,6 +204,7 @@ derives runvil_engine::packs::PackId: Clone, Debug, Deserialize, Eq, Hash, Ord, 
 derives runvil_engine::packs::PackRef: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil_engine::packs::Prelude: Clone, Debug, Eq, PartialEq
 derives runvil_engine::packs::RosterEntry: Clone, Debug, Eq, PartialEq
+derives runvil_engine::prompt::Annotations: Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq
 derives runvil_engine::prompt::ArgsSchema: Clone, Debug, Default, Deserialize, Eq, PartialEq
 derives runvil_engine::prompt::Frontmatter: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil_engine::prompt::RoleRequirements: Clone, Copy, Debug, Deserialize, Eq, PartialEq
@@ -492,7 +494,12 @@ pub fn runvil_engine::packs::PackRef::vendor(&self) -> &str
 pub fn runvil_engine::packs::Prelude::new(pack: runvil_engine::packs::PackId, source: impl core::convert::Into<alloc::string::String>) -> runvil_engine::packs::Prelude
 pub fn runvil_engine::packs::Prelude::pack(&self) -> &runvil_engine::packs::PackId
 pub fn runvil_engine::packs::Prelude::source(&self) -> &str
+pub fn runvil_engine::prompt::Annotations::destructive_hint(&self) -> core::option::Option<bool>
+pub fn runvil_engine::prompt::Annotations::idempotent_hint(&self) -> core::option::Option<bool>
+pub fn runvil_engine::prompt::Annotations::open_world_hint(&self) -> core::option::Option<bool>
+pub fn runvil_engine::prompt::Annotations::read_only_hint(&self) -> core::option::Option<bool>
 pub fn runvil_engine::prompt::ArgsSchema::as_json(&self) -> &serde_json::value::Value
+pub fn runvil_engine::prompt::Frontmatter::annotations(&self) -> &runvil_engine::prompt::Annotations
 pub fn runvil_engine::prompt::Frontmatter::args(&self) -> &runvil_engine::prompt::ArgsSchema
 pub fn runvil_engine::prompt::Frontmatter::description(&self) -> &str
 pub fn runvil_engine::prompt::Frontmatter::max_tool_iterations(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
@@ -500,6 +507,7 @@ pub fn runvil_engine::prompt::Frontmatter::name(&self) -> &str
 pub fn runvil_engine::prompt::Frontmatter::prompts(&self) -> &[alloc::string::String]
 pub fn runvil_engine::prompt::Frontmatter::role_requirements(&self, role: runvil_engine::model::ModelRole) -> core::option::Option<&runvil_engine::prompt::RoleRequirements>
 pub fn runvil_engine::prompt::Frontmatter::runvil(&self) -> core::option::Option<u32>
+pub fn runvil_engine::prompt::Frontmatter::title(&self) -> core::option::Option<&str>
 pub fn runvil_engine::prompt::Frontmatter::uses(&self) -> &[runvil_engine::packs::PackRef]
 pub fn runvil_engine::prompt::RoleRequirements::min_context(&self) -> core::option::Option<core::num::nonzero::NonZeroU32>
 pub fn runvil_engine::prompt::RoleRequirements::thinking(&self) -> core::option::Option<bool>
@@ -1214,6 +1222,7 @@ pub struct runvil_engine::model::Temperature(/* private fields */)
 pub struct runvil_engine::packs::GlobalName { /* private fields */ }
 pub struct runvil_engine::packs::PackRef { /* private fields */ }
 pub struct runvil_engine::packs::Prelude { /* private fields */ }
+pub struct runvil_engine::prompt::Annotations { /* private fields */ }
 pub struct runvil_engine::prompt::ArgsSchema { /* private fields */ }
 pub struct runvil_engine::prompt::Frontmatter { /* private fields */ }
 pub struct runvil_engine::prompt::RoleRequirements { /* private fields */ }
