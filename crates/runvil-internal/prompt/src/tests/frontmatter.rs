@@ -1,5 +1,5 @@
-//! Frontmatter tests: required keys and delimiters, the tool-loop cap,
-//! the `runvil:` key, and the line of each key.
+//! Frontmatter tests: required keys and delimiters, the name grammar, the
+//! tool-loop cap, the `runvil:` key, and the line of each key.
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -10,6 +10,106 @@ use super::*;
 fn name_and_description_are_sufficient_frontmatter_for_parsing() {
     let prompt = parse_ok("---\nname: x\ndescription: d\n---\n\n## S\n\np\n");
     assert_eq!(prompt.frontmatter.name(), "x");
+}
+
+#[test]
+fn a_name_in_the_tool_name_grammar_parses() {
+    let longest = format!("a{}", "b".repeat(63));
+    for name in ["research_person", "a", "A-b_9", longest.as_str()] {
+        let prompt = parse_ok(&PromptSource::new().name(name).build());
+        assert_eq!(prompt.frontmatter.name(), name);
+    }
+}
+
+#[test]
+fn a_name_outside_the_tool_name_grammar_is_refused_on_its_line() {
+    // serde counts lines from the first line after the opening `---`, so
+    // its message puts `name:`, file line 2, on line 1.
+    let too_long = format!("a{}", "b".repeat(64));
+    for (written, name) in [
+        ("''", ""),
+        // The YAML parser gives a plain scalar to a string field as its text.
+        ("5", "5"),
+        ("9lives", "9lives"),
+        ("research person", "research person"),
+        ("a.b", "a.b"),
+        ("a/b", "a/b"),
+        ("naïve", "naïve"),
+        (too_long.as_str(), too_long.as_str()),
+    ] {
+        let error = parse_err(&PromptSource::new().name(written).build());
+        assert_eq!(error.code, ErrorCode::FrontmatterInvalid, "{error:?}");
+        assert_eq!(
+            error.message,
+            format!(
+                "invalid frontmatter: name: invalid prompt name `{name}`: expected \
+                 [A-Za-z][A-Za-z0-9_-]{{0,63}} at line 1 column 7"
+            ),
+        );
+        assert_eq!(location(&error), Some(("prompt", 2, 7, 2, 7)), "{error:?}");
+    }
+}
+
+#[test]
+fn a_title_reads_back_and_is_absent_when_unset_or_null() {
+    let titled = parse_ok(&prompt("title: Research a Person", &[]));
+    assert_eq!(titled.frontmatter.title(), Some("Research a Person"));
+    assert_eq!(parse_ok(&prompt("", &[])).frontmatter.title(), None);
+    assert_eq!(parse_ok(&prompt("title: ~", &[])).frontmatter.title(), None);
+}
+
+#[test]
+fn a_title_that_is_blank_padded_or_not_one_line_is_refused_naming_it_on_its_line() {
+    // The `title:` line is file line 5, which serde counts as line 4, and
+    // every value starts at column 8. The lines go in as written, so the
+    // block scalar keeps its indentation.
+    const COLUMN: u32 = 8;
+    for (written, refusal) in [
+        (
+            "''",
+            r#""": expected text that is not empty or all whitespace"#,
+        ),
+        (
+            "'   '",
+            r#""   ": expected text that is not empty or all whitespace"#,
+        ),
+        (
+            "|\n  first\n  second",
+            r#""first\nsecond\n": expected one line with no control character"#,
+        ),
+        (
+            r#""tab\there""#,
+            r#""tab\there": expected one line with no control character"#,
+        ),
+        (
+            r#""line\u2028separator""#,
+            r#""line\u{2028}separator": expected one line with no control character"#,
+        ),
+        (
+            r#""paragraph\u2029separator""#,
+            r#""paragraph\u{2029}separator": expected one line with no control character"#,
+        ),
+        (
+            "' padded '",
+            r#"" padded ": expected no leading or trailing whitespace"#,
+        ),
+    ] {
+        let error = parse_err(&format!(
+            "---\nname: t\ndescription: d\nrunvil: 0\ntitle: {written}\n---\n\n## S\n\np\n"
+        ));
+        assert_eq!(error.code, ErrorCode::FrontmatterInvalid, "{error:?}");
+        assert_eq!(
+            error.message,
+            format!(
+                "invalid frontmatter: title: invalid title {refusal} at line 4 column {COLUMN}"
+            ),
+        );
+        assert_eq!(
+            location(&error),
+            Some(("prompt", 5, COLUMN, 5, COLUMN)),
+            "{written}: {error:?}"
+        );
+    }
 }
 
 #[test]

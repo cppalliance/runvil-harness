@@ -1,6 +1,7 @@
 //! Splits a prompt's YAML frontmatter from its body and models what it declares.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
@@ -8,8 +9,8 @@ use runvil_types::error::ErrorCode;
 use runvil_types::models::ModelRole;
 use runvil_types::packs::PackRef;
 
-use crate::contract::RoleMap;
-use crate::{ArgsSchema, Result, RoleRequirements, error};
+use crate::contract::{RoleMap, check_alias};
+use crate::{Annotations, ArgsSchema, Result, RoleRequirements, error};
 
 /// The parsed frontmatter of a prompt file.
 ///
@@ -18,10 +19,17 @@ use crate::{ArgsSchema, Result, RoleRequirements, error};
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Frontmatter {
-    /// The prompt's identifier, from the `name:` key.
+    /// The prompt's identifier, from the `name:` key, in the grammar
+    /// `[A-Za-z][A-Za-z0-9_-]{0,63}`, so it is a valid tool name.
+    #[serde(deserialize_with = "prompt_name")]
     name: String,
     /// The prompt's one-line summary, from the `description:` key.
     description: String,
+    /// The prompt's display name, from the `title:` key: non-empty text
+    /// on one line, with no control character and no leading or trailing
+    /// whitespace.
+    #[serde(default, deserialize_with = "title")]
+    title: Option<String>,
     /// The runvil Engine major this file targets, when declared.
     ///
     /// Its presence marks the file as a runvil prompt; `None` means the
@@ -54,6 +62,105 @@ pub struct Frontmatter {
     /// declaration order.
     #[serde(default)]
     prompts: Vec<String>,
+    /// The behavior hints the prompt declares for publishing it as a tool;
+    /// an absent or null `annotations:` key leaves every hint unset.
+    #[serde(default, deserialize_with = "annotations")]
+    annotations: Annotations,
+}
+
+/// Deserializes the prompt's `name:`, refusing one outside the grammar
+/// `[A-Za-z][A-Za-z0-9_-]{0,63}`.
+fn prompt_name<'de, D>(deserializer: D) -> std::result::Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserializer.deserialize_string(NameVisitor)
+}
+
+/// The visitor behind [`prompt_name`]. The YAML parser locates only a
+/// refusal raised while it visits the value, so the check runs here.
+struct NameVisitor;
+
+impl serde::de::Visitor<'_> for NameVisitor {
+    type Value = String;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a prompt name")
+    }
+
+    fn visit_str<E>(self, name: &str) -> std::result::Result<String, E>
+    where
+        E: serde::de::Error,
+    {
+        check_alias(name, "prompt name").map_err(E::custom)?;
+        Ok(name.to_owned())
+    }
+}
+
+/// Deserializes the optional `title:`, refusing text that is empty or all
+/// whitespace, that holds a control character or a line break, or that
+/// starts or ends with whitespace.
+fn title<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserializer.deserialize_option(TitleVisitor)
+}
+
+/// The visitor behind [`title`]. The YAML parser locates only a refusal
+/// raised while it visits the value, so the check runs here.
+struct TitleVisitor;
+
+impl<'de> serde::de::Visitor<'de> for TitleVisitor {
+    type Value = Option<String>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a title")
+    }
+
+    fn visit_none<E>(self) -> std::result::Result<Self::Value, E> {
+        Ok(None)
+    }
+
+    fn visit_unit<E>(self) -> std::result::Result<Self::Value, E> {
+        Ok(None)
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> std::result::Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_string(self)
+    }
+
+    fn visit_str<E>(self, title: &str) -> std::result::Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        // U+2028 and U+2029 break a line but are not control characters.
+        let breaks = |c: char| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}');
+        let expected = if title.trim().is_empty() {
+            "text that is not empty or all whitespace"
+        } else if title.contains(breaks) {
+            "one line with no control character"
+        } else if title.trim() != title {
+            "no leading or trailing whitespace"
+        } else {
+            return Ok(Some(title.to_owned()));
+        };
+        Err(E::custom(format!(
+            "invalid title {title:?}: expected {expected}"
+        )))
+    }
+}
+
+// `serde(default)` handles an absent key, not an explicit null.
+fn annotations<'de, D>(deserializer: D) -> std::result::Result<Annotations, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <Option<Annotations> as serde::Deserialize>::deserialize(deserializer)
+        .map(Option::unwrap_or_default)
 }
 
 /// The largest explicit `max_tool_iterations` a prompt may declare.
@@ -91,6 +198,9 @@ where
 
 impl Frontmatter {
     /// Returns the prompt's identifier, read from the `name:` key.
+    ///
+    /// The name follows the grammar `[A-Za-z][A-Za-z0-9_-]{0,63}`, so it
+    /// is a valid name for publishing the prompt as a tool.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
@@ -100,6 +210,17 @@ impl Frontmatter {
     #[must_use]
     pub fn description(&self) -> &str {
         &self.description
+    }
+
+    /// Returns the prompt's human-readable display name, read from the
+    /// `title:` key, or `None` when the prompt leaves it out.
+    ///
+    /// The title is non-empty, unpadded text on one line, with no control
+    /// characters. [`Frontmatter::name`] stays the identifier that events
+    /// and errors use.
+    #[must_use]
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
     }
 
     /// Returns the Engine major version that the `runvil:` key declares,
@@ -153,6 +274,13 @@ impl Frontmatter {
     #[must_use]
     pub fn prompts(&self) -> &[String] {
         &self.prompts
+    }
+
+    /// Returns the behavior hints the `annotations:` key declares, each
+    /// `None` unless the prompt wrote it.
+    #[must_use]
+    pub fn annotations(&self) -> &Annotations {
+        &self.annotations
     }
 }
 
