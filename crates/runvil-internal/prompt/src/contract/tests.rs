@@ -1,5 +1,5 @@
-//! Tests for the frontmatter contract keys: `uses`, `args`, and
-//! `models`.
+//! Tests for the frontmatter contract keys: `uses`, `args`, `models`, and
+//! `annotations`.
 
 use std::num::NonZeroU32;
 
@@ -10,6 +10,8 @@ use serde_json::json;
 use crate::test_support::{assert_parse_error, parse_err, parse_ok, prompt};
 use crate::tests::location;
 
+#[path = "tests-annotations.rs"]
+mod annotations;
 #[path = "tests-args.rs"]
 mod args;
 #[path = "tests-args-check.rs"]
@@ -49,6 +51,7 @@ fn the_full_contract_declaration_parses_and_round_trips() {
                 description: Search MCP-connected private sources } } }
         models: { strong: { min_context: 200000, thinking: true }, \
                   fast: { thinking: false } }
+        annotations: { readOnlyHint: true, openWorldHint: true }
         ",
         &[],
     ));
@@ -79,6 +82,9 @@ fn the_full_contract_declaration_parses_and_round_trips() {
         .expect("the role is declared");
     assert_eq!(fast.min_context(), None);
     assert_eq!(fast.thinking(), Some(false));
+
+    assert_eq!(fm.annotations().read_only_hint(), Some(true));
+    assert_eq!(fm.annotations().destructive_hint(), None);
 }
 
 #[test]

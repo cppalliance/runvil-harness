@@ -1,20 +1,11 @@
-//! Parses the frontmatter contract keys: `uses`, `args`, `models`, and
-//! `prompts`.
+//! Parses the frontmatter contract keys: `uses`, `args`, `models`,
+//! `prompts`, and `annotations`.
 //!
-//! The YAML is the whole contract: Packs install, models declare, args
-//! type, prompts list. Parsing validates the static shape - each `uses:`
-//! entry a bare Pack id or vendor/name, no Pack id declared twice, no
-//! reserved Pack id, the alias grammar on argument names, the five model
-//! role names, the keywords of the `args` declaration against each other,
-//! and no `prompts:` entry empty or listed twice - and exposes the FULL
-//! declaration on the parsed [`Prompt`](crate::Prompt); checking the
-//! declaration against the caller's environment and arguments is the job
-//! of the run's first step, never the parser's.
-//!
-//! `args` and `models` are defined in submodules, and `args_check` checks
-//! a caller's arguments against the `args` declaration; this root owns
-//! the `uses:` checks, the `prompts:` check, the argument-name check, and
-//! the map deserializer the two map keys share.
+//! Submodules own the argument schema, model requirements, and tool
+//! annotations. This root checks Pack and prompt lists, validates aliases,
+//! and reads contract maps. Parsing validates declarations' static shape;
+//! the run's first step checks them against the caller's environment and
+//! arguments. The Engine never reads the annotations during execution.
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,6 +20,7 @@ use serde::{Deserialize, Deserializer};
 
 use crate::error;
 
+mod annotations;
 mod args;
 mod args_check;
 mod models;
@@ -36,6 +28,7 @@ mod models;
 #[cfg(test)]
 mod tests;
 
+pub use annotations::Annotations;
 pub use args::ArgsSchema;
 pub(crate) use args::TEXT_FIELD;
 pub(crate) use args_check::accept as accept_args;
@@ -52,15 +45,21 @@ trait ContractKey: Ord {
     fn shown(&self) -> String;
 }
 
+/// Refuses `name` unless it follows the alias grammar, naming it as a
+/// `what`, such as `argument name`, in the refusal.
+pub(crate) fn check_alias(name: &str, what: &str) -> Result<(), String> {
+    if is_alias(name) {
+        Ok(())
+    } else {
+        Err(format!(
+            "invalid {what} `{name}`: expected [A-Za-z][A-Za-z0-9_-]{{0,63}}"
+        ))
+    }
+}
+
 impl ContractKey for String {
     fn check(&self, what: &str) -> Result<(), String> {
-        if is_alias(self) {
-            Ok(())
-        } else {
-            Err(format!(
-                "invalid {what} `{self}`: expected [A-Za-z][A-Za-z0-9_-]{{0,63}}"
-            ))
-        }
+        check_alias(self, what)
     }
 
     fn shown(&self) -> String {
