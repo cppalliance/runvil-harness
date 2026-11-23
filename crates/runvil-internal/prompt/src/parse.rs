@@ -37,12 +37,10 @@ impl Prompt {
     /// failure, located in the listed prompt. Otherwise returns an
     /// [`Error`] whose code is:
     ///
-    /// - `FrontmatterInvalid` when the `---` delimiters are missing, the
-    ///   frontmatter fails to decode, a `uses:` entry is neither a Pack id
-    ///   nor vendor/name, two entries share a Pack id, an entry names a
-    ///   Pack id the Engine reserves, a `prompts:` entry is empty or is
-    ///   listed twice, or the `args:` declaration is outside its subset of
-    ///   JSON Schema. A refused `uses:` list has the `Reason` fact
+    /// - `FrontmatterInvalid` when the `---` delimiters are missing or the
+    ///   frontmatter fails to decode or validate its
+    ///   [`Frontmatter`](crate::Frontmatter) declarations.
+    ///   A refused `uses:` list has the `Reason` fact
     ///   `pack_duplicate` or `pack_reserved` and the Pack id as its `Name`
     ///   fact, and is located on the `uses:` line when one line declares
     ///   the key. A refused `prompts:` list has the `Reason` fact
