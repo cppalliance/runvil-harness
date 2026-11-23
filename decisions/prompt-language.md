@@ -6,7 +6,7 @@ This page covers the prompt file as its author writes it: front matter, sections
 
 ### A prompt is one Markdown file with front matter and a body, and a body of one Lua block is a whole prompt
 
-The file opens with YAML front matter between two lines of three dashes, and the rest of the file is the body. Headings in the body are optional. A body of one Lua block is a whole prompt, and a body of prose alone parses too and ends its run with the text `done`. A prompt's title is its front matter `name`, and the Engine reports the start and the end of a run under that name.
+The file opens with YAML front matter between two lines of three dashes, and the rest of the file is the body. Headings in the body are optional. A body of one Lua block is a whole prompt, and a body of prose alone parses too and ends its run with the text `done`. A prompt's name is its front matter `name`, and the Engine reports the start and the end of a run under that name.
 
 The owner's rule: "we don't require any headings at all". An author who wants a heading above the sections writes one, and the parser reads it as a section like any other. The owner's rule: "If they want to have the H1, they can have it, but they don't need it." The name is in the front matter because every prompt already states it there. The owner's reason: "the real title for the prompt comes from the front matter".
 
@@ -18,9 +18,35 @@ The choice belongs to the section because one prompt can combine all three.
 
 ### Front matter accepts a fixed set of keys and refuses any other
 
-The keys are `name`, `description`, `runvil`, `max_tool_iterations`, `uses`, `args`, `models`, and `prompts`. The parser requires the first two. It refuses every other key, so a misspelled key fails the parse with the code `frontmatter_invalid`.
+The keys are `name`, `description`, `title`, `runvil`, `max_tool_iterations`, `uses`, `args`, `models`, `prompts`, and `annotations`. The parser requires the first two. It refuses every other key, so a misspelled key fails the parse with the code `frontmatter_invalid`.
 
-The section "Arguments and substitution" covers `args:`, and the next entry covers `prompts:`. Other pages cover `uses:` ([Tools and Packs](tools-and-packs.md)), and `models:` and `max_tool_iterations` ([Model calls and conversations](models-and-conversations.md)).
+The section "Arguments and substitution" covers `args:`, the next two entries cover `name:`, `title:`, and `annotations:`, and the entry after them covers `prompts:`. Other pages cover `uses:` ([Tools and Packs](tools-and-packs.md)), and `models:` and `max_tool_iterations` ([Model calls and conversations](models-and-conversations.md)).
+
+### `name:` is a tool name, and `title:` is what people read
+
+A `name` is 1 to 64 characters: an ASCII letter, then ASCII letters, digits, `_`, and `-`. Any other name fails the parse with the code `frontmatter_invalid`, as in ``invalid prompt name `research person`: expected [A-Za-z][A-Za-z0-9_-]{0,63}``, at the line and column of the value. The grammar is the one that argument names and the names of adhoc tools follow. It is stricter than the tool names that MCP accepts and fits the 64-character tool names of model providers, so a Host that publishes a prompt as a tool uses its name unchanged, wherever a client or a model sees it. The parser does not check that names are unique; that check belongs to the Host that lists them.
+
+`title:` is optional. It is a display name, such as `title: Research a Person`, for a Host to show people, while `name` stays the identifier that events and errors use. A title that is empty or all whitespace, that holds a control character or a line break, or that starts or ends with whitespace fails the parse with the code `frontmatter_invalid`, with a message that quotes the title and names the rule it breaks, such as ``invalid title " padded ": expected no leading or trailing whitespace``. The parser refuses padding rather than trimming it, so the title a Host shows is the text the author wrote. MCP shows a tool's `title` to people and keeps its `name` for programs, so a prompt has both. MCP also accepts a title inside a tool's annotations, with a rule for which one wins. `annotations:` takes no title, so a prompt writes its title in one place.
+
+### `annotations:` holds the four MCP behavior hints, and the Engine ignores them
+
+`annotations:` is an optional map of the keys `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`, each a boolean or `null`:
+
+```yaml
+annotations:
+  readOnlyHint: true
+  openWorldHint: true
+```
+
+The keys are camelCase where the other front matter keys are snake_case, because they are MCP's own words, as the keywords under `args:` are JSON Schema's own words. A Host that publishes a prompt as a tool copies the hints onto the tool unchanged, and the entry on `args:` in section 5 covers the tool's input schema.
+
+A hint left out or written `null` is unset. An absent `annotations:` key, `annotations: {}`, and `annotations: null` all leave every hint unset. Unset does not mean false: MCP defaults `destructiveHint` and `openWorldHint` to true, so filling in false would change what the author left unsaid.
+
+An unknown key such as `readonlyHint`, a key written twice, and a value other than a boolean or null, such as `yes`, fail the parse with the code `frontmatter_invalid`. A repeated key is reported where its annotations map begins; an unknown key or invalid value is reported at that key or value.
+
+All combinations of hints are accepted and preserved. MCP defines `destructiveHint` and `idempotentHint` as meaningful only when `readOnlyHint` is false, but does not forbid writing them otherwise. They are advisory metadata, so the parser adds no restriction between hints.
+
+The Engine never reads a hint, and the parser does not check a hint against `uses:`. A hint is the author's claim about the prompt as a whole, a section can offer tools of Packs that `uses:` leaves out, and MCP clients treat every hint as untrusted.
 
 ### `prompts:` lists the prompts that a prompt may run with `execute`
 
@@ -430,4 +456,5 @@ The nesting limit is 127 because `serde_json`, which parses the input of `json.d
 - **Front matter in Lua.** A sealed table with the prompt's own `name`, `args`, and `models` declarations. Today the functions of the `prompt` table read sections.
 - **A live clock.** A way for Lua to read the current time during a run. Today `sys.when` is the run's start time.
 - **More of `json`.** Encoding of message records, pretty printing, and a decode that builds its values inside the VM's memory limit. Today `json.encode` raises for a message record, as for every userdata other than `json.null`, and `json.decode` accepts 8,388,608 bytes of input.
+- **A structured result.** An `output:` key that declares the JSON object a prompt returns, for a Host that publishes the prompt as a tool with an output schema. Today a prompt's result is text.
 - **An acyclic section order.** A rule that `jump` names only a child or a later sibling. Today a section may jump to an earlier sibling, so two sections can form a loop, and the guide teaches that loop as a pattern. The rule would turn the pattern into an error, so it stays an idea for now.

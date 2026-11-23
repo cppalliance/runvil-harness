@@ -1,5 +1,6 @@
 ---
 name: research_person
+title: Research a Person
 description: Research a person from the open web and return a concise, factual summary.
 runvil: 0
 max_tool_iterations: 20
@@ -10,6 +11,9 @@ args:
   properties:
     text: { type: string, description: A request about a person }
   required: [text]
+annotations:
+  readOnlyHint: true
+  openWorldHint: true
 ---
 
 ## Research
