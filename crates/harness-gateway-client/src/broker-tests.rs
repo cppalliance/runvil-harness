@@ -112,6 +112,32 @@ async fn chat_streams_each_piece_with_its_round_in_wire_order() {
 }
 
 #[tokio::test]
+async fn infer_returns_the_whole_reply_without_streaming_deltas() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let broker = broker_for(sse_app(three_fragments()))
+        .await
+        .with_streaming(tx);
+
+    let completion = broker
+        .chat(
+            binding(),
+            vec![Message::user("hi")],
+            Vec::new(),
+            CompletionOptions::new("m"),
+            round(ReplyOrigin::Infer),
+        )
+        .await
+        .expect("the mock round completes");
+
+    assert_eq!(reply_of(completion.result()), "one two three");
+    assert_eq!(
+        rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty),
+        "nested inference does not send live deltas to the Host"
+    );
+}
+
+#[tokio::test]
 async fn the_inference_broker_round_answers_with_the_whole_reply() {
     let broker = broker_for(sse_app(three_fragments())).await;
 
