@@ -190,7 +190,7 @@ The Harness exports the broker because Hosts run prompts without a model: a tool
 
 ### The broker returns each reply whole, and a Host streams inside its own broker
 
-`InferenceBroker::chat` returns one finished `Completion`. A Host that shows a reply as it forms streams the pieces from inside its broker. `GatewayBroker::chat_streaming` runs the same round and passes each piece to a callback. The record contains the finished reply, as an `assistant_reply` event, and omits the pieces.
+`InferenceBroker::chat` returns one finished `Completion`. A Host that shows a reply as it forms configures its `GatewayBroker` with `with_streaming` before passing it to the Harness. The broker sends each text and reasoning delta with its round on the Host's channel. Only chat rounds send deltas; nested `models.infer` rounds return only the finished reply. A Host that doesn't need live deltas leaves the channel unset. The record contains the finished reply, as an `assistant_reply` event, and omits the deltas.
 
 The owner's rule: "the engine, the harness would not know anything about streaming. only the host, through the inference broker. and for headless hosts, they dont need to stream at all".
 
