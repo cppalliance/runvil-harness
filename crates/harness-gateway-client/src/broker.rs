@@ -2,15 +2,17 @@
 //! the Gateway client, and the Gateway's model list.
 //!
 //! The Harness takes only a round's finished reply, so the broker's
-//! `InferenceBroker` round returns it whole. A Host that shows the reply
-//! as it forms runs the round through [`GatewayBroker::chat_streaming`]
-//! instead, which hands each live piece to the Host's callback as it
-//! arrives, so no fragment ever reaches the Host's recorder. Either way
-//! the completion names the model the round's options sent it to, so a
-//! Host that routes a round to another model sees that model on its reply.
+//! [`InferenceBroker::chat`] round returns it whole. A Host that shows the
+//! reply as it forms attaches an unbounded channel sender with
+//! [`GatewayBroker::with_streaming`] before the run; every `Chat`-origin round
+//! then sends each [`StreamDelta`] together with its round on that channel
+//! as the pieces arrive. Either way the completion names the model the
+//! round's options sent it to, so a Host that routes a round to another
+//! model sees that model on its reply.
 
+use runvil::event::ReplyOrigin;
 use std::fmt;
-use std::sync::Arc;
+use tokio::sync::mpsc::UnboundedSender as Sender;
 
 use runvil::effect::Round;
 use runvil::harness::InferenceBroker;
@@ -45,7 +47,10 @@ pub struct GatewayBroker {
     client: GatewayChat,
     endpoint: GatewayEndpoint,
     key: SecretString,
+    sender: Option<ChatStreamSender>,
 }
+
+type ChatStreamSender = Sender<(StreamDelta, Round)>;
 
 impl fmt::Debug for GatewayBroker {
     /// The bearer key is never written to logs or `Debug` output.
@@ -55,6 +60,7 @@ impl fmt::Debug for GatewayBroker {
             .field("client", &self.client)
             .field("api_root", &self.endpoint.url())
             .field("key", &"<redacted>")
+            .field("sender", &self.sender)
             .finish()
     }
 }
@@ -72,27 +78,20 @@ impl GatewayBroker {
             client,
             endpoint,
             key,
+            sender: None,
         }
     }
 
-    /// Runs one model round and passes each piece of the reply to
-    /// `on_piece` as it arrives.
+    /// Attaches an unbounded channel sender that receives streaming deltas.
     ///
-    /// The round is the same one `InferenceBroker::chat` runs. `on_piece`
-    /// receives the pieces in the order the stream delivers them. The
-    /// returned completion holds the whole reply.
-    ///
-    /// `on_piece` is called inline as each piece is read, so it must not
-    /// block.
-    pub fn chat_streaming(
-        &self,
-        _binding: ModelBinding,
-        messages: Vec<Message>,
-        tools: Vec<ToolSchema>,
-        options: CompletionOptions,
-        on_piece: Arc<dyn Fn(StreamDelta) + Send + Sync>,
-    ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        self.round(messages, tools, options, move |piece| on_piece(piece))
+    /// Each `Chat`-origin round run through [`InferenceBroker::chat`] sends
+    /// every [`StreamDelta`] it produces, together with the round, on this
+    /// channel. The sender must be attached before the broker is wrapped
+    /// and passed to the Harness, because this call consumes the broker.
+    #[must_use]
+    pub fn with_streaming(mut self, tx: ChatStreamSender) -> Self {
+        self.sender = Some(tx);
+        self
     }
 
     /// One round on the client, handing each live piece to `on_piece`.
@@ -129,9 +128,19 @@ impl InferenceBroker for GatewayBroker {
         messages: Vec<Message>,
         tools: Vec<ToolSchema>,
         options: CompletionOptions,
-        _round: Round,
+        round: Round,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        self.round(messages, tools, options, |_| {})
+        let sender = self
+            .sender
+            .as_ref()
+            .filter(|_| round.origin == ReplyOrigin::Chat)
+            .cloned();
+
+        self.round(messages, tools, options, move |piece| {
+            if let Some(sender) = &sender {
+                let _ = sender.send((piece, round));
+            }
+        })
     }
 }
 

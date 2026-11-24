@@ -6,9 +6,10 @@
 //! the Gateway passes to `RunSetup::new`. It runs every model round on a
 //! [`GatewayChat`] under the client's own request limits, and it lists the
 //! Gateway's models through [`fetch_model_catalog`]. A Host that shows a
-//! reply as it forms runs the round through
-//! [`GatewayBroker::chat_streaming`], which hands each [`StreamDelta`] to
-//! the Host's callback as it arrives.
+//! reply as it forms attaches an unbounded channel sender with
+//! [`GatewayBroker::with_streaming`] before the run. Every `Chat`-origin round
+//! then sends each [`StreamDelta`] together with its round on that channel
+//! as the pieces arrive.
 //!
 //! [`GatewayChat`] is the HTTP client that sends a `Chat` effect's round
 //! to one Gateway URL. It presents the Gateway's shared bearer key when

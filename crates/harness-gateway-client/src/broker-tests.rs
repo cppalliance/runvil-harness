@@ -1,12 +1,11 @@
 //! The Gateway broker against the transport suite's mock gateways:
-//! `chat_streaming` hands each piece to its callback in wire order, the
-//! `InferenceBroker` round answers with the whole reply, every round is
-//! labeled with the model its request named, and `models` lists the
+//! the channel receiver gets each streamed piece with its round in wire
+//! order, the `InferenceBroker` round answers with the whole reply, every
+//! round is labeled with the model its request named, and `models` lists the
 //! catalog the gateway serves under the broker's key. Its `Debug` never
 //! prints the bearer key.
 
 use std::num::NonZeroU32;
-use std::sync::{Arc, Mutex};
 
 use runvil::effect::Round;
 use runvil::event::ReplyOrigin;
@@ -17,6 +16,7 @@ use runvil::model::{
     ThinkingMode,
 };
 use serde_json::Value;
+use tokio::sync::mpsc;
 
 use super::GatewayBroker;
 use crate::StreamDelta;
@@ -63,20 +63,6 @@ fn three_fragments() -> String {
     ])
 }
 
-/// The callback `chat_streaming` hands each piece to.
-type OnPiece = Arc<dyn Fn(StreamDelta) + Send + Sync>;
-
-/// A piece callback that keeps every piece it is handed, beside what it
-/// kept.
-fn recording() -> (OnPiece, Arc<Mutex<Vec<StreamDelta>>>) {
-    let kept: Arc<Mutex<Vec<StreamDelta>>> = Arc::default();
-    let sink = Arc::clone(&kept);
-    (
-        Arc::new(move |piece| sink.lock().unwrap().push(piece)),
-        kept,
-    )
-}
-
 /// The run's first round, dispatched from `origin`.
 fn round(origin: ReplyOrigin) -> Round {
     Round::new(RoundId::new(0), origin)
@@ -90,30 +76,38 @@ fn reply_of(result: &CompletionResult) -> &str {
 }
 
 #[tokio::test]
-async fn chat_streaming_hands_each_piece_to_its_callback_in_wire_order() {
-    let broker = broker_for(sse_app(three_fragments())).await;
-    let (on_piece, kept) = recording();
+async fn chat_streams_each_piece_with_its_round_in_wire_order() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let broker = broker_for(sse_app(three_fragments()))
+        .await
+        .with_streaming(tx);
+    let round = Round::new(RoundId::new(7), ReplyOrigin::Chat);
 
     let completion = broker
-        .chat_streaming(
+        .chat(
             binding(),
             vec![Message::user("hi")],
             Vec::new(),
             CompletionOptions::new("m"),
-            on_piece,
+            round,
         )
         .await
         .expect("the mock round completes");
+
     assert_eq!(reply_of(completion.result()), "one two three");
+    let mut received = Vec::new();
+    while let Ok(delta) = rx.try_recv() {
+        received.push(delta);
+    }
     assert_eq!(
-        *kept.lock().unwrap(),
+        received,
         vec![
-            StreamDelta::Reasoning("hmm".to_owned()),
-            StreamDelta::Text("one ".to_owned()),
-            StreamDelta::Text("two ".to_owned()),
-            StreamDelta::Text("three".to_owned()),
+            (StreamDelta::Reasoning("hmm".to_owned()), round),
+            (StreamDelta::Text("one ".to_owned()), round),
+            (StreamDelta::Text("two ".to_owned()), round),
+            (StreamDelta::Text("three".to_owned()), round),
         ],
-        "each piece, reasoning and text alike, reaches the callback as it arrives, in the stream's order"
+        "each piece carries the dispatched round and arrives in wire order"
     );
 }
 
@@ -159,7 +153,11 @@ fn reply_naming(model: Option<&str>) -> String {
 #[tokio::test]
 async fn every_round_whole_or_streamed_is_labeled_with_the_model_its_request_named() {
     for body_model in [Some("served-elsewhere"), None] {
-        let broker = broker_for(sse_app(reply_naming(body_model))).await;
+        let (tx, _) = mpsc::unbounded_channel();
+        let broker = broker_for(sse_app(reply_naming(body_model)))
+            .await
+            .with_streaming(tx);
+
         let whole = broker
             .chat(
                 binding(),
@@ -170,14 +168,14 @@ async fn every_round_whole_or_streamed_is_labeled_with_the_model_its_request_nam
             )
             .await
             .expect("the mock round completes");
-        let (on_piece, _kept) = recording();
+
         let streamed = broker
-            .chat_streaming(
+            .chat(
                 binding(),
                 vec![Message::user("hi")],
                 Vec::new(),
                 CompletionOptions::new("routed-to"),
-                on_piece,
+                round(ReplyOrigin::Chat),
             )
             .await
             .expect("the mock round completes");
