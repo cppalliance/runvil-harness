@@ -1,20 +1,53 @@
-//! The shipped research prompt runs end to end over its web tools, and the
-//! prose the model reads names no tool by its id.
+//! Each prompt shipped in `prompts/` runs end to end on a scripted model:
+//! it returns what it says it returns and sends the model what it says it
+//! sends. The research prompt runs over its web tools, and the prose its
+//! model reads names no tool by its id.
 
 use std::fs;
 use std::path::Path;
 
 use runvil_engine::ToolCatalog;
 use runvil_engine::effect::{ToolCallOrigin, ToolCaller};
+use runvil_engine::model::{ModelRole, ThinkingMode};
 use serde_json::{Value, json};
 
-use super::support::{Scenario, TestResult, Tool, Trace, calls, text, tool_info};
+use super::prepare::refusal;
+use super::support::{Scenario, TestResult, Tool, Trace, calls, model, text, tool_info};
+
+/// The text of the shipped prompt `name`, read from the repository's
+/// `prompts` folder.
+fn shipped(name: &str) -> TestResult<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../prompts")
+        .join(name);
+    Ok(fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?)
+}
+
+/// The run's model rounds, in order: the role each ran under and the
+/// messages it sent.
+fn rounds(trace: &Trace) -> Vec<(&Value, &Value)> {
+    trace
+        .effects
+        .iter()
+        .filter_map(|logged| logged.effect_of("Chat"))
+        .map(|chat| (&chat["alias"], &chat["messages"]))
+        .collect()
+}
+
+/// Checks that the run made exactly one model round, under `role`, whose
+/// only message was `prose`, and that the run returned `reply`.
+fn assert_one_round(trace: &Trace, role: ModelRole, prose: &str, reply: &str) -> TestResult {
+    let alias = json!(role.as_str());
+    let messages = json!([{ "role": "user", "content": prose }]);
+    assert_eq!(rounds(trace), [(&alias, &messages)]);
+    assert_eq!(trace.text()?, reply);
+    Ok(())
+}
 
 /// Runs the shipped research prompt for "Ada Lovelace" over a catalog
 /// holding `web/fetch` and `web/search`, with a model that searches once
 /// and then answers.
 fn research_ada_lovelace() -> TestResult<Trace> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../prompts/research-person.md");
     let query = json!({ "type": "object", "properties": { "query": { "type": "string" } } });
     let catalog = ToolCatalog::new([
         tool_info("web/fetch", query.clone())?,
@@ -27,7 +60,82 @@ fn research_ada_lovelace() -> TestResult<Trace> {
     )
     .args(r#"{"text":"Ada Lovelace"}"#)
     .params(move |ctx| ctx.with_tools(catalog.clone()))
-    .run(&fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?)
+    .run(&shipped("research-person.md")?)
+}
+
+#[test]
+fn the_shipped_echo_prompt_returns_its_text_and_asks_no_model() -> TestResult {
+    let trace = Scenario::replies([])
+        .args(r#"{"text":"ping"}"#)
+        .run(&shipped("echo.md")?)?;
+    assert_eq!(trace.text()?, "ping");
+    assert!(
+        rounds(&trace).is_empty(),
+        "the prompt answers in Lua alone, with no model round"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_shipped_greet_prompt_sends_the_model_the_greeting_its_lua_computed() -> TestResult {
+    let trace = Scenario::replies([text("the model's reply")])
+        .args(r#"{"name":"Ada"}"#)
+        .run(&shipped("greet.md")?)?;
+    assert_one_round(
+        &trace,
+        ModelRole::Default,
+        "Repeat exactly, with no extra words: Hello, Ada!",
+        "the model's reply",
+    )
+}
+
+#[test]
+fn the_shipped_hello_prompt_sends_its_prose_and_returns_the_reply() -> TestResult {
+    let trace = Scenario::replies([text("the model's reply")]).run(&shipped("hello.md")?)?;
+    assert_one_round(
+        &trace,
+        ModelRole::Default,
+        "Say \"Hello, world!\"",
+        "the model's reply",
+    )
+}
+
+#[test]
+fn the_shipped_analyst_prompt_runs_its_round_on_the_strong_role() -> TestResult {
+    let trace = Scenario::replies([text("a short summary")])
+        .roles([
+            (
+                ModelRole::Default,
+                model("everyday", 8_192, ThinkingMode::Never)?,
+            ),
+            (
+                ModelRole::Strong,
+                model("careful", 40_000, ThinkingMode::Never)?,
+            ),
+        ])
+        .args(r#"{"text":"the input"}"#)
+        .run(&shipped("analyst-example.md")?)?;
+    assert_one_round(
+        &trace,
+        ModelRole::Strong,
+        "Analyze the following input carefully and return a short factual summary with no preamble:\n\nthe input",
+        "a short summary",
+    )
+}
+
+#[test]
+fn the_shipped_analyst_prompt_is_refused_when_its_strong_model_is_one_token_short() -> TestResult {
+    let scenario = Scenario::replies([])
+        .model(model("nearly", 39_999, ThinkingMode::Never)?)
+        .args(r#"{"text":"the input"}"#);
+    let message = refusal(scenario, &shipped("analyst-example.md")?)?;
+    assert!(
+        message.contains(
+            "role 'strong': requires a context of at least 40000 tokens; the model filling it provides 39999"
+        ),
+        "{message}"
+    );
+    Ok(())
 }
 
 #[test]
