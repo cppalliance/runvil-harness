@@ -332,7 +332,13 @@ pub(crate) fn var_snapshot_table(lua: &Lua) -> Result<mlua::Table> {
     let proxy: mlua::Table = lua
         .named_registry_value(VAR_PROXY_REGISTRY)
         .map_err(error::make_lua_error)?;
-    let current: Value = lua.globals().get("var").map_err(error::make_lua_error)?;
+    // A raw read: a `var` that a block took out of the globals is
+    // reassigned, whatever an `__index` of the block's on the globals
+    // would answer for it.
+    let current = lua
+        .globals()
+        .raw_get::<Value>("var")
+        .map_err(error::make_lua_error)?;
     match current {
         Value::Table(ref table) if table.equals(&proxy).map_err(error::make_lua_error)? => {}
         _ => {

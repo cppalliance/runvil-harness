@@ -252,7 +252,14 @@ fn reassigning_the_var_global_fails_read_back() {
     // `var = 5` drops the guarded proxy from reach; read-back must reject it
     // rather than silently roll the pre-reassignment data forward. Another
     // table in its place is not the proxy either.
-    for source in ["var = 5", "var = {}"] {
+    // An `__index` of the block's on the globals does not answer for a
+    // `var` that the block took out of them.
+    let hidden = "local kept = var\n\
+                  var = nil\n\
+                  setmetatable(_G, { __index = function(_, name)\n\
+                    if name == 'var' then return kept end\n\
+                  end })";
+    for source in ["var = 5", "var = {}", hidden] {
         let error =
             run(source, &json!({})).expect_err("reassigning the var global must fail at read-back");
         assert!(

@@ -590,6 +590,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_tasks_functions_call_no_global_that_a_block_replaced() {
+        // Each call fails before its first yield, and some name the type of
+        // a value through a helper of the chunk that holds `pcall`. A
+        // replaced global that a function of either chunk called would run
+        // the author's code between the check of a table and the read of it.
+        let vm = TestVm::new().shims().build();
+        let called = vm.eval::<String>(
+            "local called = {}
+             for _, name in ipairs({ 'error', 'ipairs', 'pairs', 'select', 'tostring', 'type' }) do
+               local real = _G[name]
+               _G[name] = function(...) called[#called + 1] = name return real(...) end
+             end
+             pcall(tasks.join, { 't1' }, { timeout = 'soon' })
+             pcall(tasks.spawn, 'a', { [5] = 1 })
+             pcall(tasks.cancel, 5)
+             pcall(tasks.pending, 1)
+             pcall(tasks.receive, 1)
+             pcall(tasks.note, 5)
+             pcall(tasks.send, 't1', 5)
+             pcall(tasks.concurrency, 'x')
+             return table.concat(called, ' ')",
+        );
+        assert_eq!(called, "");
+    }
+
     /// A binding labelled `label`, over the model `model`.
     fn binding(label: &str, model: &str) -> ModelBinding {
         ModelBinding::new(

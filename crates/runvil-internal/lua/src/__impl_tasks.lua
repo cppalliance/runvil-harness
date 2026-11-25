@@ -22,6 +22,10 @@ local yield, var_snapshot, helpers = ...
 
 local raise, fail, engine_type = helpers.raise, helpers.fail, helpers.engine_type
 local pairs, format = pairs, string.format
+-- Captured here, so that a global of these names that a block replaces
+-- runs none of the author's code inside a function of this chunk.
+local ipairs, select, tostring, type = ipairs, select, tostring, type
+
 
 -- Refuses a key of `opts` that `call` does not take, so a misspelled
 -- option fails where it is written. `accepted` holds the keys the call

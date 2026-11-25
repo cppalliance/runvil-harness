@@ -32,19 +32,24 @@ fn lua_failure(trace: &Trace) -> String {
 
 #[test]
 fn a_cycle_raises_naming_its_sections_in_order() {
-    let source = prompt(
-        "",
-        &[
-            ("Main", "require '/a'"),
-            ("a", "require '/b'"),
-            ("b", "require '/a'"),
-        ],
-    );
-    let message = lua_failure(&require_case(source).run());
-    assert!(
-        message.contains("require cycle: /a -> /b -> /a"),
-        "the cycle names both libraries: {message}"
-    );
+    // A Pack prelude can put a function of its own in `table.concat`,
+    // and the cycle is listed without it.
+    let rejoin = prelude("rejoin", "table.concat = function() return 'replaced' end");
+    for (frontmatter, preludes) in [("", Vec::new()), ("uses: [rejoin]", vec![rejoin])] {
+        let source = prompt(
+            frontmatter,
+            &[
+                ("Main", "require '/a'"),
+                ("a", "require '/b'"),
+                ("b", "require '/a'"),
+            ],
+        );
+        let message = lua_failure(&run_with_preludes(&source, preludes));
+        assert!(
+            message.contains("require cycle: /a -> /b -> /a"),
+            "the cycle names both libraries: {message}"
+        );
+    }
 }
 
 #[test]

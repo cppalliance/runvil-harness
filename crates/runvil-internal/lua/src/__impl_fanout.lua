@@ -29,6 +29,7 @@ local raise, fail = helpers.raise, helpers.fail
 -- The base functions the shim uses, captured at install so its behavior does
 -- not move when author code rebinds the base globals.
 local setmetatable, type, select = setmetatable, type, select
+local error, ipairs = error, ipairs
 
 -- One fanout arm's result: a frozen, methodless object whose fields
 -- are `text`, `ok`, `item`, and `exhausted`, with `tostring` giving the

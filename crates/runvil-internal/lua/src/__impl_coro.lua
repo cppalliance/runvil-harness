@@ -47,6 +47,11 @@ local raw_pcall, raw_xpcall = pcall, xpcall
 -- error, captured so author code that rebinds `error` cannot move a raise.
 local error = error
 
+-- Captured for the same reason: a global of these names that a block
+-- replaces runs none of the author's code inside a function of this chunk,
+-- or inside a `tasks` function that calls one of its helpers.
+local select, tostring, type = select, tostring, type
+
 -- math.type, captured at install for the same reason: the shim's type
 -- names must not move when author code rebinds `math`.
 local math_type = math.type

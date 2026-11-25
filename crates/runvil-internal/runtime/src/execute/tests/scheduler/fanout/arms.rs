@@ -1,7 +1,8 @@
 //! What a fanout arm runs with and hands back: a pre-canceled fanout, an
 //! arm infer with no model binding, a library the arm requires seeing
 //! `item`, jumps from an arm into child walks, a hash collection in sorted
-//! key order, and sealed results.
+//! key order, sealed results, and a fanout that calls no global the block
+//! replaced.
 
 use super::*;
 
@@ -217,4 +218,29 @@ fn fanout_results_are_sealed_against_writes_and_metatable_replacement() {
     let trace = scheduler_scenario(md).run();
 
     assert_eq!(trace.text(), "alpha-1,beta-2");
+}
+
+#[test]
+fn a_fanout_calls_no_global_that_the_block_replaced() {
+    // The fanout spawns its arms, joins them, and refuses a write to a
+    // result, and a global that the block replaced is called by none of it.
+    let md = "---\nname: t\ndescription: d\nrunvil: 0\n---\n\n\
+        ## Parent\n\n\
+        ```lua\n\
+        local called = {}\n\
+        for _, name in ipairs({ 'error', 'ipairs', 'select', 'tostring', 'type' }) do\n\
+          local real = _G[name]\n\
+          _G[name] = function(...) called[#called + 1] = name return real(...) end\n\
+        end\n\
+        local r = tasks.fanout('Worker', {'alpha', 'beta'})\n\
+        pcall(function() r[1].text = 'forged' end)\n\
+        return r[1].text .. ' ' .. r[2].text .. ' called:' .. table.concat(called, ' ')\n\
+        ```\n\n\
+        ### Worker\n\n\
+        ```lua\n\
+        return item .. '-' .. sys.index\n\
+        ```\n";
+    let trace = scheduler_scenario(md).run();
+
+    assert_eq!(trace.text(), "alpha-1 beta-2 called:");
 }
