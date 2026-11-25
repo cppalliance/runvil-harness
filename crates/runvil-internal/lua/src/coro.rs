@@ -521,7 +521,7 @@ pub(crate) fn take_failure(lua: &Lua) -> Result<StashedFailure> {
     lua.set_named_registry_value(FAILURE_TRACEBACK_REGISTRY, Value::Nil)
         .map_err(map_lua)?;
     let traceback = match traceback {
-        Value::String(text) => Some(text.to_str().map_err(map_lua)?.to_owned()),
+        Value::String(text) => Some(text.to_string_lossy()),
         _ => None,
     };
     let raised = match retained_error(lua, &failure).map_err(map_lua)? {

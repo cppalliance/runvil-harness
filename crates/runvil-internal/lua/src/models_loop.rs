@@ -405,11 +405,11 @@ fn request<const N: usize>(lua: &Lua, op: &str, fields: [(&str, Value); N]) -> m
     Ok(Value::Table(table))
 }
 
-/// The value `fail` raises for an envelope's failure: an error table
+/// The value the loop raises for an envelope's failure: an error table
 /// unchanged; anything else a new `lua`-kind table whose message is what
-/// the `tostring` global returns for it, as `fail` builds it. The Engine
-/// renders every failure as an error table, so only a hand-built envelope
-/// reaches the second branch.
+/// the `tostring` global returns for it. The Engine renders every failure
+/// as an error table, so only a hand-built envelope reaches the second
+/// branch.
 fn envelope_failure(lua: &Lua, value: Value) -> mlua::Result<Value> {
     if let Value::Table(_) = value {
         return Ok(value);

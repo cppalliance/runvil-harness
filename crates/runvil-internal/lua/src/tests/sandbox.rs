@@ -768,6 +768,32 @@ fn a_raised_value_with_no_text_fails_the_block_without_its_address() {
 }
 
 #[test]
+fn a_failure_keeps_its_text_and_its_line_where_a_part_of_it_is_not_utf8() {
+    for (block, reason, line) in [
+        // The traceback names the field that holds the function, and the
+        // line of an Engine failure is in the traceback alone.
+        (
+            "local t = {}\nt['\\xff'] = function() tasks.cancel(5) end\nt['\\xff']()",
+            "tasks.cancel expects a Task handle or task id, got integer",
+            2,
+        ),
+        // The message of the Engine's error table quotes the key.
+        (
+            "tasks.spawn('S', { ['\\xff'] = 1 })",
+            "tasks.spawn: unknown key \"\u{fffd}\"; accepted keys are args, item, index",
+            1,
+        ),
+    ] {
+        let error = run(block, &json!({})).expect_err("the block fails");
+        assert_eq!(
+            (error.prose, error.at.map(|at| at.start_line.get())),
+            (refused(reason), Some(line)),
+            "{block}"
+        );
+    }
+}
+
+#[test]
 fn an_installed_require_is_runvils_and_loads_no_module() {
     let vm = TestVm::new().shims().build();
     vm.install_require(

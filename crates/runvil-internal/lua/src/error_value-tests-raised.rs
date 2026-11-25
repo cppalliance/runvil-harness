@@ -3,11 +3,16 @@
 //! shim-built table and a table without a code get from their kind, and
 //! the error a rendered table keeps beside it.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+
 use mlua::{Function, Lua, Table, Value};
 use runvil_types::error::{Error, ErrorCode, ErrorFact};
 use runvil_types::ids::TaskId;
 
-use super::super::{error_table, install_error_value, normalized, raised_from, retained_error};
+use super::super::{
+    error_table, field_facts, install_error_value, normalized, raised_from, retained_error,
+};
 use super::every_store_failure;
 use crate::error::{
     QuotaResource, make_context_exhausted_error, make_internal_error, make_lua_quota_error,
@@ -217,6 +222,80 @@ fn a_table_with_no_usable_code_reads_back_as_the_failure_its_kind_names() {
     assert_eq!(back.code, ErrorCode::TaskCanceled);
     assert_eq!(back.facts.get(&ErrorFact::Task), Some(&"0.1".into()));
     assert_eq!(back.message, "gone");
+}
+
+#[test]
+fn the_read_of_a_table_asks_for_the_fields_of_its_code_and_no_other() {
+    // A table can hold any number of entries of any size beside its
+    // fields, and the read copies what it asks for.
+    for (code, names) in [
+        (ErrorCode::TasksLive, vec!["tasks"]),
+        (ErrorCode::ContextExhausted, vec!["reason"]),
+        (
+            ErrorCode::NotFound,
+            vec!["path", "valid_up_to", "rule", "anchor", "count"],
+        ),
+        (ErrorCode::LuaRuntime, Vec::new()),
+    ] {
+        let asked = RefCell::new(Vec::new());
+        let facts = field_facts(code, |name| {
+            asked.borrow_mut().push(name.to_owned());
+            Ok(None)
+        })
+        .expect("the fields read");
+        assert_eq!(facts, BTreeMap::new(), "{code:?}");
+        assert_eq!(asked.into_inner(), names, "{code:?}");
+    }
+}
+
+#[test]
+fn entries_that_are_no_fields_are_passed_over_in_every_vm() {
+    // The read asks for the fields of the table's code by name, so an
+    // entry it cannot take never fails it, in whatever order a VM walks
+    // the table.
+    for state in 0..16 {
+        let lua = Lua::new();
+        let table = shim_table(&lua, "canceled", &[("task", "0.1"), ("message", "gone")]);
+        let bytes = lua.create_string([0xff]).expect("the string builds");
+        table.raw_set(true, 1).expect("a key sets");
+        table
+            .raw_set(lua.create_table().expect("the key builds"), 1)
+            .expect("a key sets");
+        table.raw_set(bytes.clone(), "x").expect("a key sets");
+        table.raw_set("raw", bytes.clone()).expect("a field sets");
+        let back = read_back(&lua, &table);
+        assert_eq!(back.code, ErrorCode::TaskCanceled, "state {state}");
+        assert_eq!(back.message, "gone", "state {state}");
+        assert_eq!(
+            back.facts,
+            BTreeMap::from([(ErrorFact::Task, serde_json::Value::from("0.1"))]),
+            "state {state}"
+        );
+        // A field whose text is not UTF-8 holds no fact.
+        table.raw_set("task", bytes.clone()).expect("a field sets");
+        let back = read_back(&lua, &table);
+        assert_eq!(back.message, "gone", "state {state}");
+        assert_eq!(back.facts, BTreeMap::new(), "state {state}");
+        // A `message` reads with U+FFFD for a part that is not UTF-8, and
+        // a `kind` that is not UTF-8 is the kind of no error.
+        table
+            .raw_set(
+                "message",
+                lua.create_string(b"go\xffne").expect("the string builds"),
+            )
+            .expect("a field sets");
+        assert_eq!(
+            read_back(&lua, &table).message,
+            "go\u{fffd}ne",
+            "state {state}"
+        );
+        table.raw_set("kind", bytes).expect("a field sets");
+        assert_eq!(
+            raised_from(&lua, &Value::Table(table)).expect("the table reads"),
+            None,
+            "state {state}"
+        );
+    }
 }
 
 #[test]

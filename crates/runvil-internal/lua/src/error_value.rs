@@ -389,33 +389,34 @@ pub fn error_fields(error: &Error) -> Vec<(String, ErrorField)> {
     }
 }
 
-/// Returns the facts an error table's `fields` hold for a failure with
-/// `code`, the inverse of [`error_fields`]: each field that code's table
-/// gives, under its fact, with `tasks` split back into the ids it joins.
-/// A field of another shape, or one the code's table never gives, holds
-/// no fact.
+/// Returns the facts an error table holds for a failure with `code`, the
+/// inverse of [`error_fields`]: each field that code's table gives, under
+/// its fact, with `tasks` split back into the ids it joins. `field` reads
+/// one field of the table by its name, and is asked for the fields of
+/// that code alone, so a field of another shape, or one the code's table
+/// never gives, holds no fact, and no other entry of the table is read.
+///
+/// # Errors
+/// Returns the failure of `field`.
 fn field_facts(
     code: ErrorCode,
-    fields: &BTreeMap<String, ErrorField>,
-) -> BTreeMap<ErrorFact, Json> {
+    field: impl Fn(&str) -> mlua::Result<Option<ErrorField>>,
+) -> mlua::Result<BTreeMap<ErrorFact, Json>> {
+    let string = |name: &str, key: ErrorFact, shape: fn(&str) -> Json| {
+        let value = field(name)?;
+        let fact = value.as_ref().and_then(ErrorField::as_str);
+        Ok(fact.map(|text| (key, shape(text))).into_iter().collect())
+    };
     match code {
-        ErrorCode::TasksLive => fields
-            .get("tasks")
-            .and_then(ErrorField::as_str)
-            .map(|joined| {
-                let tasks: Vec<&str> = joined.split(", ").filter(|id| !id.is_empty()).collect();
-                (ErrorFact::Tasks, Json::from(tasks))
-            })
-            .into_iter()
-            .collect(),
-        code if kind_of(code) == ErrorKind::Store => store_field_facts(fields),
-        code => string_fact(code)
-            .and_then(|(name, key)| {
-                let value = fields.get(name)?.as_str()?;
-                Some((key, Json::from(value)))
-            })
-            .into_iter()
-            .collect(),
+        ErrorCode::TasksLive => string("tasks", ErrorFact::Tasks, |joined| {
+            let tasks: Vec<&str> = joined.split(", ").filter(|id| !id.is_empty()).collect();
+            Json::from(tasks)
+        }),
+        code if kind_of(code) == ErrorKind::Store => store_field_facts(field),
+        code => match string_fact(code) {
+            Some((name, key)) => string(name, key, |text| Json::from(text)),
+            None => Ok(BTreeMap::new()),
+        },
     }
 }
 
@@ -543,21 +544,26 @@ fn store_fact_fields(error: &Error) -> Vec<(String, ErrorField)> {
     fields
 }
 
-/// Returns the store facts a store failure's Lua error table `fields`
-/// hold, the inverse of [`store_fact_fields`]: each store field under its
-/// fact, a string field as a string and an integer field as a number.
-/// `reason` is the code's tag, not a fact.
-fn store_field_facts(fields: &BTreeMap<String, ErrorField>) -> BTreeMap<ErrorFact, Json> {
-    STORE_FACTS
-        .iter()
-        .filter_map(|&(name, key)| {
-            let value = match fields.get(name)? {
-                ErrorField::String(text) => Json::from(text.as_str()),
-                ErrorField::Integer(number) => Json::from(*number),
-            };
-            Some((key, value))
-        })
-        .collect()
+/// Returns the store facts a store failure's Lua error table holds, the
+/// inverse of [`store_fact_fields`]: each store field that `field` reads,
+/// under its fact, a string field as a string and an integer field as a
+/// number. `reason` is the code's tag, not a fact.
+///
+/// # Errors
+/// Returns the failure of `field`.
+fn store_field_facts(
+    field: impl Fn(&str) -> mlua::Result<Option<ErrorField>>,
+) -> mlua::Result<BTreeMap<ErrorFact, Json>> {
+    let mut facts = BTreeMap::new();
+    for (name, key) in STORE_FACTS {
+        let value = match field(name)? {
+            Some(ErrorField::String(text)) => Json::from(text),
+            Some(ErrorField::Integer(number)) => Json::from(number),
+            None => continue,
+        };
+        facts.insert(key, value);
+    }
+    Ok(facts)
 }
 
 /// The code named after the variant.
@@ -887,8 +893,13 @@ fn table_code(kind: ErrorKind, fields: &Table) -> ErrorCode {
 /// Reads a raised Lua value back as the universal error it stands for,
 /// when it is an error table built on this VM. The code is the one
 /// [`table_code`] names; the message and the prose are both the table's
-/// `message`; and the facts are its fields under the fact names the
-/// table's fields hold for that code. Any other value is `None`.
+/// `message`, with U+FFFD for each part of it that is not UTF-8; and the
+/// facts are the fields that code's table gives, each read by its name,
+/// under the fact it holds. A field holds a UTF-8 string or an integer,
+/// and no other entry of the table is read, so the read makes at most
+/// nine copies of strings and holds at most seven at once: the message
+/// twice, the `code`, a `task` or a `reason`, and the facts. Any other
+/// value is `None`, and so is a table whose `kind` is not a kind's tag.
 ///
 /// # Errors
 /// Returns an `mlua` error if the table's fields cannot be read.
@@ -902,31 +913,26 @@ pub(crate) fn raised_from(lua: &Lua, value: &Value) -> mlua::Result<Option<Error
     let Value::String(tag) = table.raw_get::<Value>("kind")? else {
         return Ok(None);
     };
-    let Some(kind) = ErrorKind::from_tag(&tag.to_str()?) else {
+    let Some(kind) = tag.to_str().ok().and_then(|tag| ErrorKind::from_tag(&tag)) else {
         return Ok(None);
     };
     let message = match table.raw_get::<Value>("message")? {
-        Value::String(message) => message.to_str()?.to_owned(),
+        Value::String(message) => message.to_string_lossy(),
         _ => kind.tag().to_owned(),
     };
-    // `pairs` order is unspecified, but `fields` is a `BTreeMap`, so the
-    // facts never depend on it.
-    let mut fields = BTreeMap::new();
-    for pair in table.pairs::<String, Value>() {
-        let (name, value) = pair?;
-        if matches!(name.as_str(), "kind" | "code" | "message") {
-            continue;
-        }
-        let field = match value {
-            Value::String(value) => ErrorField::String(value.to_str()?.to_owned()),
-            Value::Integer(value) => ErrorField::Integer(value),
-            _ => continue,
-        };
-        fields.insert(name, field);
-    }
+    let field = |name: &str| {
+        Ok(match table.raw_get::<Value>(name)? {
+            Value::String(value) => value
+                .to_str()
+                .ok()
+                .map(|value| ErrorField::String(value.to_owned())),
+            Value::Integer(value) => Some(ErrorField::Integer(value)),
+            _ => None,
+        })
+    };
     let code = table_code(kind, table);
     let mut error = Error::new(code, message.clone(), message);
-    error.facts = field_facts(code, &fields);
+    error.facts = field_facts(code, field)?;
     Ok(Some(error))
 }
 
