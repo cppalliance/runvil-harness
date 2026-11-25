@@ -7,7 +7,8 @@
 //! list as items 1, 2, and so on up to the first nil, refuses a list on
 //! its own path and one nested too deep, and counts every block it visits
 //! against a budget, since a table shared by many parents is visited once
-//! for each.
+//! for each. It refuses a weak list and a weak block, whose entries the
+//! collector can take before the walk reads them.
 //!
 //! A failure names the function the walk serves and the place it stopped,
 //! such as `blocks[2].blocks[1]`.
@@ -18,6 +19,7 @@ use std::fmt;
 use mlua::{Lua, LuaString, Table, Value};
 
 use crate::error::author_refusal;
+use crate::meta_names::MetaNames;
 use crate::proxy::{Unsealed, unseal};
 use crate::walk_budget::WalkBudget;
 
@@ -26,7 +28,11 @@ use crate::walk_budget::WalkBudget;
 const DEPTH_LIMIT: usize = 127;
 
 /// One walk over a list of blocks, for one call of a `markdown` function.
-pub(super) struct Walk {
+pub(super) struct Walk<'lua> {
+    /// The VM whose tables the walk reads.
+    lua: &'lua Lua,
+    /// The names the walk reads metatables by.
+    names: MetaNames,
     /// The function the walk serves, which starts every failure's text.
     function: &'static str,
     /// What is left of the work the walk may do.
@@ -92,10 +98,12 @@ pub(super) fn whole(value: &Value) -> Option<i64> {
     }
 }
 
-impl Walk {
+impl<'lua> Walk<'lua> {
     /// A walk for one call of `function` on `lua`.
-    pub(super) fn new(lua: &Lua, function: &'static str) -> Self {
+    pub(super) fn new(lua: &'lua Lua, function: &'static str) -> Self {
         Self {
+            lua,
+            names: MetaNames::default(),
             function,
             budget: WalkBudget::for_vm(lua),
             open: Vec::new(),
@@ -105,7 +113,7 @@ impl Walk {
 
     /// The failure `<function>: <message>`.
     pub(super) fn refuse(&self, message: impl fmt::Display) -> mlua::Error {
-        author_refusal(format!("{}: {message}", self.function))
+        refusal(self.function, message)
     }
 
     /// Spends one visit of the budget.
@@ -145,14 +153,12 @@ impl Walk {
     /// The table `table` stands for, with any view read through, for the
     /// value `name` names.
     fn data(&mut self, table: &Table, name: &dyn Fn(&Self) -> String) -> mlua::Result<Table> {
-        let mut hops = 0_usize;
-        let unsealed = unseal(table, || {
-            hops += 1;
-            Ok(())
+        let (function, budget) = (self.function, &mut self.budget);
+        let unsealed = unseal(self.lua, &self.names, table, |cost| {
+            budget
+                .charge_read(cost)
+                .map_err(|_| refusal(function, "blocks are too large to walk"))
         })?;
-        for _ in 0..hops {
-            self.charge()?;
-        }
         match unsealed {
             Unsealed::Data(data) => Ok(data),
             Unsealed::Unreadable(Some(label)) => {
@@ -168,6 +174,7 @@ impl Walk {
                 name(self)
             ))),
             Unsealed::Loop => Err(self.refuse(format!("{} contains itself", name(self)))),
+            Unsealed::Weak(weakness) => Err(self.refuse(format!("{} is {weakness}", name(self)))),
         }
     }
 
@@ -273,4 +280,9 @@ impl Walk {
             Err(_) => Err(self.refuse(format!("{}.{field} is not valid UTF-8", self.block_name()))),
         }
     }
+}
+
+/// The failure `<function>: <message>`.
+fn refusal(function: &str, message: impl fmt::Display) -> mlua::Error {
+    author_refusal(format!("{function}: {message}"))
 }

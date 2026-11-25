@@ -31,6 +31,7 @@ use crate::bindings::{DiscoveryTool, ToolBinding, ToolSet};
 use crate::error::{self, Result};
 use crate::json::to_json;
 use crate::messages::MessageList;
+use crate::meta_names::MetaNames;
 use crate::packs::{ADHOC_PACK, install_pack_list, install_pack_objects};
 use crate::proxy::{key_text, quoted, view_data};
 use crate::scope::{OfferMode, Offers};
@@ -183,12 +184,12 @@ fn install_adhoc(lua: &Lua, tools: &Table, adhoc_tools: &AdhocTools) -> Result<(
 /// and that neither the name nor the id is taken, a discovery tool's wire
 /// name included.
 fn adhoc_info(lua: &Lua, attrs: &Table, adhoc: &AdhocTools) -> mlua::Result<(String, ToolInfo)> {
+    let names = &MetaNames::default();
     // A view is an empty proxy with its data behind `__index`, so the raw
     // walk below and the raw `attr_text` reads would both see nothing and
     // `tools.adhoc(var.tool, f)` would report a missing `name` for a table
     // Lua reads fine.
-    let attrs = view_data(attrs)?;
-    let attrs = &attrs;
+    let attrs = &read_table(lua, names, attrs, "the attributes are")?;
     let mut unknown: Vec<String> = Vec::new();
     for pair in attrs.pairs::<Value, Value>() {
         let (key, _) = pair?;
@@ -250,7 +251,7 @@ fn adhoc_info(lua: &Lua, attrs: &Table, adhoc: &AdhocTools) -> mlua::Result<(Str
     }
     let parameters = match attrs.raw_get::<Value>("parameters")? {
         Value::Nil => json!({ "type": "object", "properties": {}, "required": [] }),
-        Value::Table(parameters) => parameters_schema(lua, &parameters)?,
+        Value::Table(parameters) => parameters_schema(lua, names, &parameters)?,
         other => {
             return Err(mlua::Error::external(format!(
                 "tools.adhoc: parameters must be a table, got {}",
@@ -285,14 +286,23 @@ fn attr_text(attrs: &Table, key: &str) -> mlua::Result<LuaString> {
 /// proxy whose data sits behind `__index`, so the raw `type` read and the
 /// raw `pairs` walk in the short form would both see nothing, and a schema
 /// that came from `args` or `var` would define a tool with no parameters.
-fn parameters_schema(lua: &Lua, parameters: &Table) -> mlua::Result<Json> {
-    let parameters = view_data(parameters)?;
+fn parameters_schema(lua: &Lua, names: &MetaNames, parameters: &Table) -> mlua::Result<Json> {
+    let parameters = read_table(lua, names, parameters, "parameters are")?;
     match parameters.raw_get::<Value>("type")? {
         Value::String(kind) if kind == "object" => {
             to_json(lua, PARAMETERS_NOT_JSON, false, &Value::Table(parameters))
         }
         _ => adhoc_params_schema(lua, &parameters),
     }
+}
+
+/// The table that `table` stands for, as [`view_data`] reads it, where
+/// the words `what` name `table` in the refusal of a weak table on the
+/// way: a view is a view in one run and its own data in the next when the
+/// collector takes the entries of a table that the read looks into.
+fn read_table(lua: &Lua, names: &MetaNames, table: &Table, what: &str) -> mlua::Result<Table> {
+    view_data(lua, names, table)?
+        .map_err(|weakness| mlua::Error::external(format!("tools.adhoc: {what} {weakness}")))
 }
 
 #[cfg(test)]

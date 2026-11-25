@@ -222,41 +222,12 @@ impl From<SortKey> for WalkPlace {
     }
 }
 
-/// Whether `table` is weak: its metatable has a `__mode` that is a string
-/// with `k` or `v` in it before its first zero byte, which is how Lua reads
-/// the field. Lua reads it each time it collects, so a table can become
-/// weak after it has its metatable.
-///
-/// A walk that keeps no reference to each entry refuses a weak table.
-/// Lua's collector takes an entry out of one once nothing else uses the
-/// entry's key or value, whichever the mode names. Such a walk writes to
-/// Lua's heap as it reads, and the collector can run at each write: it
-/// then takes the entries the walk has not read yet, and keeps the one
-/// Rust holds. Which entries those are follows Lua's own order, which
-/// differs from one VM to the next, so what the walk found would too.
-///
-/// # Errors
-/// Returns the `mlua` error of the metatable read.
-pub(crate) fn is_weak(table: &Table) -> mlua::Result<bool> {
-    let Some(metatable) = table.metatable() else {
-        return Ok(false);
-    };
-    Ok(match metatable.raw_get::<Value>("__mode")? {
-        Value::String(mode) => mode
-            .as_bytes()
-            .iter()
-            .take_while(|byte| **byte != 0)
-            .any(|byte| *byte == b'k' || *byte == b'v'),
-        _ => false,
-    })
-}
-
 /// Puts the `places.len()` items of the Lua list `list` after its first
 /// `base` in the order `compare` gives their places: `places[slot]` is the
 /// place of the item at `base + slot + 1`.
 ///
 /// For a walk that must hold no Lua reference to each item, of a table
-/// that [`is_weak`] says is not weak. `mlua` gives
+/// that [`is_weak`](crate::weak::is_weak) says is not weak. `mlua` gives
 /// every Lua value a Rust value holds a slot on one stack, and panics when
 /// that stack cannot grow, which near the VM's memory limit it cannot. So
 /// the walk writes each item to a Lua list as it meets it and keeps only

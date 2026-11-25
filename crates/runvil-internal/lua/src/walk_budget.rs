@@ -5,6 +5,11 @@
 //! the Lua heap that holds its input, and a single Rust callback runs
 //! without the instruction hook ever firing. The budget is sized from the
 //! heap ceiling so that only expansion beyond the heap is refused.
+//!
+//! A read that tells whether a table is weak scans the `__mode` of its
+//! metatable, a string of any length that many tables can share, once for
+//! each table. So those bytes are text the walk reads, and [`ReadCost`]
+//! brings them to the budget.
 
 use mlua::Lua;
 
@@ -42,6 +47,17 @@ pub(crate) struct HeapCeiling(pub usize);
 /// [`apply_lua_limits`](crate::SectionVm::apply_lua_limits) sets the run's.
 pub(crate) const DEFAULT_LUA_MEMORY_BYTES: usize = 64 * 1024 * 1024;
 
+/// What the read of one table through its views asks the walk it is part
+/// of to spend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReadCost {
+    /// One view passed on the way to the data.
+    View,
+    /// This many bytes of a `__mode`, which the read looked at to tell
+    /// whether a table is weak.
+    Mode(usize),
+}
+
 /// What one walk has left to spend: values visited and bytes of text read.
 pub(crate) struct WalkBudget {
     nodes: usize,
@@ -65,6 +81,11 @@ impl WalkBudget {
         }
     }
 
+    /// How many bytes of text are left to spend.
+    pub(crate) fn bytes(&self) -> usize {
+        self.bytes
+    }
+
     /// Spends one value, failing once none are left.
     pub(crate) fn charge_node(&mut self) -> Result<(), TooLarge> {
         self.nodes = self.nodes.checked_sub(1).ok_or(TooLarge)?;
@@ -76,6 +97,15 @@ impl WalkBudget {
     pub(crate) fn charge_view(&mut self) -> Result<(), TooLarge> {
         self.nodes = self.nodes.checked_sub(NODES_PER_VIEW).ok_or(TooLarge)?;
         Ok(())
+    }
+
+    /// Spends what the read of one table asks for: a value for a view
+    /// passed, and the bytes of a `__mode` as text.
+    pub(crate) fn charge_read(&mut self, cost: ReadCost) -> Result<(), TooLarge> {
+        match cost {
+            ReadCost::View => self.charge_node(),
+            ReadCost::Mode(bytes) => self.charge_bytes(bytes),
+        }
     }
 
     /// Spends `n` bytes of text, failing when fewer than `n` are left.

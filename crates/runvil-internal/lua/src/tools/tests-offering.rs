@@ -4,7 +4,9 @@
 
 use crate::RenderedTools;
 use crate::error::root_text;
-use crate::test_vm::{catalog_set, lua_over, offer_set, offers, raised, scoped, tool_at};
+use crate::test_vm::{TestVm, catalog_set, lua_over, offer_set, offers, raised, scoped, tool_at};
+use crate::vm::DEFAULT_LUA_LOG_EVENTS;
+use crate::weak::{WEAK_METATABLE, WEAK_TABLE};
 
 /// The adhoc tool `grab` the forms below offer as an object.
 const GRAB: &str =
@@ -209,6 +211,42 @@ fn each_refusal_names_its_verb_and_a_refused_call_records_nothing() {
 }
 
 #[test]
+fn a_weak_array_is_refused_before_its_first_read_and_after_each_metamethod() {
+    // A `__len` and an `__index` run before the last read of the table,
+    // and either can make it weak: no entry is read after the `__len` of
+    // the second array, and one is after the `__index` of the third. A
+    // weak metatable has its `__len` or not as the collector leaves it.
+    let vm = TestVm::new().tools(offer_set()).build();
+    for verb in ["tools.offer", "tools.offer_dynamic"] {
+        for (array, weakness) in [
+            ("setmetatable({ 'web' }, { __mode = 'v' })", WEAK_TABLE),
+            (
+                "setmetatable({}, { __len = function(t) \
+                   getmetatable(t).__mode = 'v' t.p = {} return 0 end })",
+                WEAK_TABLE,
+            ),
+            (
+                "setmetatable({}, { __len = function() return 1 end, __index = function(t) \
+                   getmetatable(t).__mode = 'k' return 'web' end })",
+                WEAK_TABLE,
+            ),
+            (
+                "setmetatable({ 'web' }, setmetatable({ __len = function() return 1 end }, \
+                   { __mode = 'v' }))",
+                WEAK_METATABLE,
+            ),
+        ] {
+            assert_eq!(
+                root_text(&vm.eval_err(&format!("{verb}({array})"))),
+                format!("{verb} takes an array, got {weakness}"),
+                "{verb}({array})"
+            );
+        }
+    }
+    assert_eq!(offers(&vm), Vec::<String>::new());
+}
+
+#[test]
 fn an_array_with_several_keys_outside_it_is_refused_for_the_same_one_in_every_vm() {
     // Each VM walks the table under its own hash seed. The refusal names
     // the first key in the shared order, where a number comes before a
@@ -268,6 +306,52 @@ fn an_array_is_read_through_its_metamethods() {
         ["static:gh", "static:web/fetch"],
         "a negative length reads as no entries"
     );
+}
+
+#[test]
+fn an_array_with_more_mode_than_one_call_scans_is_refused() {
+    // The read tests the array for a weak table before its first entry,
+    // after the call of its `__len`, and after each call of its
+    // `__index`, since each runs code of the author. Each test scans the
+    // `__mode` of 1 MiB, which makes the array not weak: two entries are
+    // the 4 MiB that a 4 MiB heap gives one call, and three are past it.
+    // An array that holds its entries itself runs no code of the author,
+    // and is tested once.
+    let vm = TestVm::new()
+        .tools(offer_set())
+        .limits(4 * 1024 * 1024, DEFAULT_LUA_LOG_EVENTS)
+        .build();
+    vm.exec(
+        "local mode = string.rep('x', 2^20) \
+         function array(entries) \
+           return setmetatable({}, { \
+             __mode = mode, \
+             __len = function() return entries end, \
+             __index = function() return 'web' end, \
+           }) \
+         end \
+         function held(entries) \
+           local t = setmetatable({}, { __mode = mode }) \
+           for i = 1, entries do t[i] = 'web' end \
+           return t \
+         end",
+    );
+    for (verb, mode) in [
+        ("tools.offer", "static"),
+        ("tools.offer_dynamic", "dynamic"),
+    ] {
+        assert_eq!(
+            root_text(&vm.eval_err(&format!("{verb}(array(3))"))),
+            format!(
+                "{verb} takes an array, got a table with 5242880 bytes of __mode to scan: one \
+                 call scans at most 4194304 bytes"
+            )
+        );
+        for taken in ["array(2)", "held(100)"] {
+            vm.exec(&format!("{verb}({taken})"));
+            assert_eq!(offers(&vm).last(), Some(&format!("{mode}:web")), "{taken}");
+        }
+    }
 }
 
 #[test]

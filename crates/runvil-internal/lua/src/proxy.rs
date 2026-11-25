@@ -18,7 +18,9 @@ use mlua::{
     UserDataMethods, Value,
 };
 
-use crate::walk_budget::{TooLarge, WalkBudget};
+use crate::meta_names::MetaNames;
+use crate::walk_budget::{ReadCost, TooLarge, WalkBudget};
+use crate::weak::{ModeBudget, weakness_of};
 
 /// Renders a table key for a refusal: a string as its text, an integer as
 /// its digits, and any other key by its type name.
@@ -124,6 +126,11 @@ pub(crate) enum Unsealed {
     Unreadable(Option<LuaString>),
     /// A chain of views that leads back to one of its own views.
     Loop,
+    /// A table the read must not look into, with what a refusal says of
+    /// it, as [`weakness_of`] tells: a weak table, or a table whose
+    /// metatable is one. It is the table given, a view passed on the way,
+    /// or the table that holds the data.
+    Weak(&'static str),
 }
 
 /// Reads `table` through sealed views, never calling into Lua.
@@ -131,16 +138,31 @@ pub(crate) enum Unsealed {
 /// A sealed view is a table with no entries of its own whose metatable has
 /// both `__index` and `__metatable`: a table `__index` is its data, read
 /// by these same rules, and a function `__index` cannot be read, labelled
-/// by a string `__metatable`. Any other table is its own data. `hop` runs
-/// once for each view passed, so the caller can bound the work, and the
-/// views already passed sit in a set, so a long chain costs time in
-/// proportion to its length.
+/// by a string `__metatable`. Any other table is its own data. `spend`
+/// runs once for each view passed, and once for each metatable the read
+/// asks for a `__mode`, with the bytes scanned, as [`weakness_of`] tells.
+/// So the caller can bound the work: the views already passed sit in a
+/// set, and a long chain costs time in proportion to its length and to
+/// the bytes of `__mode` it scans. `names` keeps the name of each field
+/// the read asks a metatable for, for all the reads of one walk or of
+/// one installed function, as [`MetaNames`] tells.
+///
+/// A weak table ends the read wherever it is met, before the read looks
+/// for an entry in it. The collector takes the entries of a weak table, so
+/// whether one has none, and is a view, would differ from one run to the
+/// next, and so would the entries of the data. A table whose metatable is
+/// a weak table ends the read too, before the read asks that metatable for
+/// `__metatable` and `__index`: the collector takes those fields as it
+/// takes any entry, and the table would be a view in one run and its own
+/// data in the next.
 ///
 /// # Errors
-/// Returns the failure of `hop`, or of reading a metatable.
+/// Returns the failure of `spend`, or of reading a metatable.
 pub(crate) fn unseal(
+    lua: &Lua,
+    names: &MetaNames,
     table: &Table,
-    mut hop: impl FnMut() -> mlua::Result<()>,
+    mut spend: impl FnMut(ReadCost) -> mlua::Result<()>,
 ) -> mlua::Result<Unsealed> {
     let mut current = table.clone();
     let mut views = HashSet::new();
@@ -148,7 +170,11 @@ pub(crate) fn unseal(
         let Some(metatable) = current.metatable() else {
             return Ok(Unsealed::Data(current));
         };
-        let label: Value = metatable.raw_get("__metatable")?;
+        let weakness = weakness_of(lua, names, &metatable, |bytes| spend(ReadCost::Mode(bytes)))?;
+        if let Some(weakness) = weakness {
+            return Ok(Unsealed::Weak(weakness));
+        }
+        let label = names.label(lua, &metatable)?;
         if label.is_nil()
             || current
                 .pairs::<Value, Value>()
@@ -158,9 +184,9 @@ pub(crate) fn unseal(
         {
             return Ok(Unsealed::Data(current));
         }
-        match metatable.raw_get::<Value>("__index")? {
+        match names.index(lua, &metatable)? {
             Value::Table(data) => {
-                hop()?;
+                spend(ReadCost::View)?;
                 views.insert(current.to_pointer());
                 if views.contains(&data.to_pointer()) {
                     return Ok(Unsealed::Loop);
@@ -187,27 +213,61 @@ pub(crate) fn view_len(lua: &Lua, data: &Table) -> mlua::Result<Function> {
     lua.create_function(move |_, _: MultiValue| Ok(data.raw_len()))
 }
 
-/// The table `table` stands for: the data table of a sealed view, read by
-/// [`unseal`], and `table` itself when it is no view or its data cannot be
-/// read as a table.
-pub(crate) fn view_data(table: &Table) -> mlua::Result<Table> {
-    view_data_within(table, || Ok(()))
+/// The table `table` stands for, for a caller that reads one table in a
+/// Rust call: the data table of a sealed view, read by [`unseal`], and
+/// `table` itself when it is no view or its data cannot be read as a
+/// table.
+///
+/// The read scans a `__mode` for each view on the way, and a chain of
+/// views can share one as long as the Lua heap allows. So the bytes it
+/// scans are counted against a [`ModeBudget`] of its own.
+///
+/// The inner `Err` holds what a refusal says of the table, and the
+/// caller reads nothing: for a table [`unseal`] must not look into, and
+/// for one past that budget. `names` is what [`unseal`] takes.
+///
+/// # Errors
+/// Returns the failure of reading a metatable.
+pub(crate) fn view_data(
+    lua: &Lua,
+    names: &MetaNames,
+    table: &Table,
+) -> mlua::Result<Result<Table, String>> {
+    let mut budget = ModeBudget::new(lua);
+    let mut past_budget = None;
+    let read = view_data_within(lua, names, table, |cost| match cost {
+        ReadCost::View => Ok(()),
+        ReadCost::Mode(bytes) => budget.charge(bytes).map_err(|refusal| {
+            past_budget = Some(refusal.clone());
+            mlua::Error::external(refusal)
+        }),
+    });
+    match past_budget {
+        Some(refusal) => Ok(Err(refusal)),
+        None => Ok(read?.map_err(str::to_owned)),
+    }
 }
 
 /// [`view_data`] for a caller that reads many tables in one Rust call:
-/// `hop` runs once for each view passed, as it does for [`unseal`], so the
-/// caller can count the views of all its reads against one budget.
+/// `spend` runs as it does for [`unseal`], so the caller can count the
+/// views and the bytes of `__mode` of all its reads against one budget,
+/// and it keeps one `names` for all of them.
+/// When [`unseal`] meets a table it must not look into, the inner `Err`
+/// holds what a refusal says of that table, and the caller reads nothing.
 ///
 /// # Errors
-/// Returns the failure of `hop`, or of reading a metatable.
+/// Returns the failure of `spend`, or of reading a metatable.
 pub(crate) fn view_data_within(
+    lua: &Lua,
+    names: &MetaNames,
     table: &Table,
-    hop: impl FnMut() -> mlua::Result<()>,
-) -> mlua::Result<Table> {
-    match unseal(table, hop)? {
+    spend: impl FnMut(ReadCost) -> mlua::Result<()>,
+) -> mlua::Result<Result<Table, &'static str>> {
+    Ok(match unseal(lua, names, table, spend)? {
         Unsealed::Data(data) => Ok(data),
         Unsealed::Unreadable(_) | Unsealed::Loop => Ok(table.clone()),
-    }
+        Unsealed::Weak(weakness) => Err(weakness),
+    })
 }
 
 /// The most table levels [`plain`] descends, the top-level table being
@@ -262,9 +322,10 @@ impl PlainWalk<'_> {
             return Ok(None);
         };
         let budget = &mut self.budget;
-        let data = match unseal(table, || budget.charge_node().map_err(too_large))? {
+        let spend = |cost: ReadCost| budget.charge_read(cost).map_err(too_large);
+        let data = match unseal(self.lua, &MetaNames::default(), table, spend)? {
             Unsealed::Data(data) => data,
-            Unsealed::Unreadable(_) | Unsealed::Loop => return Ok(None),
+            Unsealed::Unreadable(_) | Unsealed::Loop | Unsealed::Weak(_) => return Ok(None),
         };
         let pointer = data.to_pointer();
         if self.path.len() >= PLAIN_DEPTH_LIMIT || self.path.contains(&pointer) {
@@ -382,4 +443,130 @@ pub(crate) fn add_frozen_guard<T, M: UserDataMethods<T>>(methods: &mut M, label:
             )))
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use mlua::{Lua, Table};
+
+    use super::{Unsealed, unseal};
+    use crate::meta_names::MetaNames;
+    use crate::walk_budget::ReadCost;
+    use crate::weak::{WEAK_METATABLE, WEAK_TABLE};
+
+    #[test]
+    fn a_weak_table_ends_the_read_wherever_it_is_met() {
+        // An empty table with `__index` and `__metatable` is a view. A weak
+        // table is empty or not as the collector leaves it, so the read
+        // refuses one before it looks for an entry: the same table is weak
+        // with the entry and without. The two fields are entries of the
+        // metatable, so the read refuses a table whose metatable is weak
+        // before it asks for them, whether the table holds an entry or not.
+        let lua = Lua::new();
+        let names = MetaNames::default();
+        let cases = lua
+            .load(
+                "local function view(of, mode)
+                   return setmetatable({}, { __index = of, __metatable = false, __mode = mode })
+                 end
+                 local function under(table, of, mode)
+                   local fields = { __index = of, __metatable = false }
+                   return setmetatable(table, setmetatable(fields, { __mode = mode }))
+                 end
+                 local data = { x = 1 }
+                 local held = view(data, 'v')
+                 rawset(held, 'entry', data)
+                 return {
+                   view(view(data)),
+                   view(data, 'v'),
+                   held,
+                   view(view(data, 'k')),
+                   view(setmetatable({ x = 1 }, { __mode = 'kv' })),
+                   view(function() end, 'v'),
+                   view(data, 'x'),
+                   under({}, data, 'v'),
+                   under({ x = 1 }, data, 'k'),
+                   view(under({}, data, 'kv')),
+                   under({}, data, 'x'),
+                 }",
+            )
+            .eval::<Vec<Table>>()
+            .expect("the tables build");
+        let read = cases
+            .iter()
+            .map(
+                |table| match unseal(&lua, &names, table, |_| Ok(())).expect("the table reads") {
+                    Unsealed::Data(data) => match data.raw_get::<Option<i64>>("x") {
+                        Ok(Some(1)) => "the data",
+                        _ => "another table",
+                    },
+                    Unsealed::Unreadable(_) => "unreadable",
+                    Unsealed::Loop => "a loop",
+                    Unsealed::Weak(WEAK_TABLE) => "weak",
+                    Unsealed::Weak(WEAK_METATABLE) => "a weak metatable",
+                    Unsealed::Weak(_) => "weak in another way",
+                },
+            )
+            .collect::<Vec<_>>();
+        assert_eq!(
+            read,
+            [
+                "the data",
+                "weak",
+                "weak",
+                "weak",
+                "weak",
+                "weak",
+                "the data",
+                "a weak metatable",
+                "a weak metatable",
+                "a weak metatable",
+                "the data",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_read_spends_each_view_it_passes_and_the_bytes_of_each_mode_it_scans() {
+        // Lua reads a `__mode` up to its first zero byte, and the answer
+        // is known at the first `k` or `v`: the scan ends there, with that
+        // byte. A metatable with no `__mode` costs no byte, and the
+        // metatable above it is asked only when the first makes no table
+        // weak.
+        let lua = Lua::new();
+        let names = MetaNames::default();
+        let spent = |source: &str| {
+            let table = lua.load(source).eval::<Table>().expect("the table builds");
+            let mut spent = Vec::new();
+            unseal(&lua, &names, &table, |cost| {
+                spent.push(cost);
+                Ok(())
+            })
+            .expect("the table reads");
+            spent
+        };
+        assert_eq!(spent("return {}"), []);
+        assert_eq!(
+            spent("return setmetatable({}, { __mode = 'xxk' .. string.rep('x', 100) })"),
+            [ReadCost::Mode(3)]
+        );
+        assert_eq!(
+            spent("return setmetatable({}, { __mode = 'x\\0k' })"),
+            [ReadCost::Mode(2)]
+        );
+        assert_eq!(
+            spent(
+                "local above = { __mode = string.rep('y', 7) .. 'v' }
+                 return setmetatable({}, setmetatable({ __mode = string.rep('x', 100) }, above))"
+            ),
+            [ReadCost::Mode(100), ReadCost::Mode(8)]
+        );
+        assert_eq!(
+            spent(
+                "local data = setmetatable({ x = 1 }, { __mode = 'xx' })
+                 return setmetatable({}, { __index = data, __metatable = false })"
+            ),
+            [ReadCost::Mode(0), ReadCost::View, ReadCost::Mode(2)]
+        );
+    }
 }

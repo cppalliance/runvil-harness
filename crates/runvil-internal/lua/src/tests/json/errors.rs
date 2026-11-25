@@ -206,6 +206,74 @@ fn one_invalid_table_built_in_two_key_orders_in_two_fresh_vms_raises_one_message
 }
 
 #[test]
+fn a_weak_table_raises_and_is_a_placeholder_in_debug_mode() {
+    let vm = json_vm();
+    vm.exec("weak = { n = 1, w = setmetatable({ 1 }, { __mode = 'v' }) }");
+    assert_eq!(
+        caught(&vm, "json.encode(weak)"),
+        lua_error(
+            "json.encode: value.w is a weak table, one whose metatable sets __mode: the entries \
+             the collector leaves in it are not the same in two runs"
+        )
+    );
+    assert_eq!(
+        encoded(&vm, "json.encode(weak, { debug = true })"),
+        r#"{"n":1,"w":"[weak table]"}"#
+    );
+    // With its `__index` this table is a view, and without it an empty
+    // table. The field is an entry of a weak metatable, which the
+    // collector takes.
+    vm.exec(
+        "local fields = { __metatable = false, __index = { x = 1 } } \
+         under = { w = setmetatable({}, setmetatable(fields, { __mode = 'v' })) }",
+    );
+    assert_eq!(
+        caught(&vm, "json.encode(under)"),
+        lua_error(
+            "json.encode: value.w is a table whose metatable is a weak table: the fields the \
+             collector leaves in that metatable are not the same in two runs"
+        )
+    );
+    assert_eq!(
+        encoded(&vm, "json.encode(under, { debug = true })"),
+        r#"{"w":"[weak metatable]"}"#
+    );
+    // The options are read as a table is: of several unknown options the
+    // first is named, and the collector chooses which are left.
+    vm.exec("options = setmetatable({ debug = true }, { __mode = 'k' })");
+    for call in [
+        "json.encode(1, options)",
+        "json.encode_lines({ 1 }, options)",
+    ] {
+        assert_eq!(
+            caught(&vm, call),
+            lua_error(&format!(
+                "{}: options must not be a weak table, one whose metatable sets __mode: the \
+                 entries the collector leaves in it are not the same in two runs",
+                call.split('(').next().unwrap_or_default()
+            )),
+            "{call}"
+        );
+    }
+    // An empty weak table with `__index` and `__metatable` has the shape
+    // of a view. It is refused as a weak table, and not read as the
+    // `__index` table, which it would be only while the collector left it
+    // empty.
+    vm.exec("view = setmetatable({}, { __mode = 'v', __metatable = false, __index = { x = 1 } })");
+    for call in ["json.encode(view)", "json.encode_lines(view)"] {
+        assert_eq!(
+            caught(&vm, call),
+            lua_error(&format!(
+                "{}: value is a weak table, one whose metatable sets __mode: the entries the \
+                 collector leaves in it are not the same in two runs",
+                call.trim_end_matches("(view)")
+            )),
+            "{call}"
+        );
+    }
+}
+
+#[test]
 fn a_path_quotes_the_start_of_a_long_key_and_its_length() {
     let vm = json_vm();
     // A key of 64 bytes is quoted whole.

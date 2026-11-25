@@ -109,6 +109,7 @@ mod json;
 mod library_env;
 mod markdown;
 mod messages;
+mod meta_names;
 mod models;
 mod models_loop;
 mod order;
@@ -130,6 +131,7 @@ mod tools;
 mod var;
 mod vm;
 mod walk_budget;
+mod weak;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

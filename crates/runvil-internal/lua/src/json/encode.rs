@@ -20,8 +20,10 @@ use serde_json::{Map, Number, Value as Json};
 
 use super::keys::{Entries, Shape, entries, shape};
 use crate::error::author_refusal;
+use crate::meta_names::MetaNames;
 use crate::proxy::{Unsealed, key_path, key_text, unseal};
 use crate::walk_budget::{HELD_KEY_LIMIT, TooLarge, WalkBudget};
+use crate::weak::{WEAK_METATABLE, WEAK_TABLE, is_weak};
 
 /// The most tables deep a value may nest, the top-level table being level
 /// 1: the depth `json.decode` accepts.
@@ -96,7 +98,10 @@ pub(super) fn encode_lines(lua: &Lua, (list, options): (Value, Value)) -> mlua::
 
 /// Reads the options argument, nil or a table whose only key is `debug`, a
 /// boolean, and returns whether debug mode is on. Keys are checked in
-/// visiting order, so the first offending key is the one reported.
+/// visiting order, so the first offending key is the one reported. A weak
+/// table is refused before its keys are read: the collector takes its
+/// entries, so the first offending key left would differ from one run to
+/// the next.
 fn debug_option(options: &Value, function: &str) -> mlua::Result<bool> {
     let table = match options {
         Value::Nil => return Ok(false),
@@ -108,6 +113,11 @@ fn debug_option(options: &Value, function: &str) -> mlua::Result<bool> {
             )));
         }
     };
+    if is_weak(table)? {
+        return Err(author_refusal(format!(
+            "{function}: options must not be {WEAK_TABLE}"
+        )));
+    }
     let Some(options) = entries(table, HELD_KEY_LIMIT)? else {
         return Err(too_large(function));
     };
@@ -172,6 +182,14 @@ fn unreadable(label: Option<&str>) -> String {
     }
 }
 
+/// Why a weak table, or a table whose metatable is one, cannot be
+/// encoded, where `weakness` says which: the walk holds a table's keys
+/// while it reads the values, and the collector can take an entry of a
+/// weak table between two reads.
+fn weak(weakness: &str) -> String {
+    format!("is {weakness}")
+}
+
 /// Why a table nested past the depth limit cannot be encoded.
 fn too_deep() -> String {
     format!("is nested more than {DEPTH_LIMIT} levels deep")
@@ -191,6 +209,9 @@ struct Encoder<'a> {
     /// Whether a float with no fractional part stays a float.
     keeps_floats: bool,
     debug: bool,
+    lua: &'a Lua,
+    /// The names the walk reads metatables by.
+    names: MetaNames,
     marker: Table,
     path: Vec<Value>,
     tables: Vec<*const c_void>,
@@ -205,6 +226,8 @@ impl<'a> Encoder<'a> {
             target: None,
             keeps_floats: false,
             debug,
+            lua,
+            names: MetaNames::default(),
             marker: lua.array_metatable(),
             path: Vec::new(),
             tables: Vec::new(),
@@ -326,6 +349,14 @@ impl<'a> Encoder<'a> {
                 return self.fail(&unreadable(label.as_deref()), placeholder);
             }
             Unsealed::Loop => return self.fail(CYCLE, "[cycle]".to_owned()),
+            Unsealed::Weak(weakness) => {
+                let placeholder = if weakness == WEAK_METATABLE {
+                    "[weak metatable]"
+                } else {
+                    "[weak table]"
+                };
+                return self.fail(&weak(weakness), placeholder.to_owned());
+            }
         };
         let pointer = data.to_pointer();
         if self.tables.contains(&pointer) {
@@ -439,6 +470,7 @@ impl<'a> Encoder<'a> {
                 return Err(self.error(&unreadable(label.as_deref())));
             }
             Unsealed::Loop => return Err(self.error(CYCLE)),
+            Unsealed::Weak(weakness) => return Err(self.error(&weak(weakness))),
         };
         // Only integer keys reach the list below, and they hold no
         // reference, so `held` has nothing to add for this table.
@@ -464,9 +496,15 @@ impl<'a> Encoder<'a> {
 
 impl Encoder<'_> {
     /// Reads `table` through sealed views (see [`unseal`]). Each hop to
-    /// another view spends one value of the budget.
+    /// another view spends one value of the budget, and each `__mode` the
+    /// read scans spends its bytes.
     fn resolve(&mut self, table: &Table) -> mlua::Result<Unsealed> {
-        unseal(table, || self.charge_node())
+        let (prefix, target, budget) = (self.prefix, self.target, &mut self.budget);
+        unseal(self.lua, &self.names, table, |cost| {
+            budget
+                .charge_read(cost)
+                .map_err(|TooLarge| too_large_for(prefix, target))
+        })
     }
 }
 

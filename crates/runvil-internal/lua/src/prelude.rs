@@ -28,9 +28,10 @@ use mlua::{Lua, Table, Value};
 use runvil_types::packs::{PackId, Prelude};
 
 use crate::error::{self, Error, Result, TRACEBACK_HEADING, make_lua_runtime_error, raised_text};
-use crate::order::{FirstRefusal, is_weak};
+use crate::order::FirstRefusal;
 use crate::proxy::{key_step, key_text, read_only_proxy};
 use crate::var::Place;
+use crate::weak::is_weak;
 
 /// The `_G` names a prelude's environment reads, as bound when it installs.
 const VISIBLE_GLOBALS: [&str; 21] = [

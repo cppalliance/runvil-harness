@@ -21,11 +21,13 @@ use crate::adhoc::AdhocTools;
 use crate::bindings::{RosterEntry, ToolSet, wire_name_of};
 use crate::error::{self, Result};
 use crate::messages::MessageList;
+use crate::meta_names::MetaNames;
 use crate::order::{FirstRefusal, listed};
 use crate::packs::{LuaPackHandle, is_adhoc, pack_object};
 use crate::proxy::key_text;
 use crate::scope::{OFFERS_POISONED, OfferMode, OfferTarget, Offers};
 use crate::walk_budget::HELD_KEY_LIMIT;
+use crate::weak::{ModeBudget, weakness_of};
 
 /// The refusal of an offer verb once the section's sets are frozen,
 /// after the verb's name.
@@ -107,7 +109,7 @@ impl Offering {
             )));
         }
         match target {
-            Value::Table(table) => array(verb, &table)?
+            Value::Table(table) => array(lua, verb, &table)?
                 .iter()
                 .enumerate()
                 .map(|(index, entry)| self.target(lua, verb, entry, Some(index + 1)))
@@ -222,13 +224,25 @@ impl Offering {
 /// So one run would accept `{ [1] = a, [2] = a, [3] = a, [5] = a }` with an
 /// `__index` of `{ [4] = a }` and another refuse it for the key 5. Counted
 /// from the table itself, every run refuses it for that key.
-fn array(verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
+///
+/// A weak table is refused, and so is a table whose metatable is weak,
+/// which has a `__len` or not as the collector leaves that metatable. A
+/// `__len` and an `__index` are code of the author, and either can make
+/// the table weak while it runs, so [`refuse_weak`] makes the check
+/// before the first read and again after each call of one: every read
+/// here is of a table that is not weak.
+fn array(lua: &Lua, verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
+    let names = &MetaNames::default();
+    let budget = &mut ModeBudget::new(lua);
+    refuse_weak(lua, names, budget, verb, table)?;
     let has_len = match table.metatable() {
         Some(metatable) => !metatable.raw_get::<Value>("__len")?.is_nil(),
         None => false,
     };
     let len = if has_len {
-        table.len()?
+        let len = table.len()?;
+        refuse_weak(lua, names, budget, verb, table)?;
+        len
     } else {
         i64::try_from(listed(table)?).unwrap_or(i64::MAX)
     };
@@ -240,7 +254,12 @@ fn array(verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
     }
     let mut entries = Vec::with_capacity(count);
     for index in 1..=count {
-        let entry: Value = table.get(index)?;
+        let mut entry = table.raw_get::<Value>(index)?;
+        if entry.is_nil() {
+            // Only an `__index` gives an entry that the table lacks.
+            entry = table.get(index)?;
+            refuse_weak(lua, names, budget, verb, table)?;
+        }
         match entry {
             Value::Nil => break,
             Value::Table(_) => return Err(make_wrong_type_error(verb, &entry, Some(index))),
@@ -270,6 +289,33 @@ fn array(verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
         return Err(make_wrong_type_error(verb, &Value::Nil, Some(end + 1)));
     }
     Ok(entries)
+}
+
+/// Refuses, for the offer verb `verb`, an array `table` that is weak or
+/// whose metatable is, as [`weakness_of`] tells them.
+///
+/// One read of an array makes the check again after each call of a
+/// `__len` or an `__index`, which is once for each entry that the table
+/// itself lacks, and each check scans the `__mode` again, since the code
+/// of the author that ran between two can have set another. So the bytes
+/// scanned are counted against `budget`, and an array past it is refused
+/// in the words `budget` gives.
+fn refuse_weak(
+    lua: &Lua,
+    names: &MetaNames,
+    budget: &mut ModeBudget<'_>,
+    verb: &str,
+    table: &Table,
+) -> mlua::Result<()> {
+    let Some(metatable) = table.metatable() else {
+        return Ok(());
+    };
+    let refuse =
+        |reason: &str| mlua::Error::external(format!("{verb} takes an array, got {reason}"));
+    let weakness = weakness_of(lua, names, &metatable, |bytes| {
+        budget.charge(bytes).map_err(|reason| refuse(&reason))
+    })?;
+    weakness.map_or(Ok(()), |weakness| Err(refuse(weakness)))
 }
 
 /// The refusal of `entry`, at `index` of an array or alone, as a value

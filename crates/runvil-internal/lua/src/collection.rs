@@ -18,7 +18,8 @@
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 
 use crate::error::{self, Result, make_lua_runtime_error};
-use crate::order::{FirstRefusal, KeyError, WalkPlace, is_weak, listed, sort_key, sort_list};
+use crate::meta_names::MetaNames;
+use crate::order::{FirstRefusal, KeyError, WalkPlace, listed, sort_key, sort_list};
 use crate::proxy::{plain, view_data};
 
 /// Enumerates fanout's collection argument as the sequence of members the
@@ -43,16 +44,15 @@ pub(crate) fn collection_members(lua: &Lua, collection: &Value) -> Result<Table>
             collection.type_name()
         )));
     };
-    let table = &view_data(table).map_err(error::make_lua_error)?;
     // The members go to a Lua list as they are read, so the collector can
     // run in the middle of the read and take a weak table's unread ones.
-    if is_weak(table).map_err(error::make_lua_error)? {
-        return Err(make_lua_runtime_error(
-            "tasks.fanout's collection is a weak table, one whose metatable sets __mode: the \
-             entries the collector leaves in it are not the same in two runs"
-                .to_owned(),
-        ));
-    }
+    // A weak view on the way to the members is refused as well, and so is
+    // a table whose metatable is weak.
+    let table = &view_data(lua, &MetaNames::default(), table)
+        .map_err(error::make_lua_error)?
+        .map_err(|reason| {
+            make_lua_runtime_error(format!("tasks.fanout's collection is {reason}"))
+        })?;
     let border = listed(table).map_err(error::make_lua_error)?;
     let members = lua
         .create_table_with_capacity(border, 0)
@@ -174,6 +174,7 @@ mod tests {
 
     use super::*;
     use crate::iteration::install_deterministic_iteration;
+    use crate::walk_budget::HeapCeiling;
 
     fn eval(lua: &mlua::Lua, source: &str) -> Value {
         lua.load(source).eval::<Value>().expect("chunk evaluates")
@@ -471,6 +472,38 @@ mod tests {
                 "{mode}"
             );
         }
+        // An empty weak table in the shape of a view of a list is refused
+        // too, and not read as that list.
+        let view = eval(
+            &lua,
+            "return setmetatable({}, { __mode = 'v', __metatable = false, __index = { 'a' } })",
+        );
+        assert_eq!(
+            collection_members(&lua, &view)
+                .expect_err("a weak view is refused")
+                .to_string(),
+            "tasks.fanout's collection is a weak table, one whose metatable sets __mode: the \
+             entries the collector leaves in it are not the same in two runs"
+        );
+        // Five views that share one `__mode` of 1 MiB, which makes none of
+        // them weak: one more scan than a heap of 4 MiB allows.
+        lua.set_app_data(HeapCeiling(4 * 1024 * 1024));
+        let chain = eval(
+            &lua,
+            "local mode = string.rep('x', 2^20) \
+             local t = { 'a' } \
+             for _ = 1, 5 do \
+               t = setmetatable({}, { __index = t, __metatable = false, __mode = mode }) \
+             end \
+             return t",
+        );
+        assert_eq!(
+            collection_members(&lua, &chain)
+                .expect_err("a chain past the budget is refused")
+                .to_string(),
+            "tasks.fanout's collection is a table with 5242880 bytes of __mode to scan: one call \
+             scans at most 4194304 bytes"
+        );
     }
 
     #[test]

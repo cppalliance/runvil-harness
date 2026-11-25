@@ -543,6 +543,25 @@ fn a_var_write_of_a_value_with_no_json_form_names_the_failing_part() {
             "var.list[2] mixes list items and named keys",
         ),
         ("var.n = 0/0", "var.n is not a finite number"),
+        // A weak table, a view that leads to one, and a table under a
+        // weak metatable.
+        (
+            "var.t = setmetatable({ a = 1 }, { __mode = 'k' })",
+            "var.t is a weak table, one whose metatable sets __mode: the entries the collector \
+             leaves in it are not the same in two runs",
+        ),
+        (
+            "var.t = { inner = setmetatable({}, { __metatable = false, \
+             __index = setmetatable({ a = 1 }, { __mode = 'v' }) }) }",
+            "var.t.inner is a weak table, one whose metatable sets __mode: the entries the \
+             collector leaves in it are not the same in two runs",
+        ),
+        (
+            "var.t = setmetatable({}, setmetatable({ __metatable = false, __index = { a = 1 } }, \
+             { __mode = 'v' }))",
+            "var.t is a table whose metatable is a weak table: the fields the collector leaves \
+             in that metatable are not the same in two runs",
+        ),
     ] {
         let (raised, kind, line, var) = var_write(write);
         assert!(raised, "{write} must raise");

@@ -23,6 +23,7 @@ use runvil_types::models::ModelRole;
 
 use crate::error::{self, Result};
 use crate::order::FirstRefusal;
+use crate::weak::refuse_weak;
 
 /// One model handle over a frozen `ModelBinding`, the inspectable value
 /// `models.use`, `models.get`, and `models.current` return: it exposes the
@@ -273,6 +274,7 @@ fn parse_use_options(options: Value, rest: &MultiValue) -> mlua::Result<UseOptio
             )));
         }
     };
+    refuse_weak(&table, "models.use options must not be")?;
     // The entries are read one at a time and none is kept, so a table of
     // any size costs no Lua reference. Of several options to refuse, the
     // one whose key comes first in the shared order of keys is.

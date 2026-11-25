@@ -10,6 +10,7 @@ use super::super::objects::TOOL_OBJECTS_REGISTRY;
 use super::parameters::search_set;
 use crate::error::root_text;
 use crate::test_vm::{TestVm, lua_over, offer_set, raised, scoped};
+use crate::weak::{WEAK_METATABLE, WEAK_TABLE};
 
 /// The `grab` definition of the listing, held in a local.
 const GRAB: &str = "local grab = tools.adhoc({\n\
@@ -141,6 +142,21 @@ fn each_refusal_raises_on_the_defining_line() {
         let error = raised(&vm, call);
         assert!(error.contains(expected), "{call}: {error}");
     }
+    for (call, expected) in [
+        (
+            "tools.adhoc(setmetatable({ name = 'x', description = 'y' }, { __mode = 'v' }), \
+               function() end)",
+            format!("the attributes are {WEAK_TABLE}"),
+        ),
+        (
+            "tools.adhoc({ name = 'x', description = 'y', \
+               parameters = setmetatable({ p = 'string' }, { __mode = 'k' }) }, function() end)",
+            format!("parameters are {WEAK_TABLE}"),
+        ),
+    ] {
+        let refusal = root_text(&vm.eval_err(call));
+        assert_eq!(refusal, format!("tools.adhoc: {expected}"), "{call}");
+    }
     let ids: Vec<String> = vm
         .adhoc_tools()
         .bindings()
@@ -149,6 +165,30 @@ fn each_refusal_raises_on_the_defining_line() {
         .map(|binding| binding.id().to_string())
         .collect();
     assert_eq!(ids, ["adhoc/grab"], "no refused definition registers");
+}
+
+#[test]
+fn a_weak_parameter_array_is_refused_whatever_it_holds() {
+    // The collector can take a description that is a table, and the array
+    // would then read as a type alone. An empty weak table in the shape of
+    // a view of an array is refused too, and not read as that array.
+    let vm = lua_over(offer_set());
+    for spec in [
+        "setmetatable({ 'string', {} }, { __mode = 'v' })",
+        "setmetatable({ 'string', 'text' }, { __mode = 'v' })",
+        "setmetatable({}, { __mode = 'k', __metatable = false, __index = { 'string' } })",
+    ] {
+        let call = format!(
+            "tools.adhoc({{ name = 'x', description = 'y', parameters = {{ p = {spec} }} }}, \
+               function() end)"
+        );
+        assert_eq!(
+            root_text(&vm.eval_err(&call)),
+            "tools.adhoc: param \"p\" is a weak table, one whose metatable sets __mode: the \
+             entries the collector leaves in it are not the same in two runs",
+            "{spec}"
+        );
+    }
 }
 
 #[test]
@@ -448,4 +488,27 @@ fn a_view_passed_as_the_attributes_defines_the_tool_it_stands_for() {
     );
     let description: String = vm.eval("tools.get('adhoc/fromview').description");
     assert_eq!(description, "Defined from a view");
+}
+
+#[test]
+fn a_view_that_the_collector_can_change_is_refused_as_the_attributes_and_as_parameters() {
+    // A view is read as the table it stands for, so the read refuses a
+    // weak view, and a table whose metatable the collector can empty.
+    let vm = lua_over(offer_set());
+    for (call, expected) in [
+        (
+            "tools.adhoc(setmetatable({}, { __mode = 'k', __metatable = false, \
+               __index = { name = 'x', description = 'y' } }), function() end)",
+            format!("the attributes are {WEAK_TABLE}"),
+        ),
+        (
+            "tools.adhoc({ name = 'x', description = 'y', parameters = setmetatable({}, \
+               setmetatable({ __metatable = false, __index = { p = 'string' } }, \
+               { __mode = 'v' })) }, function() end)",
+            format!("parameters are {WEAK_METATABLE}"),
+        ),
+    ] {
+        let refusal = root_text(&vm.eval_err(call));
+        assert_eq!(refusal, format!("tools.adhoc: {expected}"), "{call}");
+    }
 }

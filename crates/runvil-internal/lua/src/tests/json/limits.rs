@@ -96,6 +96,27 @@ fn a_shared_chain_of_sealed_views_is_refused_by_its_hops_alone() {
 }
 
 #[test]
+fn a_shared_mode_scanned_past_the_byte_budget_is_refused() {
+    // The read that tells whether a table is weak scans the `__mode` of
+    // the table's metatable, once for each reference to the table. 128
+    // references to one table with a `__mode` of 1 MiB are 128 MiB to scan
+    // against a 4 MiB budget, though the walk has 129 values and copies no
+    // text. Three references are 3 MiB.
+    let vm = small_heap_vm();
+    vm.exec(
+        "local value = setmetatable({}, { __mode = string.rep('x', 2^20) }) \
+         few, many = {}, {} \
+         for i = 1, 3 do few[i] = value end \
+         for i = 1, 128 do many[i] = value end",
+    );
+    assert_eq!(encoded(&vm, "json.encode(few)"), "[{},{},{}]");
+    assert_eq!(
+        caught(&vm, "json.encode(many)"),
+        lua_error("json.encode: value is too large to encode")
+    );
+}
+
+#[test]
 fn encode_lines_refuses_an_oversized_item_under_its_own_name() {
     let vm = small_heap_vm();
     bind_doubling_table(&vm);

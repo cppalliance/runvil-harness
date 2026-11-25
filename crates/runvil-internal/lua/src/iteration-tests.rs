@@ -7,6 +7,7 @@ use super::{ITERATION_CHUNK_NAME, ITERATION_SOURCE};
 use crate::error::root_text;
 use crate::test_vm::{BuiltVm, TestVm};
 use crate::tests::assert_chunk_name_resolves;
+use crate::vm::DEFAULT_LUA_LOG_EVENTS;
 use crate::walk_budget::DEFAULT_LUA_MEMORY_BYTES;
 
 /// A userdata whose `__pairs` yields `(i, i * 10)` for `i` in `1..=count`.
@@ -481,6 +482,23 @@ fn a_weak_table_is_refused_by_a_walk_and_read_by_key() {
             assert_eq!(root_text(&error), refusal(function), "{function} {mode}");
         }
     }
+    // An empty weak table with `__index` and `__metatable` has the shape
+    // of a view. It is refused, and so is a view of it: the walk would
+    // read the `__index` table only while the collector left the weak
+    // table empty.
+    for function in ["pairs", "next"] {
+        for table in [
+            "weak",
+            "setmetatable({}, { __metatable = false, __index = weak })",
+        ] {
+            let error = vm.eval_err(&format!(
+                "local weak = setmetatable({{}}, \
+                   {{ __mode = 'v', __metatable = false, __index = {{ a = 1 }} }}) \
+                 return {function}({table})"
+            ));
+            assert_eq!(root_text(&error), refusal(function), "{function} {table}");
+        }
+    }
     // Lua reads `__mode` when it collects, so a table is weak from the
     // moment its metatable names a mode, and no longer once it names none.
     // Lua reads the field up to its first zero byte.
@@ -495,6 +513,52 @@ fn a_weak_table_is_refused_by_a_walk_and_read_by_key() {
          return { before, tostring(walked), tostring(read), (next(t)) }",
     );
     assert_eq!(late, ["a", "false", "1", "a"]);
+}
+
+#[test]
+fn a_chain_of_views_with_more_mode_than_one_call_scans_is_refused() {
+    // Each view on the way to the data has a metatable of its own, and
+    // all of them share one `__mode` of 1 MiB that makes no table weak.
+    // The read scans it at each view: four views are the 4 MiB that a
+    // 4 MiB heap gives one call, and five are past it.
+    let vm = TestVm::new()
+        .limits(4 * 1024 * 1024, DEFAULT_LUA_LOG_EVENTS)
+        .build();
+    vm.exec(
+        "local mode = string.rep('x', 2^20) \
+         function chain(views, longer) \
+           local mode = longer and mode .. 'x' or mode \
+           local t = { a = 1 } \
+           for _ = 1, views do \
+             t = setmetatable({}, { __index = t, __metatable = false, __mode = mode }) \
+           end \
+           return t \
+         end",
+    );
+    let walked = vm.eval::<Vec<String>>(
+        "local keys = { (next(chain(4))) } \
+         for key in pairs(chain(4)) do keys[#keys + 1] = key end \
+         return keys",
+    );
+    assert_eq!(walked, ["a", "a"]);
+    for function in ["pairs", "next"] {
+        let error = vm.eval_err(&format!("return {function}(chain(5))"));
+        assert_eq!(
+            root_text(&error),
+            format!(
+                "'{function}' does not walk a table with 5242880 bytes of __mode to scan: one \
+                 call scans at most 4194304 bytes"
+            )
+        );
+    }
+    // The count is the bytes that the call came to: with one byte more
+    // of `__mode`, three scans and the fourth, which is past what they
+    // left.
+    assert_eq!(
+        root_text(&vm.eval_err("return pairs(chain(4, true))")),
+        "'pairs' does not walk a table with 4194308 bytes of __mode to scan: one call scans at \
+         most 4194304 bytes"
+    );
 }
 
 #[test]
