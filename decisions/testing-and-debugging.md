@@ -1,6 +1,6 @@
 # Testing and debugging: design decisions
 
-This page covers test support, fixtures, scripted models, the facade suites, the rules for test code, logs and traces, and dev tools. A step of a run returns effects: requests for outside work, such as a model reply, that the caller performs ([The Engine](engine.md)). A test steps a run on its own thread and answers every effect itself, so the clock, the seed, and the model's replies are values the test supplies. Each internal Engine crate has its own test support. The test support of `runvil-runtime` defines a scenario, which holds one test's setup, and a scripted model, which answers from a list of replies. The facades `runvil-engine` and `runvil`, two crates of re-exports, each have a suite written against public paths. For debugging, the Harness writes every effect, answer, and event of a run to the Host's recorder.
+This page covers test support, fixtures, scripted models, the facade suites, the rules for test code, logs and traces, and dev tools. A step of a run returns effects: requests for outside work, such as a model reply, that the caller performs ([The Engine](engine.md)). A test steps a run on its own thread and answers every effect itself, so the clock, the seed, and the model's replies are values the test supplies. Each internal Engine crate has its own test support. The test support of `runvil-runtime` defines a scenario, which holds one test's setup, and a scripted model, which answers from a list of replies. The facades `runvil-engine` and `runvil`, which are crates of re-exports, each have a suite written against public paths. For debugging, the Harness writes every effect, answer, and event of a run to the Host's recorder.
 
 ## 1. The Engine's test support
 
@@ -12,7 +12,7 @@ The owner's rule: "tokio is not allowed anywhere in the engine". Tests need only
 
 ### A scenario is one test's setup, and the test's answers express concurrency, time, and a cancel
 
-A scenario holds one run's setup as data. Running it steps the run and returns a trace with the result, the events, and each effect paired with its answer. The scenario answers a `Timer` effect at once. A test postpones an answer, cancels from a second thread, and asks for a seeded order of answers. A test that inspects something below `Run` uses a second stepper, which steps a scenario's run and returns the scheduler to the test between steps.
+A scenario holds one run's setup as data. Running it steps the run and returns a trace with the result, the events, and each effect paired with its answer. The scenario answers a `Timer` effect at once. A test postpones an answer, cancels from a second thread, and asks for a seeded order of answers. A test that inspects something below `Run` uses a stepper that steps a scenario's run and returns the scheduler to the test between steps.
 
 ### A scripted model answers each `Chat` effect from a list of replies, in the test process
 
@@ -20,11 +20,11 @@ The scripted model takes a list of replies: text replies, batches of tool calls,
 
 A scripted model in the test process is enough, because the Engine leaves I/O to its caller, and the code that sends a round over HTTP is outside the Engine's crates.
 
-### Each internal Engine crate has its own test support, under the same names
+### Each internal Engine crate has its own test support
 
-Each internal Engine crate has its own test support module. The names repeat from crate to crate: a builder for prompt source, prepared answers (a text reply, a batch of tool calls, a failure, and a tool whose call is a closure), and a driver that returns a record.
+Each internal Engine crate has its own test support module, which holds what that crate's tests share. What it holds follows the crate's own types, such as the serial driver and the scenario in the runtime, a builder for prompt source in the prompt crate, or a configurable test backend in the file-system crate.
 
-The names follow the Engine facade's suite, so that tests read alike across the workspace. Each crate has its own module because one shared test crate would need a dependency of its own on each crate and would cross the `test-support` boundary, which the next entry describes.
+Each crate has its own module because one shared test crate would need a dependency of its own on each crate and would cross the `test-support` boundary, which the next entry describes.
 
 ### The `test-support` feature of `runvil-runtime` compiles the serial driver for a bench
 
@@ -68,7 +68,7 @@ The owner's rule: "my instinct tells me that no runvil test should ever sleep or
 
 ### Random test input uses a fixed seed, and a temp folder is named after the test and the process id
 
-`AGENTS.md` states both rules. The ban in the entry above covers only entropy from the operating system and the clock, so a test may draw input from a fixed seed, and a failure prints its seed. The Engine crates name and remove their temp folders through their own test support because the `tempfile` crate depends on the entropy crates `fastrand` and `getrandom`, and the Engine crates exclude entropy crates even as transitive dependencies.
+`AGENTS.md` states these rules. The ban in the entry above covers only entropy from the operating system and the clock, so a test may draw input from a fixed seed, and a failure prints its seed. The Engine crates name and remove their temp folders through their own test support because the `tempfile` crate depends on the entropy crates `fastrand` and `getrandom`, and the Engine crates exclude entropy crates even as transitive dependencies.
 
 ### Some async tests outside the Engine crates pause tokio's clock, and tests on real sockets wait in real time
 
@@ -78,7 +78,7 @@ Some async tests run with tokio's clock paused: in the Harness runner and the Ga
 
 `AGENTS.md` states the rule in its Engineering section. One test shows the reason: a test of the shipped research prompt runs the prompt and inspects every `Chat` effect for a tool id. A scan of the prompt files would check only the shape of the source, and the test on `Chat` effects protects the actual contract.
 
-Two build rules apply to tests: a change that removes a feature also deletes the feature's tests, and a test file beside its module takes the name that `AGENTS.md` gives it.
+Build rules apply to tests too: a change that removes a feature also deletes the feature's tests, and a test file beside its module takes the name that `AGENTS.md` gives it.
 
 ## 4. Fixtures and stand-ins
 
@@ -108,7 +108,7 @@ Stored JSON reads back as the identical value, so that a replay can compare the 
 
 `log(message)` accepts one single-line string of at most 256 characters, and the Engine reports it as an `Event::Lua` under the current section (see [The prompt language](prompt-language.md)). The execution fixtures assert the exact list of these checkpoints.
 
-`RunParams::with_report_debug(true)` adds two events to each model round: `Request`, the JSON body sent, and `Response`, the body returned. The events exist so that a developer can diagnose an empty reply, and they are optional so that only a run that asks for them pays their cost. A Harness run leaves them off.
+`RunParams::with_report_debug(true)` adds the events `Request`, the JSON body sent, and `Response`, the body returned, to each model round. The events exist so that a developer can diagnose an empty reply, and they are optional so that only a run that asks for them pays their cost. A Harness run leaves them off.
 
 ### The Harness reports operational problems through `tracing`, and Workshop discards those lines
 

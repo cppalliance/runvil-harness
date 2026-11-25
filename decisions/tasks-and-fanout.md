@@ -32,17 +32,17 @@ A task is bound to the lifetime of `var`, the table that the sections of one cha
 
 `tasks.join_any(set)` suspends the caller until one task in the set ends or replies. `tasks.join(set)` is a Lua loop over `join_any` that returns one entry for each member. A wait takes each result once, and a second wait for the same result raises `task_consumed`. `opts.timeout`, in seconds, starts a timer that the wait cancels itself.
 
-The names state the contract: after a join, the task's writes are visible to the caller. Both waits return a member's failure as data. A `tasks.join` that raised on a member's failure would have to cancel the other members or leak them, and each choice is wrong for half the callers.
+The names state the contract: after a join, the task's writes are visible to the caller. Each wait returns a member's failure as data. A `tasks.join` that raised on a member's failure would have to cancel the other members or leak them, and each choice is wrong for half the callers.
 
 ### A chain that ends with a running task fails with `tasks_live`
 
 When a chain ends normally while a task it spawned is still running, the chain's result becomes a `tasks_live` error that names the task. The Engine ends the task with the state `abandoned`. A task that its owner stops with `tasks.cancel` has the state `canceled`. When the owner ends, the Engine also abandons an idle task, one that waits after `tasks.reply`, and leaves the owner's result unchanged.
 
-The owner's rule: "subagents spawned by Lua become a hard error on chain termination". A task left running at its owner's end is a bug in the prompt. An idle task is exempt from the error, and the guide states the reason: "It already handed its owner a reply, so an owner may end while it has idle tasks". The two end states are separate because a task that lost its owner and a task that someone stopped are different facts for the log and the UI.
+The owner's rule: "subagents spawned by Lua become a hard error on chain termination". A task left running at its owner's end is a bug in the prompt. An idle task is exempt from the error, and the guide states the reason: "It already handed its owner a reply, so an owner may end while it has idle tasks". The end states `abandoned` and `canceled` are separate because a task that lost its owner and a task that someone stopped are different facts for the log and the UI.
 
 ### Every started task reports one start event and one terminal event
 
-The scheduler emits `TaskStarted` at admission, the moment it starts the task's queued chain, under the section that spawned the task. The event's `args` field has the chain's own arguments as JSON, a string as an object with the one field `text`, and it is null for a chain that reads its spawner's `args`. One terminal event follows: `TaskSucceeded`, `TaskFailed`, `TaskCanceled`, or `TaskAbandoned` with an `AbandonReason`. The scheduler skips both events for a task that ends while still queued.
+The scheduler emits `TaskStarted` at admission, the moment it starts the task's queued chain, under the section that spawned the task. The event's `args` field has the chain's own arguments as JSON, a string as an object with the one field `text`, and it is null for a chain that reads its spawner's `args`. One terminal event follows: `TaskSucceeded`, `TaskFailed`, `TaskCanceled`, or `TaskAbandoned` with an `AbandonReason`. The scheduler skips the start event and the terminal event for a task that ends while still queued.
 
 When a run ends as a whole, by a cancel or a fatal answer, the scheduler first abandons every live task. The reason is `run_terminated`, or `owner_aborted` for a task nested under another. If the scheduler skipped this step, `TaskStarted` would be the last event of such a task, and its record would read `running` forever.
 
@@ -56,10 +56,10 @@ When a run ends as a whole, by a cancel or a fatal answer, the scheduler first a
 
 `tasks.fanout` lists the items of the list in index order, from index 1 up to the first index that holds nothing, and then every other entry sorted by key.
 An index past such a gap is a keyed member.
-It reads a view through to its data, so a list from `args` or from `var` is a collection like any table. A keyed member becomes a pair table that the arm reads as `item.key` and `item.value`. Any other value in place of the table raises an error that points to `prompt.list(heading)`.
+It reads a view through to its data, so a list from `args` or from `var` is a collection like any table. A keyed member becomes a pair table that the arm reads as `item.key` and `item.value`. Any other value in place of the table raises an error that points to `prompt.section(path, 'list').items`.
 A weak table, one whose metatable has a `__mode` with `k` or `v` in it, raises an error too.
 
-A heading in place of the table is one of the refused values. `prompt.list(heading)` returns the items of a list section, so a heading as the argument would be a second way to do one thing, and a bare string is ambiguous against a section name. The sort of the keyed part makes every process spawn the arms in the same order.
+A heading in place of the table is one of the refused values. `prompt.section(path, 'list').items` returns the items of a list in a section, so a heading as the argument would be a second way to do one thing, and a bare string is ambiguous against a section name. The sort of the keyed part makes every process spawn the arms in the same order.
 The list ends at the first gap because the length that Lua gives a table with a gap differs between two runs ([The prompt language](prompt-language.md)).
 Lua's collector can take a member out of a weak table while `tasks.fanout` reads it, and which members it takes follows the order of Lua's own walk, so two runs with the same inputs would spawn different arms.
 
@@ -89,7 +89,7 @@ When an arm fails, `tasks.fanout` cancels the arms still live and raises that ar
 
 `tasks.fanout(model, worker, collection)` takes a model handle first. The function sets the caller's current model to that handle, spawns the arms, and restores the caller's model before the first wait. Each arm copies the model at its spawn ([Model calls and conversations](models-and-conversations.md)).
 
-The form exists only in the Lua of `tasks.fanout`: both forms of the call yield the same requests to the scheduler. It spares authors a manual save and restore of the model.
+The form exists only in the Lua of `tasks.fanout`: every form of the call yields the same requests to the scheduler. It spares authors a manual save and restore of the model.
 
 ## 4. Admission and limits
 
@@ -97,7 +97,7 @@ The form exists only in the Lua of `tasks.fanout`: both forms of the call yield 
 
 `RunLimits::max_concurrency` is the most tasks the scheduler admits at once. The default is 8, and the Host sets it. A running task counts against the limit of its owner and of every ancestor chain, and each such count is a slot. A fanout inside an arm therefore runs within that arm's share.
 
-One limit covers the whole run. A limit inside each fanout would multiply when fanouts nest, since 8 arms that each run 8 arms are 64 live tasks, and it would leave tasks from `tasks.spawn` unbounded. The Harness has a separate limit of 10 Pack tool calls in flight ([Tools and Packs](tools-and-packs.md)), because one shared limit would couple the task limit and the call limit.
+One limit covers the whole run. A limit inside each fanout would multiply when fanouts nest, since 8 arms that each run 8 arms are 64 live tasks, and it would leave tasks from `tasks.spawn` unbounded. The Harness has a separate limit on Pack tool calls in flight, 10 by default ([Tools and Packs](tools-and-packs.md)), because one shared limit would couple the task limit and the call limit.
 
 The value 8 is arbitrary, here and for `max_idle_tasks` ([The Engine](engine.md)). The value is unmeasured, and the owner did not pick it. The owner's rule is that each resource has a limit, and the value is secondary. The owner's view of the value: "8 sounds good". A value may change freely, because, in the owner's words, "this thing's not in production yet".
 
@@ -111,7 +111,7 @@ A queued task costs very little, so the arms of a fanout over 500 members have a
 
 A task that waits in `tasks.join_any` or `tasks.join` releases its slot at its owner and at every ancestor, and takes the slots again before it resumes. A task that waits on its inbox does the same. A task that waits on a model call or a tool call still counts against the limit.
 
-The release prevents a deadlock: 8 outer arms that wait on their own inner arms would otherwise fill every slot.
+The release prevents a deadlock: a full set of outer arms that wait on their own inner arms would otherwise fill every slot.
 
 ### `tasks.concurrency` sets a chain's limit and clamps it to the parent's
 
@@ -131,7 +131,7 @@ The cap is 8 because that is more depth than the owner expects a prompt to need 
 
 ### The same seed, start time, and answers produce the same run
 
-For each run the Harness generates a random seed, reads the clock, and passes both to the Engine in `RunParams`. With the same two values, and the same answers, messages, and file requests delivered in the same order at the same steps, and with the cancel flag clear, the Engine emits the same effects, events, and ids. The order of answers is an input. So is the order of the file requests that the Harness reports for open tool calls, each of which the Engine issues as an effect at its next step ([The Engine](engine.md)). So is each message that a Host sends the run, with its place among the answers and the steps ([The Harness and the Host API](harness-and-host.md)). Among waiting tool calls, the Harness starts the one with the lowest effect id ([Tools and Packs](tools-and-packs.md)), and `Run` hears of a call again only at its file requests and at its answer. That choice therefore affects the Engine only through the order of answers and of file requests, so a replay (see Planned work) that repeats the answers, the messages, and the file requests in their order and at their steps is independent of the Harness's start order. Three results depend on the order of answers: which task `tasks.join_any` returns, whether a timed wait runs out, and how far a canceled task got. The guide adds a fourth: where a `tasks.send` message applies in a task's work.
+For each run the Harness generates a random seed, reads the clock, and passes them to the Engine in `RunParams`. With the same seed and start time, and the same answers, messages, and file requests delivered in the same order at the same steps, and with the cancel flag clear, the Engine emits the same effects, events, and ids. The order of answers is an input. So is the order of the file requests that the Harness reports for open tool calls, each of which the Engine issues as an effect at its next step ([The Engine](engine.md)). So is each message that a Host sends the run, with its place among the answers and the steps ([The Harness and the Host API](harness-and-host.md)). Among waiting tool calls, the Harness starts the one with the lowest effect id ([Tools and Packs](tools-and-packs.md)), and `Run` hears of a call again only at its file requests and at its answer. That choice therefore affects the Engine only through the order of answers and of file requests, so a replay (see Planned work) that repeats the answers, the messages, and the file requests in their order and at their steps is independent of the Harness's start order. The results that depend on the order of answers are which task `tasks.join_any` returns, whether a timed wait runs out, how far a canceled task got, and, as the guide adds, where a `tasks.send` message applies in a task's work.
 
 Because of this rule, replay is a job for the Harness: the Engine is deterministic, so the Harness can match a recorded run exactly. The rule covers Lua's table walks too. The Engine's `pairs` and `next` walk a table in sorted order, and refuse a table with a key that only its memory address could place, where the order of stock Lua's walk depends on a hash seed and on such addresses.
 The length of a table with a gap in its list is outside the rule: `#t` of such a table can differ between two such runs ([The prompt language](prompt-language.md)).
@@ -155,7 +155,7 @@ The result is one rule: after a join, a chain can read what the task wrote to th
 
 An inbox is a queue of text messages, oldest first. The Engine has one for the main chain, which is the main walk, and one for each task. `tasks.receive()` returns the oldest message, or suspends the chain until a message is queued. A `call` child and an `execute` child read the inbox of the task they run inside. A chain inside `models.loop` reads its messages before its next model request ([Model calls and conversations](models-and-conversations.md)).
 
-The inbox functions are members of `tasks` for two reasons: `tasks.send` is there, and `tasks.note` is a member that also acts on the caller's own task.
+The inbox functions are members of `tasks` because `tasks.send` is there, and because `tasks.note` is a member that also acts on the caller's own task.
 
 ### The Host queues messages for the main chain, and a task's owner queues messages for the task
 
@@ -171,7 +171,7 @@ A task can therefore return a result and remain open for follow-ups with its con
 
 ### A run has at most 8 idle tasks, and one more reply closes the one idle longest
 
-`RunLimits::max_idle_tasks` is 8 by default. A reply that makes a ninth idle task closes another: the one idle longest among those whose own tasks have all ended, or the one idle longest of all. The closed task ends as `done` with its latest reply as its result.
+`RunLimits::max_idle_tasks` is 8 by default. A reply that would put the run past that cap closes another idle task: the one idle longest among those whose own tasks have all ended, or the one idle longest of all. The closed task ends as `done` with its latest reply as its result.
 
 The cap bounds memory: an idle task still has its Lua VM, which the Engine is unable to rebuild from the task's conversation. The closed task ends as `done` because its owner is still alive and can still take that reply, while `abandoned` means that the owner ended. The value 8 is arbitrary, as it is for `max_concurrency`.
 

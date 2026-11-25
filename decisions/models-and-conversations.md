@@ -28,9 +28,9 @@ A `Switchable` model passes `thinking: false` because it can honor the requireme
 
 ### The Harness passes one model for a run, as the `default` entry
 
-The Harness asks the Host's broker for its model list ([The Harness and the Host API](harness-and-host.md)) and takes the model that `RunSetup.selected_model` names, or the first one listed. The Harness passes that model as the map's one entry, so one model fills every role. A model id has a namespace and a name, as in `gateway/fast`, and a request names the model by the name part.
+The Harness asks the Host's broker for its model list ([The Harness and the Host API](harness-and-host.md)) and takes the model that `RunSetup.selected_model` names, or the first one listed. The Harness passes that model as the `default` entry, so one model fills every role. A model id has a namespace and a name, as in `gateway/fast`, and a request names the model by the name part.
 
-The Harness passes only `default` because `RunSetup` has one `selected_model`. A model for each role is planned work.
+The Harness passes only `default` because `RunSetup` selects a model for the whole run, not for each role. A model for each role is planned work.
 
 ## 2. Choosing a model in Lua
 
@@ -48,7 +48,7 @@ The Engine copies at dispatch because a spawned task can wait in a queue before 
 
 ### `models.use` takes a role name or a handle, and sampling options
 
-`models.use('strong', { temperature = 0, max_tokens = 4096 })` selects the role and sets both options on the selection. `temperature` is a number from 0.0 to 2.0, `max_tokens` is a positive integer, and any other key raises an error. A handle saved from `models.current()` restores an earlier selection with its options.
+`models.use('strong', { temperature = 0, max_tokens = 4096 })` selects the role and sets the options on the selection. `temperature` is a number from 0.0 to 2.0, `max_tokens` is a positive integer, and any other key raises an error. A handle saved from `models.current()` restores an earlier selection with its options.
 
 The options are arguments of `models.use` because a prompt needs to set `max_tokens` section by section. The value is also arguably outside the prompt's contract, which the front matter states. A second call with a role name replaces the options, because a merge across calls would make a section's settings depend on its call history. The client sends a temperature as declared, and a provider's refusal of the value fails that round.
 
@@ -60,7 +60,7 @@ A handle has only its fields, so the `models` functions are the one way to run a
 
 ### `models.get` returns a role's handle and leaves the current model as it is
 
-`models.get('fast')` returns the handle of the `fast` role. A role name is a string that Lua passes as an argument. A name outside the five roles raises an error that lists them.
+`models.get('fast')` returns the handle of the `fast` role. A role name is a string that Lua passes as an argument. A name outside the roles raises an error that lists them.
 
 A prompt names a model by its role, and the Host chooses the model that fills each role ([The Harness and the Host API](harness-and-host.md)).
 
@@ -126,7 +126,7 @@ The line marks each message as new input, so that the model reads it as separate
 
 When the Engine delivers a message to a chain whose loop waits on a model request, it withdraws that request, even while the Host streams the reply. The loop appends the message and issues the request again. The withdrawn request leaves `messages` as it was and is outside the round cap. Tool calls in progress finish first.
 
-The cap skips the withdrawn request because the request ended before it produced a round. The Engine has one delivery mode: a message always steers the loop that is running. A stop is a separate signal ([The Harness and the Host API](harness-and-host.md)).
+The cap skips the withdrawn request because the request ended before it produced a round. The Engine delivers a message the same way every time: it always steers the loop that is running. A stop is a separate signal ([The Harness and the Host API](harness-and-host.md)).
 
 ## 5. Messages and the section's conversation
 
@@ -188,7 +188,7 @@ The estimate omits tool schemas and image parts. A count for both is planned wor
 
 ### A compactor is a Lua function that edits `messages` in place under a snapshot
 
-A request overflows in two ways: the precheck refuses it, or the provider rejects it as too large. The loop then takes a snapshot of the records and calls `compactor(reason)`, where the reason is `precheck` or `provider`. The compactor edits the list with `replace`. When it raises an error or leaves a list that breaks a rule, the Engine restores the snapshot and raises.
+A request overflows when the precheck refuses it or when the provider rejects it as too large. The loop then takes a snapshot of the records and calls `compactor(reason)`, where the reason is `precheck` or `provider`. The compactor edits the list with `replace`. When it raises an error or leaves a list that breaks a rule, the Engine restores the snapshot and raises.
 
 ### `compactors.fail` is the default compactor, and `compactors.clear` empties the list
 
@@ -200,7 +200,7 @@ The Engine refuses `compactors.clear` outside a compactor because the snapshot t
 
 When a compactor returns, the Engine runs the projection's checks on the list: tool calls paired with results, unique call ids, and system records first. After an overflow, the list's token estimate must also be below the snapshot's. A failed check restores the snapshot. A structural failure raises an error of kind `lua`, and a list that failed to shrink raises `context_exhausted`.
 
-An empty list passes. Two stricter rules, unchanged system records and more records than the system block, would both refuse the result of `compactors.clear`.
+An empty list passes. Stricter rules, such as unchanged system records or more records than the system block, would each refuse the result of `compactors.clear`.
 
 ### An overflowed round compacts once, and its retry is outside the round cap
 
@@ -238,7 +238,7 @@ The swap happens inside the run because a separate run for each pick would cost 
 
 `runvil-model-client` defines `Message`, `ToolSchema`, `Completion`, `ModelBinding`, and the model error phrases. `harness-gateway-client` contains the HTTP and the wire parsing: the chat client, the standard broker, the fetch of the model list, and public wire functions such as the one that builds the request body. The Engine's projection also writes wire format: it writes each tool call of an assistant record in the OpenAI function-call shape. The wire functions are public so that another broker can reuse them.
 
-The client is a crate of its own for two reasons. The Host supplies inference and the Harness excludes tokio, so the Harness leaves HTTP to the Host. Every Host still needs a standard Gateway client.
+The client is a crate of its own because the Host supplies inference and the Harness excludes tokio, so the Harness leaves HTTP to the Host, and every Host still needs a standard Gateway client.
 
 ### The client sends tools in the OpenAI function-calling format
 
@@ -256,9 +256,9 @@ The function's module concentrates the wire quirks so that the rest of Runvil wo
 
 The checks that are independent of the wire format are in the Engine so that they run for every broker. The client fails a cut-off batch so that only calls with complete JSON arguments run.
 
-### The receive timeout restarts with each chunk, and the client owns both request limits
+### The receive timeout restarts with each chunk, and the client owns the request limits
 
-The client waits at most 120 seconds for the response headers and then for each next chunk, and it accepts at most 16 MiB for one reply. A stream that continues to send data completes, and a silent stream fails with the code `Timeout`. The client has one setter for both values, and the standard broker uses the defaults.
+The client waits at most 120 seconds for the response headers and then for each next chunk, and it accepts at most 16 MiB for one reply. A stream that continues to send data completes, and a silent stream fails with the code `Timeout`. The client sets the limits together, and the standard broker uses the defaults.
 
 The timeout restarts with each chunk because a cap of 120 seconds on the whole reply would end a long thinking turn.
 
@@ -266,7 +266,7 @@ The timeout restarts with each chunk because a cap of 120 seconds on the whole r
 
 A failed round is an `Error` with a model code such as `Overloaded`, `Timeout`, or `ContextOverflow` ([The Engine](engine.md)). Its `prose` field, the text that a model reads, is the code's fixed phrase, with ` (status N)` appended for an HTTP status. The client appends the provider's escaped text to the error's message, and Lua receives the prose. In Lua a caught failure has the kind `model_failure`, and a round on a chain that lacks a model has `model_required`.
 
-Lua has these two kinds because a single kind, `internal`, would cover three unrelated conditions, and a model that reads a caught 503 would see `internal`.
+Lua has these kinds because a single kind, `internal`, would cover unrelated conditions, and a model that reads a caught 503 would see `internal`.
 
 ### The client redacts its key and builds a keyless client for a loopback Gateway
 
@@ -274,11 +274,11 @@ The client stores the Gateway's bearer key as a secret value and prints `<redact
 
 The client has the Gateway's key, and the Gateway has the model provider's key. A Gateway can admit a loopback caller that omits the key, and the keyless client is for that case. The keyless form exists for the chat client alone. The standard broker, the fetch of the model list, and `provide_gateway_resources` each require a key, so a Host that uses them needs the Gateway's key for a run, on a loopback Gateway too.
 
-Beside its own requests, the client hands the key out in one place: the entry that `provide_gateway_resources` offers the Plugins of the C contract holds it as plain text, because such a Plugin presents the key to the Gateway itself ([The Harness and the Host API](harness-and-host.md)).
+Beside its own requests, the client hands the key out only through the entry that `provide_gateway_resources` offers the Plugins of the C contract. That entry holds it as plain text, because such a Plugin presents the key to the Gateway itself ([The Harness and the Host API](harness-and-host.md)).
 
 ## 8. Planned work
 
-- **A model for each role.** A model that the Host selects for each role. `RunSetup` has one `selected_model`, and the Harness passes that model as `default`, so it fills every role.
+- **A model for each role.** A model that the Host selects for each role. `RunSetup` has a `selected_model`, and the Harness passes that model as `default`, so it fills every role.
 - **A model swap that the Engine knows about.** A swap that also changes the Engine's binding for the role. After a swap by the broker, the Engine's precheck, `sys.model`, and the request's thinking switch and token cap describe the first model.
 - **A scoped model switch.** A Lua form that switches the model for one block of work and restores it afterward. `models.use` switches the model for the rest of the chain, and a prompt restores the earlier model with a handle saved from `models.current()`.
 - **A role for compaction.** A role beside the fixed set that names the model for compaction. A compactor calls `models.infer` on the chain's current model or on a handle, and the item waits for evidence of what compaction needs.

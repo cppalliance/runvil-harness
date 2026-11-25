@@ -2,7 +2,7 @@
 
 This page covers the `runvil` crate, `Host`, `RunSetup`, one Harness for each run, the effect loop, inference brokers, the timer, what a Host hands a Rust Plugin, the resources a Host offers the Plugins of the C contract, the recorder and run events, the run inbox from the Host's side, and stop and cancel. A Host is an application that runs prompts, and it depends on one crate, `runvil`. At startup it builds one `Host` through `Host::builder`, from a prompt finder and the Plugins that supply its Packs. For each run it fills a `RunSetup` with a recorder, an inference broker, a timer, a file system, and the run's settings, and creates one `Harness`. `Harness::run` is one future. It steps the Engine, performs each effect, writes every event, effect, and answer to the recorder, and returns a `RunReport`. A `RunControl` sends messages to the run, stops the work in flight, or cancels the run.
 
-## 1. The three layers and the `runvil` crate
+## 1. The layers and the `runvil` crate
 
 ### The Engine emits effects, the Harness performs them, and the Host decides policy
 
@@ -20,7 +20,7 @@ A prompt file names a model by a role, such as `strong`, and a set of tools by a
 
 A Host names its Plugins on the builder. A Rust Plugin is a function, and the Host names it with `with_rust_plugin`. The Plugin `plugin-mcp` is a Rust function named `install`, and the function that the Host names calls it with the registry, the Host's list of MCP servers, and the handle of the Host's tokio runtime. A Plugin that follows the C contract is named by where it is: `with_plugin_dir` names each library Plugin of a directory, `with_plugin_file` names the library Plugin in one file, and `with_plugin` names a Plugin that is compiled into the Host, by its entry point. `with_resources` gives the builder the Host's `HostResources`, and every tool call of a Plugin of the contract is lent them (see Inference, the clock, and what a Host hands its Plugins). The `Host` keeps a `PluginReport` for each step that names a Plugin, which holds the Plugins that loaded and each failure.
 
-The facade keeps one function of the loader, `insert_plugin_dir`, which fills a `PackRegistry` and returns the report. It is for code that fills a registry apart from a `Host`, such as a tool that lists what a Plugin directory holds.
+The facade keeps `insert_plugin_dir`, a function of the loader, which fills a `PackRegistry` and returns the report. It is for code that fills a registry apart from a `Host`, such as a tool that lists what a Plugin directory holds.
 
 The owner's goal: "I want the outside world to only see one runvil crate, not runvil-*."
 
@@ -28,11 +28,11 @@ The owner's goal: "I want the outside world to only see one runvil crate, not ru
 
 `runvil` omits the Engine items that step a run and perform its effects, among them `Run`, `Step`, `RunParams`, `Effect`, `EffectAnswer`, and the `cancel` module. Code that steps a run itself imports them from `runvil-engine`, as the Harness does, and a Host cancels through `RunControl`. `runvil` re-exports every other Engine name, including names that the existing Hosts leave unused.
 
-### `harness-gateway-client` is the Harness family's second public crate
+### `harness-gateway-client` is a public Harness crate beside `runvil`
 
-`harness-gateway-client` contains what a Host needs to use the Gateway: `GatewayBroker`, which implements `InferenceBroker`; `GatewayChat`, the HTTP client it uses; `fetch_model_catalog`; and `provide_gateway_resources`, which offers the Gateway to the Plugins of the C contract (see Inference, the clock, and what a Host hands its Plugins). It also has `TokioTimer`, the stock timer of a Host that runs on tokio (see the same section). It is the one Harness crate besides `runvil` that an outside crate may depend on.
+`harness-gateway-client` contains what a Host needs to use the Gateway: `GatewayBroker`, which implements `InferenceBroker`; `GatewayChat`, the HTTP client it uses; `fetch_model_catalog`; and `provide_gateway_resources`, which offers the Gateway to the Plugins of the C contract (see Inference, the clock, and what a Host hands its Plugins). It also has `TokioTimer`, the stock timer of a Host that runs on tokio (see the same section). An outside crate may depend on `runvil` and `harness-gateway-client`. The Harness's other crates are private to the Harness.
 
-The client is a crate of its own for two reasons. The Host supplies inference and `runvil` excludes tokio, so `runvil` leaves HTTP to the Host. Every Host still needs a standard Gateway client.
+The client is a crate of its own because the Host supplies inference and `runvil` excludes tokio, so `runvil` leaves HTTP to the Host, and every Host still needs a standard Gateway client.
 
 ### The Harness's async code uses `futures-util`, and any executor can poll a run
 
@@ -124,7 +124,7 @@ The Engine derives the nonce of the untrusted-output envelope from the seed, and
 
 Before the first step the Harness creates the run's Pack instances and awaits every instance's `ready` together, until all resolve or the Host cancels the run. Each Pack bounds its own `ready`, because a timeout in the Harness would be a policy that belongs to each Pack. `ready` is a method of the Rust trait `Pack`, and its default resolves at once. The C contract omits a readiness call, so a Pack of a contract Plugin is ready when `RV_PACK_NEW` returns, and the Packs that ship keep the default.
 
-The run's first step checks the run's requirements. For a shortfall, such as a Pack whose factory refused this run, it ends the run with a `RequirementsUnmet` error that lists every gap. When the cancel flag is set, the step ends the run with the canceled error. A cancel that ends the wait early leaves a Pack that is still starting with zero tools, and the check would otherwise end a canceled run as refused. [The Engine](engine.md) lists the checks.
+The run's first step checks the run's requirements. For a shortfall, such as a Pack whose factory refused this run, it ends the run with a `RequirementsUnmet` error that lists every gap. When the cancel flag is set, the step ends the run with the canceled error. A cancel that ends the wait early leaves a Pack that is still starting with no tools, and the check would otherwise end a canceled run as refused. [The Engine](engine.md) lists the checks.
 
 ## 3. The effect loop
 
@@ -150,7 +150,7 @@ The loop performs the operation itself because file operations are synchronous b
 
 The loop catches a panic from a broker, a Pack, or a timer, logs it with the effect id, and answers the effect `Dropped`. The Lua call that waited raises the canceled error, which a `pcall` can catch, and an uncaught one ends the run as canceled.
 
-### The Harness sends each tool call to the Pack named by the id's first segment, and at most 10 run at once
+### The Harness sends each tool call to the Pack named by the id's first segment, and at most 10 run at once by default
 
 The run's Pack instances perform every `ToolCall` and `Render` effect. The Harness finds the Pack from the first segment of the tool id and calls `Pack::call`. The lookup skips the run's tool catalog, because a model can call a model-only tool, which a Pack's `render` adds outside the catalog.
 
@@ -178,9 +178,9 @@ The Host supplies inference so that the Host's broker owns the Gateway's URL, it
 
 ### The Harness picks the run's model once, and that model fills every role
 
-Before it prepares the run, the Harness awaits `models()` until the broker answers or the Host cancels the run, so a broker may wait until it has a model. The Harness picks the model that `RunSetup.selected_model` names, or the first listed model when the field is `None`. A selection absent from the list ends the run with `RequirementsUnmet` and the reason `model_absent`. The Harness passes the Engine a role map with one entry, `default`, so the picked model fills every role. Workshop's broker uses the wait: it answers once its catalog has a chat-capable model.
+Before it prepares the run, the Harness awaits `models()` until the broker answers or the Host cancels the run, so a broker may wait until it has a model. The Harness picks the model that `RunSetup.selected_model` names, or the first listed model when the field is `None`. A selection absent from the list ends the run with `RequirementsUnmet` and the reason `model_absent`. The Harness passes the Engine a role map that holds only `default`, so the picked model fills every role. Workshop's broker uses the wait: it answers once its catalog has a chat-capable model.
 
-The map has one entry because `RunSetup` has one `selected_model`. A model for each role is planned work.
+The map holds only `default` because `RunSetup` selects a model for the whole run, not for each role. A model for each role is planned work.
 
 ### `OfflineBroker` is the stock broker of a Host that runs prompts without a model
 
@@ -242,7 +242,7 @@ The builder is a description because a Host then states all of its Plugins in on
 
 A Host that uses the Gateway offers it to the Plugins it loads through the C contract with one call, `provide_gateway_resources(resources, current)` of `harness-gateway-client`. `current` is a function that returns the Gateway to use right now, as the API root and the key that `GatewayBroker::new` takes, or nothing when the Host has no Gateway right now. The call offers each resource that the Gateway serves to Plugins. The Gateway serves them its web search, under the name `runvil/web-search`, and the value is a JSON object with the fields `version`, which is 1; `url`, the address of the Gateway's web search route under that API root; and `api_key`, the Gateway's key. Version 1 means that a Plugin sends the Gateway's web search request to `url` as the JSON body of a POST, with `api_key` as its bearer key, and reads the Gateway's web search reply. An entry that leaves `api_key` out means a request with no `Authorization` header, and the function always writes the key. A `current` that returns nothing leaves the entry out of that call. A second call on the same `HostResources` is refused, because the name is offered already. The search tool of the `web` Pack reads this entry ([Tools and Packs](tools-and-packs.md)).
 
-`current` is a function because a Host's Gateway can move or stop. The Harness asks it as each tool call starts, so a call gets the Gateway of that moment. One call offers every resource so that a Gateway that serves Plugins a second thing changes this function and leaves each Host as it is. The entry holds an address and a key because a library Plugin links an HTTP client of its own and sends the request itself, where a search object of the Host would stay on the Host's side of the contract. The version is a field of the entry and is absent from the request body, because the Gateway refuses a body with a field it does not know. The name and the shape are written twice, in this function and in the Plugin that reads the entry, because a Plugin builds independently of the Harness. The function is in `harness-gateway-client` because that crate alone reads the key out of the client's secret value. The entry holds the key as plain text, so every Plugin that is lent those resources can read it.
+`current` is a function because a Host's Gateway can move or stop. The Harness asks it as each tool call starts, so a call gets the Gateway of that moment. One call offers every resource so that a Gateway that serves Plugins a second thing changes this function and leaves each Host as it is. The entry holds an address and a key because a library Plugin links an HTTP client of its own and sends the request itself, where a search object of the Host would stay on the Host's side of the contract. The version is a field of the entry and is absent from the request body, because the Gateway refuses a body with a field it does not know. The name and the shape appear in this function and in the Plugin that reads the entry, because a Plugin builds independently of the Harness. The function is in `harness-gateway-client` because that crate alone reads the key out of the client's secret value. The entry holds the key as plain text, so every Plugin that is lent those resources can read it.
 
 ## 5. The recorder and run events
 
@@ -333,11 +333,11 @@ A message leaves tool calls running. To cut a long tool call short, the Host sto
 Each of these items is still to be built.
 
 - **Replay and resume.** A driver that builds a run from a recorded seed and start time, passes the recorded answers to `Run::resume`, the messages to `Run::deliver`, and the file requests of tool calls to `Run::request_file`, and reports where the second run diverges. Today the recorder receives the seed, the start time, every answer, every message, and each file request of a tool call as the record of its `Vfs` effect.
-- **A model for each role.** Today `RunSetup` has one `selected_model`, which fills every role.
+- **A model for each role.** Today `RunSetup` has a `selected_model`, which fills every role.
 - **Small records for large answers.** Today an answer record stores the whole tool output, or the whole file text for a `store` call, so the record contains a copy of everything a script reads. For a file operation of a tool call the answer record holds a receipt, such as the number of bytes of a read.
 - **Request limits for a Host.** Today `GatewayBroker` always gives a chat round a receive timeout of 120 seconds and a reply cap of 16 MiB. Its model list request has the same cap and waits as long as the Gateway takes to answer.
 - **A step hook.** Pack code that rewrites an effect or its answer between `Run::step` and the performers. Today the loop starts each effect as `Run::step` returned it and resumes the run with each answer as its performer returned it.
-- **More for a Host to hand its Packs.** Secrets, a schedule, a model client for Packs, and the parent environment of a sub-run. Today a library Plugin is lent the Host's resources, and the one resource that a shipped Pack reads is the Gateway's web search.
+- **More for a Host to hand its Packs.** Secrets, a schedule, a model client for Packs, and the parent environment of a sub-run. Today a library Plugin is lent the Host's resources, such as the Gateway's web search, which a shipped Pack reads.
 - **One Plugin API.** `mcp` as a Plugin that follows the C contract, which a Host names with `with_plugin`, and with it contract functions for configuration, an unavailable Pack with its reason, and the origin of a call, and something in place of the runtime handle that the Host passes to `install`. Today the Plugin is a Rust function named `install`, compiled into the Host, which takes its list of servers and the Host's runtime handle as arguments ([Tools and Packs](tools-and-packs.md)).
 - **Approvals.** An approval as an effect of its own, with the dialog in the Host. Today the effect kinds are `Chat`, `Render`, `ToolCall`, `Vfs`, and `Timer`. When the `Policy` of `RunSetup.vfs` returns `Ask` for a file operation of a tool call, the file system refuses it with `VfsError::ApprovalRequired`, and a store operation passes the `Policy` by.
 - **Requirement gaps before a run.** A call that returns every gap as data before a run exists. Today `Host::parse` reports missing Packs, and every other gap ends a run with a `RequirementsUnmet` error.

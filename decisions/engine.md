@@ -50,7 +50,7 @@ The parser compiles each `lua` fence to Lua 5.5 bytecode and keeps the source te
 
 ### One lookup finds every heading in a visible set, and a hidden heading looks the same as a missing one
 
-A running section may name its siblings and its direct children by heading, and that list is its visible set ([The prompt language](prompt-language.md)). One lookup searches the set for `jump`, `call`, a task spawn, and a `prompt.section` or `prompt.list` read. Depending on the call, a miss is `nil` or an error. `require` searches a wider set with a lookup of its own.
+A running section may name its siblings and its direct children by heading, and that list is its visible set ([The prompt language](prompt-language.md)). One lookup searches the set for `jump`, `call`, a task spawn, and a `prompt.section` read. Depending on the call, a miss is `nil` or an error. A `prompt` read also takes a path from the top, which names any section, and `require` takes only a path from the top.
 
 A heading outside the set and a heading absent from the file get the same answer, because telling them apart would need the whole document, and a miss would then reveal what the visible-set rule hides.
 
@@ -74,7 +74,7 @@ The first `Run::step` makes the start checks, in this order. The prompt and ever
 
 `Run::new` always returns a `Run`, so every failure of a run, a failed start check included, reaches the caller in one place: the `result` of `Step::Done`. The caller handles a failed run there already, and a failure out of `Run::new` would need a second path that records and reports the same thing. A failure inside `Run::step` or `Run::resume` reaches the caller there too. The owner's reason: "having one place for the error is better than two".
 
-The checks cover the linked prompts because a run may execute any of them. The owner's reason: "we want to know up front if the prompt can run or not". Within each kind of gap, the message lists the gaps of the run's own prompt first and then those of each linked prompt in the order of their names. A line about a linked prompt's gap starts with that prompt's name, as in `- review.md: missing required Pack: web`, and a Pack that two prompts declare has one line. The failure's location is in the first prompt that caused a gap, on the `uses:` key for a Pack and on the `models:` key for a model.
+The checks cover the linked prompts because a run may execute any of them. The owner's reason: "we want to know up front if the prompt can run or not". Within each kind of gap, the message lists the gaps of the run's own prompt first and then those of each linked prompt in the order of their names. A line about a linked prompt's gap starts with that prompt's name, as in `- review.md: missing required Pack: web`, and a Pack that more than one prompt declares has one line. The failure's location is in the first prompt that caused a gap, on the `uses:` key for a Pack and on the `models:` key for a model.
 
 ### A step returns its effects and its events as values
 
@@ -108,7 +108,7 @@ The step names the withdrawn effects in a list, because a shared cancel flag ins
 
 A caller passes a `CancelHandle` to `RunParams::with_cancel` and sets the flag, from any thread, to cancel the run. The Engine polls the flag before each step of a chain, and a hook in every Lua VM polls it too. The next `Run::step` ends every chain and lists every outstanding effect in `withdrawn`, and the run ends with the code `canceled` once the caller has answered them.
 
-The two polls follow one rule: the Engine honors a cancel while a block runs and while a chain waits on a request.
+The polls follow one rule: the Engine honors a cancel while a block runs and while a chain waits on a request.
 
 ### A run ends with its final text or with one `Error`
 
@@ -136,7 +136,7 @@ The request settings are in the binding only: a second copy in the effect could 
 
 One counter numbers every model round of a run in issue order, and loop rounds and nested `models.infer` rounds share it. Each `Effect::Chat` has a `Round` with that `RoundId` and an origin, `Chat` or `Infer`. The Engine writes the same id in the round's thinking, reply, and tool-call events, so a caller that streams partial output matches it to the finished events.
 
-A `Round` has only these two values, because a caller needs only a round's id and whether the round is user-facing.
+A `Round` holds only the id and the origin, because a caller needs only a round's id and whether the round is user-facing.
 
 ### `Effect::Vfs` is one file operation, and it says who asked
 
@@ -244,7 +244,7 @@ The default values of the limits are arbitrary, and so is the interval of the ca
 
 Each Lua VM has a hook that fires every 10,000 instructions and reads the run's cancel flag, and a set flag aborts the block. An endless loop in a prompt therefore runs until the caller cancels the run. The owner's reason: "If the user codes an infinite loop that's their problem".
 
-The Engine's quotas are both on `log`: a count of events and a count of bytes. A call past either one raises an error with the code `lua_quota`.
+The Engine's quotas are on `log`: a count of events and a count of bytes. A call past either one raises an error with the code `lua_quota`.
 
 ## 7. The one error type
 
@@ -252,11 +252,11 @@ The Engine's quotas are both on `log`: a count of events and a count of bytes. A
 
 `Error` is a struct in `runvil-types` with the public fields `code`, `message`, `prose`, `at`, and `facts`. `ErrorCode` is an enum of codes, each with a number and a tag such as `lua_runtime` (201). The hundreds digit names the family: 1xx parse, 2xx Lua, 3xx tasks, 4xx model, 5xx tools, 6xx store, 7xx run, and 8xx caller. The enum's docs add: "A number is never reused." The root `AGENTS.md` makes `Error` the one error type of the Engine and Harness crates, with `VfsError` as the main exception.
 
-The crates share one `Error` because they once had dozens of error types, and every one that a facade exported was another public item. One record made the code easier to read and to change, and it keeps the public surface small. The owner's reason: "There was a proliferation of error types and unifying them into one made the code much easier to understand and easier to work on". On the surface: "one is better than 52 in this case". The 52 is the owner's own count and is unconfirmed: a search of the older code finds fewer. The owner limits the rule to this API: "for unified public harness and engine API, it's better to just have one error", and of the rule elsewhere, "that might not be generally true".
+The crates share one `Error` because a separate error type for each failure makes the code harder to read and to change, and every one that a facade exports is another public item. One record makes the code easier to read and to change, and it keeps the public surface small. The owner's reason: "There was a proliferation of error types and unifying them into one made the code much easier to understand and easier to work on". On the surface: "one is better than 52 in this case". The owner limits the rule to this API: "for unified public harness and engine API, it's better to just have one error", and of the rule elsewhere, "that might not be generally true".
 
 Today `call_depth_exceeded` is 204, in the Lua family. The grouping and the numbers may change until Runvil has users. The owner's reason: "there's no users that are comparing error codes yet, so it's easy to change". A code that moves to another family takes a new number, so a move keeps the rule that each number names one code for good.
 
-`Error`, `ErrorCode`, and `ErrorFact` omit the `#[non_exhaustive]` attribute, so a code that the Engine adds breaks the build of a Host whose `match` on `ErrorCode` names every variant. The closed state of the three types is unplanned. The owner's rule marks every facade type `#[non_exhaustive]` except the enums that it keeps closed (see the entry on closed enums), and the error types lack the attribute. The owner's words: "it just happened", and "we should probably mark the type as non-exhaustive". Adding the attribute is planned work.
+`Error`, `ErrorCode`, and `ErrorFact` omit the `#[non_exhaustive]` attribute, so a code that the Engine adds breaks the build of a Host whose `match` on `ErrorCode` names every variant. The closed state of these types is unplanned. The owner's rule marks every facade type `#[non_exhaustive]` except the enums that it keeps closed (see the entry on closed enums), and the error types lack the attribute. The owner's words: "it just happened", and "we should probably mark the type as non-exhaustive". Adding the attribute is planned work.
 
 ### An error's `message` includes each cause once, and its `prose` is the text a model reads
 
@@ -274,13 +274,13 @@ Today `call_depth_exceeded` is 204, in the Lua family. The grouping and the numb
 
 A failure has the code `lua_runtime` when the prompt author caused it and can fix it in Lua, such as an empty `messages` list. It has the code `internal` when an Engine rule broke, such as a poisoned lock.
 
-The code names the party at fault, and a failure with the wrong one of the two codes would blame the wrong party.
+The code names the party at fault, and a failure with the wrong one of these codes would blame the wrong party.
 
 ## 8. The public surface and the internal crates
 
 ### `runvil-engine` contains re-exports, and each item has one path
 
-The crate consists of `pub use` lines, at the root and in `pub mod` blocks, and private crates define every item. The code calls such a crate a facade. Each line re-exports one item by name from the crate that defines it. A structural check rejects a glob, a list, and an item definition, and `cargo xtask api` rejects a re-exported module. The `runvil` crate, which a Host depends on, is a second facade ([The Harness and the Host API](harness-and-host.md)).
+The crate consists of `pub use` lines, at the root and in `pub mod` blocks, and private crates define every item. The code calls such a crate a facade. Each line re-exports one item by name from the crate that defines it. A structural check rejects a glob, a list, and an item definition, and `cargo xtask api` rejects a re-exported module. The `runvil` crate, which a Host depends on, is a facade too ([The Harness and the Host API](harness-and-host.md)).
 
 A caller finds every item in this one crate. The owner's reason: "I dont want types scattered around different crates. I have discovered it becomes hard to browse the cargo doc that way." Each line names a single item because a re-exported module or crate would expose everything that the module later gains, and a second path to an item would make the API ambiguous.
 
@@ -294,7 +294,7 @@ The goal is a minimal surface in which every item is necessary. The owner's rule
 
 `cargo xtask api` reads rustdoc's JSON for the facade and fails when a signature, field, or impl on the surface names anything else. The serde crates are `serde`, `serde_core`, and `serde_json`.
 
-The limit applies to the surface only: the internal crates may use many external crates, and the surface is restricted to a few basic ones.
+The limit applies to the surface only: the internal crates may use many external crates, and the surface is restricted to basic ones.
 
 ### An operation reserved for Engine crates is a free function in a module outside the facade
 
@@ -322,4 +322,4 @@ The owner's goal: "I want as many internal crates as possible and I want maximum
 - **Replay.** Harness code that runs a recorded run a second time and compares the records of the two runs. Today the Engine attaches a `Provenance` to each effect and event, and `Effect::record` and `EffectAnswer::record` return the JSON that a run log stores.
 - **The round id on `ModelTurnFailed`.** A round id in the `ModelTurnFailed` event, so that a Host can drop exactly the failed round's streamed pieces. Today the Engine writes the round id in a round's thinking, reply, and tool-call events.
 - **Bounds on JSON conversion.** A size budget at every site that converts a Lua table. Today `json.encode` and `var` writes have a size budget, other sites in the Lua crate convert a table of any size, and one encode runs as a single Rust callback between cancel polls.
-- **`#[non_exhaustive]` on the error types.** The attribute on `ErrorCode`, so that a new code leaves a Host's build intact. `Error` and `ErrorFact` may get it too. Today the three types are closed, and a `match` in `runvil-lua` names every code and is complete as it stands, so it would need a catch-all arm or a move into `runvil-types`.
+- **`#[non_exhaustive]` on the error types.** The attribute on `ErrorCode`, so that a new code leaves a Host's build intact. `Error` and `ErrorFact` may get it too. Today these types are closed, and a `match` in `runvil-lua` names every code and is complete as it stands, so it would need a catch-all arm or a move into `runvil-types`.
