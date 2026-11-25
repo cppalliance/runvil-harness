@@ -41,14 +41,26 @@ use crate::error::{
     make_internal_error, make_lua_runtime_error, prompt_file, root_cause, root_text,
 };
 
-/// The registry key of the shared error metatable, created on first use per
-/// VM so every error table on that VM - Lua-built or Rust-built - shares
-/// the same identity and the read-back can recognize it.
+/// The registry key of the shared error metatable, which
+/// [`install_metatable`] builds once per VM, so every error table on that
+/// VM - Lua-built or Rust-built - shares the same identity and the
+/// read-back can recognize it.
 const METATABLE_REGISTRY: &str = "runvil.error_value.metatable";
 
 /// The registry key of the VM's weak-keyed table from each error table
 /// rendered from a universal error to that error, created on first use.
 const RETAINED_REGISTRY: &str = "runvil.error_value.retained";
+
+/// The name of the chunk that builds the `__concat` of the error
+/// metatable. A chunk loaded with no name takes the Rust line that loads
+/// it for one, which the rule on the position of an Engine chunk does not
+/// read.
+const CONCAT_CHUNK_NAME: &str = "@crates/runvil-internal/lua/src/error_value.rs";
+
+/// The source of that `__concat`, which joins both sides as `tostring`
+/// gives them.
+const CONCAT_SOURCE: &str =
+    "local tostring = tostring; return function(a, b) return tostring(a) .. tostring(b) end";
 
 /// The closed vocabulary of failure kinds an author can branch on.
 ///
@@ -577,7 +589,9 @@ fn store_error_code(error: &runvil_vfs::VfsError) -> ErrorCode {
     }
 }
 
-/// Returns the VM's shared error metatable, creating it on first use.
+/// Returns the VM's shared error metatable. The hardening of a VM builds
+/// it, through [`install_metatable`], and a VM that was never hardened
+/// gets it at the first call.
 ///
 /// `__tostring` returns the table's `message`, so an author's `tostring`
 /// (and mlua's own stringification when the table surfaces as a coroutine
@@ -591,7 +605,8 @@ fn metatable(lua: &Lua) -> mlua::Result<Table> {
     let tostring = lua.create_function(|_lua, table: Table| table.raw_get::<Value>("message"))?;
     metatable.raw_set("__tostring", tostring)?;
     let concat = lua
-        .load("local tostring = tostring; return function(a, b) return tostring(a) .. tostring(b) end")
+        .load(CONCAT_SOURCE)
+        .set_name(CONCAT_CHUNK_NAME)
         .eval::<Function>()?;
     metatable.raw_set("__concat", concat)?;
     lua.set_named_registry_value(METATABLE_REGISTRY, &metatable)?;
@@ -685,6 +700,16 @@ pub(crate) fn message_table(lua: &Lua, kind: ErrorKind, message: &str) -> mlua::
     fields.raw_set("message", message)?;
     let code = table_code(kind, &fields);
     finish_table(lua, kind, code, fields)
+}
+
+/// Builds the VM's shared error metatable. The hardening of a VM calls
+/// this before any block runs, so the chunk of the `__concat` takes the
+/// Engine's `tostring`, and not a function that a block put in its place.
+///
+/// # Errors
+/// Returns an `mlua` error if the metatable cannot be built.
+pub(crate) fn install_metatable(lua: &Lua) -> mlua::Result<()> {
+    metatable(lua).map(drop)
 }
 
 /// Builds the `error_value(kind, fields)` chunk capture for the shim: the

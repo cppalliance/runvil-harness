@@ -943,6 +943,57 @@ fn a_failure_that_is_not_the_stock_functions_own_passes_a_replacement_as_it_is()
 }
 
 #[test]
+fn a_failure_under_the_concat_of_an_error_value_has_no_position_of_an_engine_chunk() {
+    // The `__concat` of an error value is a Lua function of the Engine's.
+    // Level 3 of the `error` names it, and so does a stack overflow that
+    // Lua raises in it.
+    let leveled = run(
+        "local _, refused = pcall(tools.offer, 5)\n\
+         local bad = setmetatable({}, { __tostring = function() error('boom', 3) end })\n\
+         local _, failure = pcall(function() return refused .. bad end)\n\
+         return failure",
+        &json!({}),
+    )
+    .expect("the block runs");
+    assert_eq!(leveled.returned.as_deref(), Some("boom"));
+    for pad in CONCAT_PADS {
+        let locals = "local p = 0\n".repeat(pad);
+        let raised = run(
+            &format!(
+                "local _, refused = pcall(tools.offer, 5)\n\
+                 local function nest(n)\n{locals}\
+                 local text = refused .. 'x'\n\
+                 return nest(n + 1) .. text end\n\
+                 return nest(1)"
+            ),
+            &json!({}),
+        )
+        .expect_err("the nest overflows");
+        assert_eq!(
+            raised.prose,
+            author_prose("stack overflow", ErrorCode::LuaRuntime),
+            "pad {pad}"
+        );
+    }
+}
+
+#[test]
+fn the_concat_of_an_error_value_calls_no_tostring_that_a_block_replaced() {
+    // The chunk of the `__concat` takes `tostring` when the VM is made.
+    // At the VM's first failure, which comes here after the block put its
+    // own function there, it would take that function.
+    let joined = run(
+        "tostring = function() return 'replaced' end\n\
+         local _, refused = pcall(tools.offer, 5)\n\
+         local joined = refused .. '!'\n\
+         return joined == refused.message .. '!' and 'the message' or joined",
+        &json!({}),
+    )
+    .expect("the block runs");
+    assert_eq!(joined.returned.as_deref(), Some("the message"));
+}
+
+#[test]
 fn a_memory_error_under_a_replacement_is_caught_and_the_block_goes_on() {
     // The loop fills the heap, and each call asks a Rust function of the
     // replacement about a value: `tostring` about the `__tostring` and
@@ -985,6 +1036,11 @@ fn a_memory_error_under_a_replacement_is_caught_and_the_block_goes_on() {
 /// How many frame sizes `a_stack_overflow_has_no_position_of_an_engine_chunk_wherever_lua_meets_it`
 /// tries.
 const PADS: usize = 8;
+
+/// The frame sizes
+/// `a_failure_under_the_concat_of_an_error_value_has_no_position_of_an_engine_chunk`
+/// tries, among which the stack runs out in the `__concat`.
+const CONCAT_PADS: std::ops::Range<usize> = 26..36;
 
 /// How many lengths of filler
 /// `a_memory_error_under_a_replacement_is_caught_and_the_block_goes_on`

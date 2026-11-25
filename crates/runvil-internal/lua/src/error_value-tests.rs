@@ -9,8 +9,11 @@ use runvil_types::error::{Error, ErrorCode, ErrorFact, place};
 use runvil_vfs::{PathReason, VfsError};
 use serde_json::Value;
 
-use super::{ErrorKind, error_table, make_store_error, store_error_value_fields};
+use super::{
+    CONCAT_CHUNK_NAME, ErrorKind, error_table, make_store_error, store_error_value_fields,
+};
 use crate::error::{make_internal_error, make_lua_runtime_error};
+use crate::tests::assert_engine_chunk_name;
 
 #[path = "error_value-tests-raised.rs"]
 mod raised;
@@ -41,6 +44,11 @@ fn a_tables_message_puts_a_prompt_location_and_never_a_rust_one_before_the_prose
         fault.prose,
         "an internal failure's text shows no coordinates"
     );
+}
+
+#[test]
+fn the_concat_chunk_name_is_that_of_an_engine_chunk() {
+    assert_engine_chunk_name("CONCAT_CHUNK_NAME", CONCAT_CHUNK_NAME);
 }
 
 #[test]
