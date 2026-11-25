@@ -60,7 +60,7 @@ A public scripted broker would be test API that only the Harness's own tests use
 
 ### The Harness facade's streaming tests prove forwarding and broker behavior with deterministic callbacks
 
-The streaming tests in the `runvil` facade suite use scripted brokers that emit fixed pieces and a Host callback supplied through `RunSetup::streaming`. They assert that only section `Chat` rounds receive the sink, that every piece is forwarded to the Host, and that `supports_streaming` is advisory: the Harness passes the sink even when the broker reports `false`. A cancellation raised from the sink aborts the round and records it as `Dropped`, and a Host whose bounded queue is full or closed still leaves the broker's whole reply intact. The tests avoid sleeps and real time, and instead coordinate through barriers, bounded channels, and the run's `RunControl`.
+The streaming tests in the `runvil` facade suite use scripted brokers that emit fixed pieces and a Host callback supplied through `RunSetup::streaming`. They assert that only section `Chat` rounds receive the sink, that every piece is forwarded to the Host, and that `supports_streaming` is advisory: the Harness passes the sink even when the broker reports `false`. A cancellation raised from the sink aborts the round and records it as `Dropped`, and a Host whose bounded queue is full still leaves the broker's whole reply intact. The scripted-broker tests avoid sleeps and real time, coordinating through barriers, bounded channels, and the run's `RunControl`. The Gateway integration test instead serves a mock Gateway on a real loopback socket and runs in real time.
 
 ## 3. Rules for test code
 
