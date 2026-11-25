@@ -58,6 +58,10 @@ A Harness test that needs a model's replies supplies them through an `InferenceB
 
 A public scripted broker would be test API that only the Harness's own tests use, so the Harness leaves it out. `OfflineBroker` is public because Hosts use it, and the tests use it because it is there.
 
+### The Harness facade's streaming tests prove latch and broker behavior with deterministic callbacks
+
+The streaming tests in the `runvil` facade suite use scripted brokers that emit fixed pieces and a Host callback supplied through `RunSetup::streaming`. They assert that only section `Chat` rounds receive the sink, that a `ControlFlow::Break` closes the per-round latch and resets for the next round, and that `supports_streaming` is advisory: the Harness passes the sink even when the broker reports `false`. A cancellation raised from the sink aborts the round and records it as `Dropped`, and a Host that stops reading pieces still leaves the broker's whole reply intact. The tests avoid sleeps and real time, and instead coordinate through barriers, bounded channels, and the run's `RunControl`.
+
 ## 3. Rules for test code
 
 ### Every clock value, seed, and answer in an Engine-crate test is a value the test supplies

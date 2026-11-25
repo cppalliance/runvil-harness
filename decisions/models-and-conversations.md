@@ -222,11 +222,11 @@ A failed compaction restores the records and leaves a tool's side effects in pla
 
 ## 7. The broker and the Gateway client
 
-### The Gateway client always asks for a stream, and only the Host's broker shows live text
+### The Gateway client always asks for a stream, and the Harness forwards pieces to a Host that opts in
 
-The Gateway client sends every request with `stream` set to true and calls a callback with each piece of text or reasoning. The Harness asks the Host's `InferenceBroker` for the finished reply ([The Harness and the Host API](harness-and-host.md)). The standard broker uses the Gateway client. A Host that shows a reply as it forms calls the standard broker's streaming call from its own broker, as Workshop does.
+The Gateway client sends every request with `stream` set to true and calls a callback with each piece of text or reasoning. The Harness asks the Host's `InferenceBroker` for the finished reply ([The Harness and the Host API](harness-and-host.md)). When a Host turns streaming on with `RunSetup::streaming`, the Harness passes the Host's callback to the broker for each section's own `Chat` round; nested `Infer` rounds receive no callback. The standard broker forwards each piece to the callback and still returns the whole reply.
 
-The client has one transport path, the stream, because two paths would diverge. The owner's rule: "the engine, the harness would not know anything about streaming. only the host, through the inference broker. and for headless hosts, they dont need to stream at all".
+The client has one transport path, the stream, because two paths would diverge. The Engine still knows nothing about streaming; the Harness knows only that a Host may supply a per-run callback and that the Engine tags rounds as `Chat` or `Infer`.
 
 ### A Host swaps models during a run by sending a round to another model
 

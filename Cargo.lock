@@ -1651,6 +1651,7 @@ dependencies = [
 name = "runvil"
 version = "0.3.0"
 dependencies = [
+ "axum",
  "harness-gateway-client",
  "harness-plugin-loader",
  "harness-runner",

@@ -5,13 +5,14 @@
 
 use std::error::Error;
 use std::num::NonZeroU32;
-use std::sync::mpsc::{Sender, channel};
+use std::ops::ControlFlow;
+use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Poll, Waker};
 
 use harness_gateway_client::TokioTimer;
 use runvil::effect::Round;
-use runvil::event::ReplyOrigin;
+
 use runvil::harness::{InferenceBroker, MemoryRecorder, OfflineBroker, RecordKind};
 use runvil::model::{
     Completion, CompletionOptions, CompletionResult, Message, ModelBinding, ModelCatalog, ModelId,
@@ -100,6 +101,10 @@ impl InferenceBroker for Stuck {
         Box::pin(async move { Ok(catalog) })
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -107,6 +112,7 @@ impl InferenceBroker for Stuck {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         _round: Round,
+        _on_piece: Option<runvil::harness::PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, runvil::Error>> {
         self.started.raise();
         Box::pin(std::future::pending())
@@ -126,11 +132,10 @@ fn stuck_harness(catalog: ModelCatalog, source: &str) -> (Harness, Arc<Started>)
 }
 
 /// Lists the stub model, and replies `You said: <last message>` in two
-/// pieces, sending each piece of a section's own round to `window` under
-/// its round id.
+/// pieces, forwarding each piece to the broker's `on_piece` callback when
+/// one is supplied.
 struct Streaming {
     catalog: ModelCatalog,
-    window: Sender<(u64, String)>,
 }
 
 impl InferenceBroker for Streaming {
@@ -139,15 +144,19 @@ impl InferenceBroker for Streaming {
         Box::pin(async move { Ok(catalog) })
     }
 
+    fn supports_streaming(&self) -> bool {
+        true
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
         messages: Vec<Message>,
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
-        round: Round,
+        _round: Round,
+        on_piece: Option<runvil::harness::PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, runvil::Error>> {
-        let window = (round.origin == ReplyOrigin::Chat).then(|| self.window.clone());
         let said = messages
             .last()
             .map(|message| message.content().to_owned())
@@ -155,10 +164,8 @@ impl InferenceBroker for Streaming {
         Box::pin(async move {
             let mut reply = String::new();
             for piece in ["You said: ".to_owned(), said] {
-                if let Some(window) = &window {
-                    // The test holds the receiver until the run ends, so a
-                    // send fails only once no one is left to read the piece.
-                    let _ = window.send((round.id.get(), piece.clone()));
+                if let Some(sink) = on_piece.as_ref() {
+                    sink(runvil::harness::Delta::Text(piece.clone()));
                 }
                 reply.push_str(&piece);
             }
@@ -231,9 +238,18 @@ async fn a_hosts_own_broker_streams_a_section_round_under_the_round_id_the_run_r
     let recorder = Arc::new(MemoryRecorder::new());
     let broker = Streaming {
         catalog: stub_catalog().expect("the stub catalog builds"),
-        window,
     };
-    let harness = launch(CHATS, RunSetup::new(recorder.clone(), broker, TokioTimer));
+    let setup =
+        RunSetup::new(recorder.clone(), broker, TokioTimer).streaming(move |round, delta| {
+            let runvil::harness::Delta::Text(text) = delta else {
+                return ControlFlow::Continue(());
+            };
+            // The test holds the receiver until the run ends, so a send
+            // fails only once no one is left to read the piece.
+            let _ = window.send((round.id.get(), text));
+            ControlFlow::Continue(())
+        });
+    let harness = launch(CHATS, setup);
     let report = harness.run().await.expect("the run is reported");
 
     let records = recorder.records(report.run_id);

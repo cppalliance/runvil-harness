@@ -30,6 +30,28 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+/// One live piece of a model reply, delivered as it forms.
+///
+/// The broker passes each piece to the Harness through the [`PieceSink`]
+/// it receives with the round. Text and reasoning arrive as separate
+/// variants, so a Host can show them differently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Delta {
+    /// A fragment of the assistant's answer text.
+    Text(String),
+    /// A fragment of the model's reasoning text. It stays separate from the
+    /// answer.
+    Reasoning(String),
+}
+
+/// A callback the broker calls with each [`Delta`] of a reply as it forms.
+///
+/// The broker calls this synchronously, one piece at a time, only while the
+/// round's future is polled, and it must not retain the callback beyond that
+/// round.
+pub type PieceSink = Arc<dyn Fn(Delta) + Send + Sync>;
+
 use runvil_engine::effect::{PackToolSets, Round, ToolCallOrigin};
 use runvil_engine::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ModelInfo, ToolSchema,
@@ -57,6 +79,14 @@ pub trait InferenceBroker: Send + Sync {
     /// Lists the models the broker serves.
     fn models(&self) -> BoxFuture<'static, Result<ModelCatalog, Error>>;
 
+    /// True when this broker calls `on_piece` while a reply forms.
+    ///
+    /// This is advisory: the Harness passes `on_piece` for every section's
+    /// own `Chat` round when streaming is turned on, whatever this method
+    /// returns. A broker that reports `false` simply leaves the sink unused
+    /// and still returns the whole reply.
+    fn supports_streaming(&self) -> bool;
+
     /// Runs one model round and returns the finished reply.
     ///
     /// The round runs under `binding`. It sends `messages` to the model
@@ -64,8 +94,12 @@ pub trait InferenceBroker: Send + Sync {
     /// built from `binding`. `round` holds the round's run-wide id and the
     /// path that dispatched it.
     ///
-    /// The Harness takes only the finished reply. A broker that shows the
-    /// reply as it forms streams it on its own.
+    /// When `on_piece` is `Some`, the broker calls it once for each piece
+    /// of the reply, in the order the pieces arrive. The callback is called
+    /// synchronously, one piece at a time, only while the round's future is
+    /// polled; it must not block and must not be retained beyond the round.
+    /// A broker that cannot stream leaves `on_piece` unused and still
+    /// returns the whole reply.
     fn chat(
         &self,
         binding: ModelBinding,
@@ -73,6 +107,7 @@ pub trait InferenceBroker: Send + Sync {
         tools: Vec<ToolSchema>,
         options: CompletionOptions,
         round: Round,
+        on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>>;
 }
 

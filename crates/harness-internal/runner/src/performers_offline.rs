@@ -33,6 +33,10 @@ impl InferenceBroker for OfflineBroker {
         Box::pin(async { Ok(ModelCatalog::empty()) })
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -40,6 +44,7 @@ impl InferenceBroker for OfflineBroker {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         _round: Round,
+        _on_piece: Option<crate::performers::PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         let code = ErrorCode::Unavailable;
         Box::pin(async move { Err(make_completion_error(code, phrase(code))) })
@@ -88,6 +93,7 @@ mod tests {
                 Vec::new(),
                 options,
                 round,
+                None,
             )
             .now_or_never()
             .expect("the refusal is ready at the first poll")

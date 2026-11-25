@@ -188,11 +188,15 @@ The map has one entry because `RunSetup` has one `selected_model`. A model for e
 
 The Harness exports the broker because Hosts run prompts without a model: a tool that runs a prompt whose Lua does all the work, and a Host whose Gateway is not configured yet. Each would otherwise write the same broker and import the chat vocabulary of a round to do it. The Host still passes the broker to `RunSetup::new`, so a run without a model is a choice that the Host's code states.
 
-### The broker returns each reply whole, and a Host streams inside its own broker
+### The broker returns each reply whole, and streaming is opt-in through `RunSetup::streaming`
 
-`InferenceBroker::chat` returns one finished `Completion`. A Host that shows a reply as it forms streams the pieces from inside its broker. `GatewayBroker::chat_streaming` runs the same round and passes each piece to a callback. The record contains the finished reply, as an `assistant_reply` event, and omits the pieces.
+`InferenceBroker::chat` returns one finished `Completion`. A Host that shows a reply as it forms turns streaming on for one run with `RunSetup::streaming`. The Harness passes the Host's callback to the broker as `on_piece` for each section's own `Chat` round; nested `Infer` rounds receive no callback, because only their finished reply is used. The broker calls `on_piece` once for each piece, in arrival order, and still returns the whole reply. The record contains the finished reply, as an `assistant_reply` event, and omits the pieces.
 
-The owner's rule: "the engine, the harness would not know anything about streaming. only the host, through the inference broker. and for headless hosts, they dont need to stream at all".
+The callback is synchronous, serial, and short-lived: the broker calls it one piece at a time, only while the round's future is polled, and neither the Harness nor the broker retains it beyond the round.
+
+The Harness wraps the Host's callback in a per-round latch. The latch starts open and closes when the Host returns `ControlFlow::Break`; once closed, the rest of that round's pieces are suppressed, but the next `Chat` round starts open again. A Host that lags therefore receives an unbroken prefix of each round and fills in the rest from the finished reply.
+
+`InferenceBroker` has a required `supports_streaming()` method so a Host can tell whether a broker streams before a run starts. The Harness does **not** gate the sink on this method: it passes `on_piece` for every section's own `Chat` round when streaming is turned on. A broker that reports false simply leaves `on_piece` unused and still returns the whole reply.
 
 ### The Host's `Timer` performs each sleep and stamps each run's start
 

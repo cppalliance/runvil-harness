@@ -4,5 +4,6 @@
 mod broker;
 mod host;
 mod launch;
+mod streaming;
 mod support;
 mod vfs;

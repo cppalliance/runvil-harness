@@ -3,12 +3,14 @@
 
 use std::fmt;
 use std::num::NonZeroUsize;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use runvil_engine::RunLimits;
+use runvil_engine::effect::Round;
 use runvil_engine::vfs::VfsRef;
 
-use crate::performers::{InferenceBroker, Timer};
+use crate::performers::{Delta, InferenceBroker, Timer};
 use crate::recorder::RunRecorder;
 
 /// A value that becomes a service that a run shares: the service itself,
@@ -98,6 +100,16 @@ impl IntoShared<dyn Timer> for Arc<dyn Timer> {
 /// otherwise.
 const DEFAULT_MAX_TOOL_CALLS_IN_FLIGHT: NonZeroUsize = NonZeroUsize::MIN.saturating_add(9);
 
+/// A Host callback that receives each live piece of a section's own model
+/// round and answers whether to keep receiving pieces for that round.
+///
+/// The Harness keeps this callback for the run and calls it synchronously,
+/// one piece at a time, only while the run's future is polled. For each
+/// section round, the Harness gives the broker a separate round-scoped
+/// [`PieceSink`](crate::performers::PieceSink), which the broker must not
+/// retain beyond that round.
+pub type HostSink = Arc<dyn Fn(Round, Delta) -> ControlFlow<()> + Send + Sync>;
+
 /// Everything one run gets on top of its Host. The launcher builds one
 /// per run, and the Harness reads each field once and keeps it for the
 /// run.
@@ -127,6 +139,9 @@ pub struct RunSetup {
     /// run holds `runvil/user`, which is unavailable
     /// otherwise.
     pub has_user: bool,
+    /// The Host's callback for live pieces of a section's own model round,
+    /// when streaming is turned on for the run.
+    pub streaming: Option<HostSink>,
 }
 
 impl RunSetup {
@@ -158,6 +173,7 @@ impl RunSetup {
             limits: RunLimits::default(),
             max_tool_calls_in_flight: DEFAULT_MAX_TOOL_CALLS_IN_FLIGHT,
             has_user: false,
+            streaming: None,
         }
     }
 
@@ -203,6 +219,22 @@ impl RunSetup {
         self.has_user = has_user;
         self
     }
+
+    /// Turns streaming on for the run. `sink` is called for each piece of a
+    /// section's own model round, in order, and must not block. It is called
+    /// synchronously, one piece at a time, only while the run's future is
+    /// polled. The Harness keeps this callback for the run; the separate
+    /// broker-facing sink is round-scoped and must not be retained beyond
+    /// that round. Returning [`ControlFlow::Break`] stops the pieces for the rest of that round;
+    /// the next round starts open again.
+    #[must_use]
+    pub fn streaming(
+        mut self,
+        sink: impl Fn(Round, Delta) -> ControlFlow<()> + Send + Sync + 'static,
+    ) -> RunSetup {
+        self.streaming = Some(Arc::new(sink));
+        self
+    }
 }
 
 impl fmt::Debug for RunSetup {
@@ -215,6 +247,7 @@ impl fmt::Debug for RunSetup {
             .field("limits", &self.limits)
             .field("max_tool_calls_in_flight", &self.max_tool_calls_in_flight)
             .field("has_user", &self.has_user)
+            .field("streaming", &self.streaming.is_some())
             .finish_non_exhaustive()
     }
 }

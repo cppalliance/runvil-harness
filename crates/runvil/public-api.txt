@@ -2,6 +2,7 @@
 #[non_exhaustive] pub enum runvil::effect::ToolCaller
 #[non_exhaustive] pub enum runvil::event::Event
 #[non_exhaustive] pub enum runvil::event::ReplyOrigin
+#[non_exhaustive] pub enum runvil::harness::Delta
 #[non_exhaustive] pub enum runvil::harness::PluginSource
 #[non_exhaustive] pub enum runvil::ids::AbandonReason
 #[non_exhaustive] pub enum runvil::model::CompletionResult
@@ -70,6 +71,7 @@ auto runvil::effect::ToolCallOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, U
 auto runvil::effect::ToolCaller: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::event::Event: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::event::ReplyOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::harness::Delta: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::FindFilePrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::FindTextPrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::HostResources: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
@@ -172,6 +174,7 @@ derives runvil::effect::ToolCallOrigin: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil::effect::ToolCaller: Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize
 derives runvil::event::Event: Clone, Debug, Deserialize, PartialEq, Serialize
 derives runvil::event::ReplyOrigin: Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize
+derives runvil::harness::Delta: Clone, Debug, Eq, PartialEq
 derives runvil::harness::FindFilePrompt: Debug
 derives runvil::harness::FindTextPrompt: Debug
 derives runvil::harness::HostResources: Clone, Debug, Default
@@ -369,6 +372,7 @@ pub fn runvil::RunSetup::limits(self, limits: runvil::RunLimits) -> runvil::RunS
 pub fn runvil::RunSetup::max_tool_calls_in_flight(self, max: core::num::nonzero::NonZeroUsize) -> runvil::RunSetup
 pub fn runvil::RunSetup::new(recorder: impl runvil::harness::IntoShared<dyn runvil::harness::RunRecorder>, broker: impl runvil::harness::IntoShared<dyn runvil::harness::InferenceBroker>, timer: impl runvil::harness::IntoShared<dyn runvil::harness::Timer>) -> runvil::RunSetup
 pub fn runvil::RunSetup::selected_model(self, model: impl core::convert::Into<alloc::string::String>) -> runvil::RunSetup
+pub fn runvil::RunSetup::streaming(self, sink: impl core::ops::function::Fn(runvil::effect::Round, runvil::harness::Delta) -> core::ops::control_flow::ControlFlow<()> + core::marker::Send + core::marker::Sync + 'static) -> runvil::RunSetup
 pub fn runvil::RunSetup::vfs(self, vfs: runvil::vfs::VfsRef) -> runvil::RunSetup
 pub fn runvil::SourceLoc::line(file: impl core::convert::Into<alloc::string::String>, line: core::num::nonzero::NonZeroU32) -> runvil::SourceLoc
 pub fn runvil::SourceLoc::new(file: impl core::convert::Into<alloc::string::String>, start_line: core::num::nonzero::NonZeroU32, start_column: core::num::nonzero::NonZeroU32, end_line: core::num::nonzero::NonZeroU32, end_column: core::num::nonzero::NonZeroU32) -> core::option::Option<runvil::SourceLoc>
@@ -397,8 +401,9 @@ pub fn runvil::harness::FindFilePrompt::new(name: impl core::convert::Into<alloc
 pub fn runvil::harness::FindTextPrompt::new(name: impl core::convert::Into<alloc::string::String>, text: impl core::convert::Into<alloc::string::String>) -> alloc::sync::Arc<runvil::harness::FindTextPrompt>
 pub fn runvil::harness::HostResources::new() -> runvil::harness::HostResources
 pub fn runvil::harness::HostResources::provide(&mut self, name: &str, read: impl core::ops::function::Fn() -> core::option::Option<serde_json::value::Value> + core::marker::Send + core::marker::Sync + 'static) -> core::result::Result<(), runvil::Error>
-pub fn runvil::harness::InferenceBroker::chat(&self, binding: runvil::model::ModelBinding, messages: alloc::vec::Vec<runvil::model::Message>, tools: alloc::vec::Vec<runvil::model::ToolSchema>, options: runvil::model::CompletionOptions, round: runvil::effect::Round) -> runvil::BoxFuture<'static, core::result::Result<alloc::boxed::Box<runvil::model::Completion>, runvil::Error>>
+pub fn runvil::harness::InferenceBroker::chat(&self, binding: runvil::model::ModelBinding, messages: alloc::vec::Vec<runvil::model::Message>, tools: alloc::vec::Vec<runvil::model::ToolSchema>, options: runvil::model::CompletionOptions, round: runvil::effect::Round, on_piece: core::option::Option<runvil::harness::PieceSink>) -> runvil::BoxFuture<'static, core::result::Result<alloc::boxed::Box<runvil::model::Completion>, runvil::Error>>
 pub fn runvil::harness::InferenceBroker::models(&self) -> runvil::BoxFuture<'static, core::result::Result<runvil::model::ModelCatalog, runvil::Error>>
+pub fn runvil::harness::InferenceBroker::supports_streaming(&self) -> bool
 pub fn runvil::harness::IntoShared::into_shared(self) -> alloc::sync::Arc<D>
 pub fn runvil::harness::MemoryRecorder::meta(&self, run: runvil::harness::RunId) -> core::option::Option<runvil::harness::RunMeta>
 pub fn runvil::harness::MemoryRecorder::new() -> Self
@@ -764,6 +769,7 @@ pub runvil::RunSetup::limits: runvil::RunLimits
 pub runvil::RunSetup::max_tool_calls_in_flight: core::num::nonzero::NonZeroUsize
 pub runvil::RunSetup::recorder: alloc::sync::Arc<dyn runvil::harness::RunRecorder>
 pub runvil::RunSetup::selected_model: core::option::Option<alloc::string::String>
+pub runvil::RunSetup::streaming: core::option::Option<runvil::harness::HostSink>
 pub runvil::RunSetup::timer: alloc::sync::Arc<dyn runvil::harness::Timer>
 pub runvil::RunSetup::vfs: runvil::vfs::VfsRef
 pub runvil::SourceLoc::end_column: core::num::nonzero::NonZeroU32
@@ -992,6 +998,10 @@ pub runvil::event::Event::VfsWriteSucceeded::provenance: runvil::ids::Provenance
 pub runvil::event::Event::VfsWriteSucceeded::section: alloc::string::String
 pub runvil::event::ReplyOrigin::Chat
 pub runvil::event::ReplyOrigin::Infer
+pub runvil::harness::Delta::Reasoning(..)
+pub runvil::harness::Delta::Reasoning::0: alloc::string::String
+pub runvil::harness::Delta::Text(..)
+pub runvil::harness::Delta::Text::0: alloc::string::String
 pub runvil::harness::PluginSource::Library(..)
 pub runvil::harness::PluginSource::Library::0: std::path::PathBuf
 pub runvil::harness::PluginSource::Linked
@@ -1291,3 +1301,5 @@ pub trait runvil::vfs::Policy: core::marker::Send
 pub trait runvil::vfs::Vfs: core::marker::Send
 pub trait runvil::vfs::VfsAccess: core::marker::Send
 pub type runvil::BoxFuture<'a, T> = core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = T> + core::marker::Send + 'a>>
+pub type runvil::harness::HostSink = alloc::sync::Arc<dyn core::ops::function::Fn(runvil::effect::Round, runvil::harness::Delta) -> core::ops::control_flow::ControlFlow<()> + core::marker::Send + core::marker::Sync>
+pub type runvil::harness::PieceSink = alloc::sync::Arc<dyn core::ops::function::Fn(runvil::harness::Delta) + core::marker::Send + core::marker::Sync>

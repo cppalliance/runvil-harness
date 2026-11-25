@@ -111,19 +111,20 @@
 //! or a cancel.
 
 use std::any::Any;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::future::{Future, poll_fn};
 use std::num::NonZeroUsize;
 use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 
 use futures_util::future::{AbortHandle, Abortable, Aborted, FutureExt as _};
 use futures_util::stream::{FuturesUnordered, StreamExt as _};
 use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::{Effect, EffectAnswer, EffectId, IssuedEffect, VfsAsker, VfsReceipt};
-use runvil_engine::event::Event;
+use runvil_engine::event::{Event, ReplyOrigin};
 use runvil_engine::ids::{Provenance, TaskId};
 use runvil_engine::vfs::{Access, VfsError, VfsOp, VfsOutcome, perform_vfs_op};
 use runvil_engine::{BoxFuture, Error, ErrorCode};
@@ -132,7 +133,7 @@ use runvil_plugin::ToolFiles;
 use tracing::Instrument as _;
 
 use crate::harness::{RunControl, SendQueue, StopSignal};
-use crate::performers::{InferenceBroker, Timer, ToolPerformer};
+use crate::performers::{InferenceBroker, PieceSink, Timer, ToolPerformer};
 use crate::recorder::{Record, RecordKind, RunId, RunRecorder, make_recorder_error, refused};
 use crate::setup::RunSetup;
 use crate::tool_files::{Asked, CallDesk};
@@ -205,7 +206,7 @@ pub(crate) async fn drive(
         sends: Arc::clone(control.send_queue()),
         unread: Vec::new(),
     };
-    let result = Box::pin(driver.drive()).await;
+    let result = Box::pin(driver.drive(setup.streaming.clone())).await;
     (result, driver.unread)
 }
 
@@ -246,8 +247,15 @@ enum Woken {
     Sent(Vec<String>),
     /// This tool call asked for a file operation.
     Asked(EffectId),
-    /// An effect's future landed with its answer.
-    Landed(EffectId, Provenance, EffectAnswer),
+    /// An effect's future landed with its answer reserved in `Flights`.
+    Landed,
+}
+
+/// What ended a drain of answers already landed.
+enum Drain {
+    Complete,
+    Cancel,
+    Stop,
 }
 
 /// A Vfs effect, which the loop answers inline: who asked for it, the
@@ -259,7 +267,7 @@ struct InlineVfs {
 }
 
 impl Driver {
-    async fn drive(&mut self) -> Result<String, Error> {
+    async fn drive(&mut self, streaming: Option<crate::setup::HostSink>) -> Result<String, Error> {
         let early = self.sends.take();
         self.deliver(early).await?;
         loop {
@@ -275,8 +283,10 @@ impl Driver {
                     events,
                     unread,
                 } => {
+                    let mut unread = unread;
+                    unread.extend(std::mem::take(&mut self.unread));
+                    unread.extend(self.sends.end());
                     self.unread = unread;
-                    self.unread.extend(self.sends.end());
                     self.commit_events(events).await?;
                     // `Done` is returned only once every effect is
                     // answered, so nothing is in flight.
@@ -333,7 +343,9 @@ impl Driver {
                         // answered here; every other kind goes in flight.
                         // The run is not stepped between inline answers:
                         // the whole batch is resumed, then stepped once.
-                        if let Some(vfs) = self.perform(id, provenance, issued.effect) {
+                        if let Some(vfs) =
+                            self.perform(id, provenance, issued.effect, streaming.as_ref())
+                        {
                             self.answer_vfs(id, provenance, vfs).await?;
                             answered = true;
                         }
@@ -396,11 +408,29 @@ impl Driver {
             Woken::Cancel => self.drop_in_flight(Reach::All).await,
             Woken::Stop => self.act_on_stop().await.map(drop),
             Woken::Sent(texts) => {
+                if self.cancel.is_canceled() {
+                    self.unread.extend(texts);
+                    return self.drop_in_flight(Reach::All).await;
+                }
                 if self.stop.is_raised() {
                     self.act_on_stop().await?;
                 }
-                self.answer_landed().await?;
-                self.deliver(texts).await
+                match self.answer_landed(true).await? {
+                    Drain::Cancel => {
+                        self.unread.extend(texts);
+                        self.drop_in_flight(Reach::All).await
+                    }
+                    Drain::Stop => {
+                        self.act_on_stop().await?;
+                        if self.cancel.is_canceled() {
+                            self.unread.extend(texts);
+                            self.drop_in_flight(Reach::All).await
+                        } else {
+                            self.deliver(texts).await
+                        }
+                    }
+                    Drain::Complete => self.deliver(texts).await,
+                }
             }
             Woken::Asked(call) => {
                 // Every Vfs effect is answered before the loop waits, so
@@ -413,10 +443,11 @@ impl Driver {
                 self.report_request(call);
                 Ok(())
             }
-            Woken::Landed(id, provenance, answer) => {
-                self.answer(id, &provenance, answer).await?;
-                self.answer_landed().await
-            }
+            Woken::Landed => match self.answer_landed(true).await? {
+                Drain::Cancel => self.drop_in_flight(Reach::All).await,
+                Drain::Stop => self.act_on_stop().await.map(drop),
+                Drain::Complete => Ok(()),
+            },
         }
     }
 
@@ -511,8 +542,14 @@ impl Driver {
             if let Poll::Ready(call) = asked.poll_next(cx) {
                 return Poll::Ready(Woken::Asked(call));
             }
-            if let Poll::Ready((id, provenance, answer)) = flights.poll_landed(cx) {
-                return Poll::Ready(Woken::Landed(id, provenance, answer));
+            if flights.poll_landed(cx).is_ready() {
+                if Pin::new(&mut canceled).poll(cx).is_ready() {
+                    return Poll::Ready(Woken::Cancel);
+                }
+                if stop.poll_raised(cx).is_ready() {
+                    return Poll::Ready(Woken::Stop);
+                }
+                return Poll::Ready(Woken::Landed);
             }
             asked.poll_next(cx).map(Woken::Asked)
         })
@@ -520,22 +557,48 @@ impl Driver {
     }
 
     /// Answers every effect that has already landed, without waiting.
-    async fn answer_landed(&mut self) -> Result<(), Error> {
-        while let Some((id, provenance, answer)) = self.flights.landed_now() {
+    /// Control signals are returned before any reserved answer is taken.
+    /// When `check_controls` is false, this only consumes answers already
+    /// reserved; it never polls another live future during an abort.
+    async fn answer_landed(&mut self, check_controls: bool) -> Result<Drain, Error> {
+        loop {
+            if check_controls && self.cancel.is_canceled() {
+                return Ok(Drain::Cancel);
+            }
+            if check_controls && self.stop.is_raised() {
+                return Ok(Drain::Stop);
+            }
+            if let Some((id, provenance, answer)) = self.flights.take_landed() {
+                self.answer(id, &provenance, answer).await?;
+                continue;
+            }
+            if !check_controls {
+                return Ok(Drain::Complete);
+            }
+            self.flights.landed_now();
+            if self.cancel.is_canceled() {
+                return Ok(Drain::Cancel);
+            }
+            if self.stop.is_raised() {
+                return Ok(Drain::Stop);
+            }
+            let Some((id, provenance, answer)) = self.flights.take_landed() else {
+                return Ok(Drain::Complete);
+            };
             self.answer(id, &provenance, answer).await?;
         }
-        Ok(())
     }
 
     /// Answers `Dropped`, in effect order, each effect waiting or in
     /// flight that `reach` takes. The aborted futures are then torn down,
     /// so whatever a dropped performer held is gone before the run steps
-    /// on; an effect `reach` spared that landed meanwhile is answered too.
+    /// on; an effect `reach` spared with an answer already reserved is
+    /// answered too.
     async fn drop_in_flight(&mut self, reach: Reach<'_>) -> Result<(), Error> {
         for (id, provenance) in self.flights.abort(reach) {
             self.drop_effect(id, &provenance).await?;
         }
-        self.answer_landed().await
+        self.answer_landed(false).await.map(drop)
     }
 
     /// Records the `Dropped` answer for one effect and resumes the run
@@ -570,6 +633,7 @@ impl Driver {
         id: EffectId,
         provenance: &Provenance,
         effect: Effect,
+        streaming: Option<&crate::setup::HostSink>,
     ) -> Option<InlineVfs> {
         let (kind, answer): (Kind, BoxFuture<'static, EffectAnswer>) = match effect {
             Effect::Chat {
@@ -581,8 +645,14 @@ impl Driver {
             } => {
                 let broker = Arc::clone(&self.broker);
                 let options = binding.completion_options();
+                let on_piece = match (streaming, round.origin) {
+                    (Some(host), ReplyOrigin::Chat) => Some(latched(Arc::clone(host), round)),
+                    _ => None,
+                };
                 let round = async move {
-                    let completion = broker.chat(binding, messages, tools, options, round).await;
+                    let completion = broker
+                        .chat(binding, messages, tools, options, round, on_piece)
+                        .await;
                     EffectAnswer::Chat(completion)
                 };
                 (Kind::Round, Box::pin(round))
@@ -741,7 +811,9 @@ enum Kind {
 struct InFlight {
     /// The provenance the effect was issued under, for its answer record.
     provenance: Provenance,
-    /// Aborts the effect's future.
+    /// Owns the performer independently of its abortable poll wrapper.
+    performer: PerformerSlot,
+    /// Aborts the effect's polling wrapper.
     abort: AbortHandle,
     /// What kind of effect it is.
     kind: Kind,
@@ -762,6 +834,43 @@ struct Waiting {
     answer: BoxFuture<'static, EffectAnswer>,
 }
 
+/// Shared ownership of a performer, separate from the abortable polling wrapper.
+#[derive(Clone)]
+struct PerformerSlot(Arc<Mutex<Option<BoxFuture<'static, EffectAnswer>>>>);
+
+impl PerformerSlot {
+    fn lock(&self) -> MutexGuard<'_, Option<BoxFuture<'static, EffectAnswer>>> {
+        match self.0.lock() {
+            Ok(performer) => performer,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn new(performer: BoxFuture<'static, EffectAnswer>) -> Self {
+        Self(Arc::new(Mutex::new(Some(performer))))
+    }
+
+    /// Polls the performer without holding the slot lock across user code.
+    async fn poll(&self) -> EffectAnswer {
+        poll_fn(|cx| {
+            let Some(mut performer) = self.lock().take() else {
+                return Poll::Pending;
+            };
+            let result = performer.as_mut().poll(cx);
+            if result.is_pending() {
+                *self.lock() = Some(performer);
+            }
+            result
+        })
+        .await
+    }
+
+    /// Takes ownership so destruction happens after releasing the lock.
+    fn take(&self) -> Option<BoxFuture<'static, EffectAnswer>> {
+        self.lock().take()
+    }
+}
+
 /// The effects in flight and their futures, and the tool calls waiting
 /// for a slot.
 ///
@@ -775,6 +884,11 @@ struct Flights {
     /// The effects in flight still owed an answer. A landing for an id not
     /// here is an aborted future's late end and is discarded.
     effects: HashMap<EffectId, InFlight>,
+    /// Completed answers stay associated with their effects until the loop
+    /// reconciles stop/cancel and takes them.
+    landed: HashMap<EffectId, (Provenance, EffectAnswer)>,
+    /// Completion order for reserved answers, preserving normal landing order.
+    landed_order: VecDeque<EffectId>,
     /// Tool calls waiting for a slot; the lowest id starts first.
     waiting: BTreeMap<EffectId, Waiting>,
     /// The most tool calls in flight at once.
@@ -786,6 +900,8 @@ impl Flights {
         Self {
             futures: FuturesUnordered::new(),
             effects: HashMap::new(),
+            landed: HashMap::new(),
+            landed_order: VecDeque::new(),
             waiting: BTreeMap::new(),
             cap,
         }
@@ -806,6 +922,8 @@ impl Flights {
     fn clear(&mut self) {
         self.futures.clear();
         self.effects.clear();
+        self.landed.clear();
+        self.landed_order.clear();
         self.waiting.clear();
     }
 
@@ -857,8 +975,10 @@ impl Flights {
     fn fill(&mut self) {
         let mut running = self
             .effects
-            .values()
-            .filter(|in_flight| in_flight.kind == Kind::ToolCall)
+            .iter()
+            .filter(|(id, in_flight)| {
+                in_flight.kind == Kind::ToolCall && !self.landed.contains_key(id)
+            })
             .count();
         while running < self.cap.get() {
             let Some((id, call)) = self.waiting.pop_first() else {
@@ -897,6 +1017,9 @@ impl Flights {
             seq = provenance.seq
         );
         let (abort, registration) = AbortHandle::new_pair();
+        let performer = PerformerSlot::new(answer);
+        let polled = performer.clone();
+        let answer = async move { polled.poll().await };
         let caught = AssertUnwindSafe(answer.instrument(span)).catch_unwind();
         let landing = Abortable::new(caught, registration).map(move |landed| (id, landed));
         self.futures.push(Box::pin(landing));
@@ -904,6 +1027,7 @@ impl Flights {
             id,
             InFlight {
                 provenance,
+                performer,
                 abort,
                 kind,
                 survives_stop,
@@ -926,23 +1050,24 @@ impl Flights {
     /// and answer. A future that panicked lands as `Dropped`, and the
     /// panic is logged against its effect. A tool call that lands frees
     /// its slot for the next waiting call.
-    fn poll_landed(&mut self, cx: &mut Context<'_>) -> Poll<(EffectId, Provenance, EffectAnswer)> {
+    fn poll_landed(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         loop {
             let Poll::Ready(Some((id, landed))) = self.futures.poll_next_unpin(cx) else {
                 return Poll::Pending;
             };
-            let Some(in_flight) = self.effects.remove(&id) else {
+            let Some((provenance, kind)) = self
+                .effects
+                .get(&id)
+                .map(|in_flight| (in_flight.provenance.clone(), in_flight.kind))
+            else {
                 continue;
             };
-            if in_flight.kind == Kind::ToolCall {
-                self.fill();
-            }
             let answer = match landed {
                 Ok(Ok(answer)) => answer,
                 Ok(Err(panic)) => {
                     tracing::error!(
                         effect = %id,
-                        task = %in_flight.provenance.task,
+                        task = %provenance.task,
                         panic = panic_message(&*panic),
                         "a performer panicked; its effect is dropped"
                     );
@@ -952,17 +1077,31 @@ impl Flights {
                 // aborted effect left `effects` as it was aborted.
                 Err(Aborted) => EffectAnswer::Dropped,
             };
-            return Poll::Ready((id, in_flight.provenance, answer));
+            self.landed.insert(id, (provenance, answer));
+            self.landed_order.push_back(id);
+            if kind == Kind::ToolCall {
+                self.fill();
+            }
+            return Poll::Ready(());
         }
     }
 
-    /// The next effect that has already landed, without waiting. Polling
-    /// also tears down every aborted future the set still holds.
-    fn landed_now(&mut self) -> Option<(EffectId, Provenance, EffectAnswer)> {
-        match self.poll_landed(&mut Context::from_waker(Waker::noop())) {
-            Poll::Ready(landed) => Some(landed),
-            Poll::Pending => None,
+    /// Polls once for a landing without waiting, keeping it reserved until
+    /// the caller has reconciled controls.
+    fn landed_now(&mut self) {
+        let _ = self.poll_landed(&mut Context::from_waker(Waker::noop()));
+    }
+
+    /// Takes the oldest reserved answer and its effect metadata.
+    fn take_landed(&mut self) -> Option<(EffectId, Provenance, EffectAnswer)> {
+        while let Some(id) = self.landed_order.pop_front() {
+            let Some((provenance, answer)) = self.landed.remove(&id) else {
+                continue;
+            };
+            self.effects.remove(&id);
+            return Some((id, provenance, answer));
         }
+        None
     }
 
     /// Takes every effect waiting or in flight that `reach` takes:
@@ -987,6 +1126,8 @@ impl Flights {
         for id in chosen {
             if let Some(in_flight) = self.effects.remove(&id) {
                 in_flight.abort.abort();
+                drop(in_flight.performer.take());
+                self.landed.remove(&id);
                 aborted.push((id, in_flight.provenance));
             } else if let Some(call) = self.waiting.remove(&id) {
                 aborted.push((id, call.provenance));
@@ -1035,6 +1176,23 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
         .copied()
         .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
         .unwrap_or("a panic with no message")
+}
+
+/// Wraps the Host's streaming callback in a per-round latch.
+///
+/// The latch starts open. While open, each piece is forwarded to the Host.
+/// When the Host returns [`ControlFlow::Break`], the latch closes and stays
+/// closed until the round ends, suppressing the rest of that round's pieces.
+/// The callback is called synchronously, one piece at a time, only while the
+/// round's future is polled, and nothing in the loop retains it after the
+/// round finishes.
+fn latched(host: crate::setup::HostSink, round: runvil_engine::effect::Round) -> PieceSink {
+    let open = AtomicBool::new(true);
+    Arc::new(move |delta| {
+        if open.load(Ordering::Acquire) && host(round, delta).is_break() {
+            open.store(false, Ordering::Release);
+        }
+    })
 }
 
 /// One record under `provenance`.

@@ -45,6 +45,10 @@ impl InferenceBroker for ScriptedBroker {
         Box::pin(async move { Ok(catalog) })
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -52,6 +56,7 @@ impl InferenceBroker for ScriptedBroker {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         round: Round,
+        _on_piece: Option<runvil::harness::PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         self.rounds
             .lock()

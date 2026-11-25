@@ -61,14 +61,14 @@ pub use runvil_engine::RunSeed;
 pub use runvil_engine::Timestamp;
 
 /* Universal Error types
-*/
+ */
 pub use runvil_engine::Error;
 pub use runvil_engine::ErrorCode;
 pub use runvil_engine::ErrorFact;
 pub use runvil_engine::SourceLoc;
 
 /* Tool descriptions, and the output or error that answers a tool call.
-*/
+ */
 pub use runvil_engine::OutputTrust;
 pub use runvil_engine::ToolId;
 pub use runvil_engine::ToolInfo;
@@ -110,11 +110,14 @@ pub mod harness {
     pub use harness_plugin_loader::insert_plugin_dir;
     pub use harness_runner::FindFilePrompt;
     pub use harness_runner::FindTextPrompt;
+    pub use harness_runner::HostSink;
     pub use harness_runner::IntoShared;
     pub use harness_runner::PromptSet;
     pub use harness_runner::display_chain;
+    pub use harness_runner::performers::Delta;
     pub use harness_runner::performers::InferenceBroker;
     pub use harness_runner::performers::OfflineBroker;
+    pub use harness_runner::performers::PieceSink;
     pub use harness_runner::performers::Timer;
     pub use harness_runner::recorder::MemoryRecorder;
     pub use harness_runner::recorder::Record;

@@ -31,6 +31,10 @@ impl InferenceBroker for UnlistedBroker {
         Box::pin(async move { Err(make_completion_error(code, phrase(code))) })
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         binding: ModelBinding,
@@ -38,8 +42,9 @@ impl InferenceBroker for UnlistedBroker {
         tools: Vec<ToolSchema>,
         options: CompletionOptions,
         round: Round,
+        on_piece: Option<crate::performers::PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        OfflineBroker.chat(binding, messages, tools, options, round)
+        OfflineBroker.chat(binding, messages, tools, options, round, on_piece)
     }
 }
 
