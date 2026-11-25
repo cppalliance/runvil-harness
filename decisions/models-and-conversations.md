@@ -234,11 +234,11 @@ The broker sets another model name on a round's options with `CompletionOptions:
 
 The swap happens inside the run because a separate run for each pick would cost the conversation.
 
-### The Engine defines the model vocabulary, and `harness-gateway-client` sends the HTTP requests
+### The Engine defines the model vocabulary, and `gateway-client` sends the HTTP requests
 
-`runvil-model-client` defines `Message`, `ToolSchema`, `Completion`, `ModelBinding`, and the model error phrases. `harness-gateway-client` contains the HTTP and the wire parsing: the chat client, the standard broker, the fetch of the model list, and public wire functions such as the one that builds the request body. The Engine's projection also writes wire format: it writes each tool call of an assistant record in the OpenAI function-call shape. The wire functions are public so that another broker can reuse them.
+`runvil-model-client` defines `Message`, `ToolSchema`, `Completion`, `ModelBinding`, and the model error phrases. `gateway-client`, a repository of its own, has plain types of its own for a message, a tool, a reply, and an error, and it contains the HTTP and the wire parsing: the chat client, the fetch of the model list, and the function that builds the request body. `harness-gateway-client` contains the standard broker. It converts between the client's types and the Engine's, and it runs the Engine's checks on every reply, so every `Completion` and `ToolCall` is built through the Engine's constructors. The Engine's projection also writes wire format: it writes each tool call of an assistant record in the OpenAI function-call shape, and a message of the Engine and a message of the client write the same JSON. Any program, another broker included, can use `gateway-client` for the wire.
 
-The client is a crate of its own because the Host supplies inference and the Harness excludes tokio, so the Harness leaves HTTP to the Host, and a Host that uses the Gateway still needs a standard Gateway client.
+The client is a repository of its own because the Host supplies inference and the Harness excludes tokio, so the Harness leaves HTTP to the Host, and a Host that uses the Gateway still needs a standard Gateway client. The client has no type of the Engine, so a program that does not use the Harness can depend on it alone.
 
 ### The client sends tools in the OpenAI function-calling format
 

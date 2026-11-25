@@ -12,7 +12,7 @@ The Engine parses a prompt and steps through it. Whenever the run needs a model 
 | Crate | What it is |
 |---|---|
 | `runvil` | The Harness, and the one crate a Host depends on. It also re-exports the Engine items a Host reads and the Rust Plugin API. |
-| `harness-gateway-client` | The standard client for the [Runvil Gateway](https://github.com/cppalliance/runvil-gateway): the inference broker that runs each model round, the model list, and the function that offers the Gateway's web search to library Plugins. It also has the stock timer of a Host that runs on tokio. |
+| `harness-gateway-client` | The standard client for the [Runvil Gateway](https://github.com/cppalliance/runvil-gateway): the inference broker that runs each model round, the model list, and the function that offers the Gateway's web search to library Plugins. It also has the stock timer of a Host that runs on tokio. The HTTP client itself is [gateway-client](https://github.com/cppalliance/gateway-client), a separate repository that this crate pins by commit and whose types it converts to and from the Engine's. |
 | `plugin-mcp` | A Plugin a Host links in and installs by calling `plugin_mcp::install`. Its Pack, `runvil/mcp`, reaches the tools of remote MCP servers. |
 | `runvil-engine` | The Engine's public API, for code that steps a run itself. |
 | `runvil-plugin` | The Rust Plugin API that `plugin-mcp` is written against. A Plugin outside this repository is written against the C contract in [runvil-plugin-api](https://github.com/cppalliance/runvil-plugin-api). |
