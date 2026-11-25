@@ -2,6 +2,7 @@
 #[non_exhaustive] pub enum runvil::effect::ToolCaller
 #[non_exhaustive] pub enum runvil::event::Event
 #[non_exhaustive] pub enum runvil::event::ReplyOrigin
+#[non_exhaustive] pub enum runvil::harness::Delta
 #[non_exhaustive] pub enum runvil::harness::PluginSource
 #[non_exhaustive] pub enum runvil::ids::AbandonReason
 #[non_exhaustive] pub enum runvil::model::CompletionResult
@@ -70,6 +71,7 @@ auto runvil::effect::ToolCallOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, U
 auto runvil::effect::ToolCaller: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::event::Event: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::event::ReplyOrigin: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+auto runvil::harness::Delta: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::FindFilePrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::FindTextPrompt: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
 auto runvil::harness::HostResources: Freeze, !RefUnwindSafe, Send, Sync, Unpin, !UnwindSafe
@@ -172,6 +174,7 @@ derives runvil::effect::ToolCallOrigin: Clone, Debug, Deserialize, Eq, PartialEq
 derives runvil::effect::ToolCaller: Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize
 derives runvil::event::Event: Clone, Debug, Deserialize, PartialEq, Serialize
 derives runvil::event::ReplyOrigin: Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize
+derives runvil::harness::Delta: Clone, Debug, Eq, PartialEq
 derives runvil::harness::FindFilePrompt: Debug
 derives runvil::harness::FindTextPrompt: Debug
 derives runvil::harness::HostResources: Clone, Debug, Default
@@ -397,8 +400,9 @@ pub fn runvil::harness::FindFilePrompt::new(name: impl core::convert::Into<alloc
 pub fn runvil::harness::FindTextPrompt::new(name: impl core::convert::Into<alloc::string::String>, text: impl core::convert::Into<alloc::string::String>) -> alloc::sync::Arc<runvil::harness::FindTextPrompt>
 pub fn runvil::harness::HostResources::new() -> runvil::harness::HostResources
 pub fn runvil::harness::HostResources::provide(&mut self, name: &str, read: impl core::ops::function::Fn() -> core::option::Option<serde_json::value::Value> + core::marker::Send + core::marker::Sync + 'static) -> core::result::Result<(), runvil::Error>
-pub fn runvil::harness::InferenceBroker::chat(&self, binding: runvil::model::ModelBinding, messages: alloc::vec::Vec<runvil::model::Message>, tools: alloc::vec::Vec<runvil::model::ToolSchema>, options: runvil::model::CompletionOptions, round: runvil::effect::Round) -> runvil::BoxFuture<'static, core::result::Result<alloc::boxed::Box<runvil::model::Completion>, runvil::Error>>
+pub fn runvil::harness::InferenceBroker::chat(&self, binding: runvil::model::ModelBinding, messages: alloc::vec::Vec<runvil::model::Message>, tools: alloc::vec::Vec<runvil::model::ToolSchema>, options: runvil::model::CompletionOptions, round: runvil::effect::Round, on_piece: core::option::Option<runvil::harness::PieceSink>) -> runvil::BoxFuture<'static, core::result::Result<alloc::boxed::Box<runvil::model::Completion>, runvil::Error>>
 pub fn runvil::harness::InferenceBroker::models(&self) -> runvil::BoxFuture<'static, core::result::Result<runvil::model::ModelCatalog, runvil::Error>>
+pub fn runvil::harness::InferenceBroker::supports_streaming(&self) -> bool
 pub fn runvil::harness::IntoShared::into_shared(self) -> alloc::sync::Arc<D>
 pub fn runvil::harness::MemoryRecorder::meta(&self, run: runvil::harness::RunId) -> core::option::Option<runvil::harness::RunMeta>
 pub fn runvil::harness::MemoryRecorder::new() -> Self
@@ -992,6 +996,10 @@ pub runvil::event::Event::VfsWriteSucceeded::provenance: runvil::ids::Provenance
 pub runvil::event::Event::VfsWriteSucceeded::section: alloc::string::String
 pub runvil::event::ReplyOrigin::Chat
 pub runvil::event::ReplyOrigin::Infer
+pub runvil::harness::Delta::Reasoning(..)
+pub runvil::harness::Delta::Reasoning::0: alloc::string::String
+pub runvil::harness::Delta::Text(..)
+pub runvil::harness::Delta::Text::0: alloc::string::String
 pub runvil::harness::PluginSource::Library(..)
 pub runvil::harness::PluginSource::Library::0: std::path::PathBuf
 pub runvil::harness::PluginSource::Linked
@@ -1291,3 +1299,4 @@ pub trait runvil::vfs::Policy: core::marker::Send
 pub trait runvil::vfs::Vfs: core::marker::Send
 pub trait runvil::vfs::VfsAccess: core::marker::Send
 pub type runvil::BoxFuture<'a, T> = core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = T> + core::marker::Send + 'a>>
+pub type runvil::harness::PieceSink = alloc::sync::Arc<dyn core::ops::function::Fn(runvil::harness::Delta) + core::marker::Send + core::marker::Sync>

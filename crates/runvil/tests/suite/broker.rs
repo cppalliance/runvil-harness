@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use harness_gateway_client::TokioTimer;
 use runvil::effect::Round;
 use runvil::event::ReplyOrigin;
-use runvil::harness::{InferenceBroker, MemoryRecorder};
+use runvil::harness::{InferenceBroker, MemoryRecorder, PieceSink};
 use runvil::ids::RoundId;
 use runvil::model::{
     Completion, CompletionOptions, CompletionResult, Message, ModelBinding, ModelCatalog, ModelId,
@@ -45,6 +45,10 @@ impl InferenceBroker for ScriptedBroker {
         Box::pin(async move { Ok(catalog) })
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -52,6 +56,7 @@ impl InferenceBroker for ScriptedBroker {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         round: Round,
+        _on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         self.rounds
             .lock()

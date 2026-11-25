@@ -172,7 +172,7 @@ When the main chain, the run's root task, waits on its inbox of sent messages, `
 
 ### The Host supplies model inference as an `InferenceBroker`
 
-`InferenceBroker` is a trait with the methods `models()` and `chat(binding, messages, tools, options, round)`. `models()` lists the models the Host offers. `chat` runs one model round and returns the finished reply, and the loop calls it for each `Chat` effect. The broker decides where it sends each round, so a Gateway change applies to the next round.
+`InferenceBroker` is a trait with the methods `models()`, `supports_streaming()`, and `chat(binding, messages, tools, options, round, on_piece)`. `models()` lists the models the Host offers. `supports_streaming()` says whether the broker hands the pieces of a reply to `on_piece` as the reply forms. `chat` runs one model round, takes an optional callback for the reply's pieces, and returns the finished reply, and the loop calls it for each `Chat` effect. The broker decides where it sends each round, so a Gateway change applies to the next round.
 
 The Host supplies inference so that the Host's broker owns the Gateway's URL, its key, and its model catalog, and `RunSetup` needs only the broker. [Model calls and conversations](models-and-conversations.md) covers the request a round sends.
 
@@ -188,11 +188,9 @@ The map has one entry because `RunSetup` has one `selected_model`. A model for e
 
 The Harness exports the broker because Hosts run prompts without a model: a tool that runs a prompt whose Lua does all the work, and a Host whose Gateway is not configured yet. Each would otherwise write the same broker and import the chat vocabulary of a round to do it. The Host still passes the broker to `RunSetup::new`, so a run without a model is a choice that the Host's code states.
 
-### The broker returns each reply whole, and a Host streams inside its own broker
+### The broker returns each reply whole, and hands the pieces to a callback as they arrive
 
-`InferenceBroker::chat` returns one finished `Completion`. A Host that shows a reply as it forms streams the pieces from inside its broker. `GatewayBroker::chat_streaming` runs the same round and passes each piece to a callback. The record contains the finished reply, as an `assistant_reply` event, and omits the pieces.
-
-The owner's rule: "the engine, the harness would not know anything about streaming. only the host, through the inference broker. and for headless hosts, they dont need to stream at all".
+`InferenceBroker::chat` takes an optional callback, `on_piece`, and returns one finished `Completion`. A broker that streams calls the callback once for each piece of the reply, answer text or reasoning text, in the order the model produced them, and it never calls it after the round ends. The callback returns at once and calls neither the broker nor the Harness. The standard broker streams. A Host that shows a reply as it forms passes a callback to the standard broker's `chat` from a broker of its own. The record contains the finished reply, as an `assistant_reply` event, and omits the pieces.
 
 ### The Host's `Timer` performs each sleep and stamps each run's start
 

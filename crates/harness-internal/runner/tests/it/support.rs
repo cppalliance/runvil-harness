@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 
-use harness_runner::performers::{InferenceBroker, Timer, ToolPerformer};
+use harness_runner::performers::{InferenceBroker, PieceSink, Timer, ToolPerformer};
 use harness_runner::recorder::{
     MemoryRecorder, Record, RunId, RunMeta, RunRecorder, make_recorder_error,
 };
@@ -168,6 +168,10 @@ impl InferenceBroker for Unused {
         unreachable!("the effect loop never lists models")
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -175,6 +179,7 @@ impl InferenceBroker for Unused {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         _round: Round,
+        _on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         unreachable!("no test issues a Chat effect")
     }

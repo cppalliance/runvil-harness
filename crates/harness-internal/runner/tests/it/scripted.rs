@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harness_runner::Host;
-use harness_runner::performers::{InferenceBroker, Timer};
+use harness_runner::performers::{InferenceBroker, PieceSink, Timer};
 use runvil_engine::effect::Round;
 use runvil_engine::model::{
     Completion, CompletionOptions, CompletionResult, Message, ModelBinding, ModelCatalog, ModelId,
@@ -114,6 +114,10 @@ impl InferenceBroker for ScriptedBroker {
         }
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -121,6 +125,7 @@ impl InferenceBroker for ScriptedBroker {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         round: Round,
+        _on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         self.rounds.lock().unwrap().push(round);
         (self.script)(round, messages)

@@ -113,8 +113,10 @@ pub mod harness {
     pub use harness_runner::IntoShared;
     pub use harness_runner::PromptSet;
     pub use harness_runner::display_chain;
+    pub use harness_runner::performers::Delta;
     pub use harness_runner::performers::InferenceBroker;
     pub use harness_runner::performers::OfflineBroker;
+    pub use harness_runner::performers::PieceSink;
     pub use harness_runner::performers::Timer;
     pub use harness_runner::recorder::MemoryRecorder;
     pub use harness_runner::recorder::Record;

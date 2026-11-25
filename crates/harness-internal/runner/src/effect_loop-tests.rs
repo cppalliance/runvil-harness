@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 
 use super::{STALLED, drive};
 use crate::harness::RunControl;
-use crate::performers::{InferenceBroker, Timer, ToolPerformer};
+use crate::performers::{InferenceBroker, PieceSink, Timer, ToolPerformer};
 use crate::recorder::{MemoryRecorder, Record, RunId, RunMeta, RunRecorder};
 use crate::setup::RunSetup;
 
@@ -93,6 +93,10 @@ impl InferenceBroker for Unused {
         unreachable!("the effect loop never lists models")
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -100,6 +104,7 @@ impl InferenceBroker for Unused {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         _round: Round,
+        _on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         unreachable!("the lost run issues no Chat effect")
     }

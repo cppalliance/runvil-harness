@@ -1,6 +1,7 @@
-//! The Gateway broker against the transport suite's mock gateways:
-//! `chat_streaming` hands each piece to its callback in wire order, the
-//! `InferenceBroker` round answers with the whole reply, every round is
+//! The Gateway broker against the transport suite's mock gateways: the
+//! broker says it streams, `chat` hands each piece to its callback in wire
+//! order, a round without a callback answers with the whole reply, a
+//! callback that keeps one piece leaves the reply whole, every round is
 //! labeled with the model its request named, and `models` lists the
 //! catalog the gateway serves under the broker's key. Its `Debug` never
 //! prints the bearer key.
@@ -10,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use runvil::effect::Round;
 use runvil::event::ReplyOrigin;
-use runvil::harness::InferenceBroker;
+use runvil::harness::{Delta, InferenceBroker, PieceSink};
 use runvil::ids::RoundId;
 use runvil::model::{
     CompletionOptions, CompletionResult, Message, ModelBinding, ModelId, ModelInvocation,
@@ -19,7 +20,6 @@ use runvil::model::{
 use serde_json::Value;
 
 use super::GatewayBroker;
-use crate::StreamDelta;
 use crate::config::{GatewayEndpoint, SecretString};
 use crate::transport::tests::{content_chunk, serve, sse_app, sse_body};
 
@@ -63,13 +63,10 @@ fn three_fragments() -> String {
     ])
 }
 
-/// The callback `chat_streaming` hands each piece to.
-type OnPiece = Arc<dyn Fn(StreamDelta) + Send + Sync>;
-
 /// A piece callback that keeps every piece it is handed, beside what it
 /// kept.
-fn recording() -> (OnPiece, Arc<Mutex<Vec<StreamDelta>>>) {
-    let kept: Arc<Mutex<Vec<StreamDelta>>> = Arc::default();
+fn recording() -> (PieceSink, Arc<Mutex<Vec<Delta>>>) {
+    let kept: Arc<Mutex<Vec<Delta>>> = Arc::default();
     let sink = Arc::clone(&kept);
     (
         Arc::new(move |piece| sink.lock().unwrap().push(piece)),
@@ -90,17 +87,19 @@ fn reply_of(result: &CompletionResult) -> &str {
 }
 
 #[tokio::test]
-async fn chat_streaming_hands_each_piece_to_its_callback_in_wire_order() {
+async fn chat_hands_each_piece_to_its_callback_in_wire_order() {
     let broker = broker_for(sse_app(three_fragments())).await;
     let (on_piece, kept) = recording();
 
+    assert!(broker.supports_streaming(), "the Gateway broker streams");
     let completion = broker
-        .chat_streaming(
+        .chat(
             binding(),
             vec![Message::user("hi")],
             Vec::new(),
             CompletionOptions::new("m"),
-            on_piece,
+            round(ReplyOrigin::Chat),
+            Some(on_piece),
         )
         .await
         .expect("the mock round completes");
@@ -108,17 +107,17 @@ async fn chat_streaming_hands_each_piece_to_its_callback_in_wire_order() {
     assert_eq!(
         *kept.lock().unwrap(),
         vec![
-            StreamDelta::Reasoning("hmm".to_owned()),
-            StreamDelta::Text("one ".to_owned()),
-            StreamDelta::Text("two ".to_owned()),
-            StreamDelta::Text("three".to_owned()),
+            Delta::Reasoning("hmm".to_owned()),
+            Delta::Text("one ".to_owned()),
+            Delta::Text("two ".to_owned()),
+            Delta::Text("three".to_owned()),
         ],
         "each piece, reasoning and text alike, reaches the callback as it arrives, in the stream's order"
     );
 }
 
 #[tokio::test]
-async fn the_inference_broker_round_answers_with_the_whole_reply() {
+async fn a_round_without_a_callback_answers_with_the_whole_reply() {
     let broker = broker_for(sse_app(three_fragments())).await;
 
     let completion = broker
@@ -128,13 +127,51 @@ async fn the_inference_broker_round_answers_with_the_whole_reply() {
             Vec::new(),
             CompletionOptions::new("m"),
             round(ReplyOrigin::Chat),
+            None,
         )
         .await
         .expect("the mock round completes");
     assert_eq!(
         reply_of(completion.result()),
         "one two three",
-        "a headless Host's round streams nowhere, and the completed reply travels in the answer"
+        "a round without a callback streams nowhere, and the completed reply travels in the answer"
+    );
+}
+
+#[tokio::test]
+async fn a_callback_that_keeps_one_piece_still_leaves_the_whole_reply() {
+    let broker = broker_for(sse_app(three_fragments())).await;
+    let kept: Arc<Mutex<Vec<Delta>>> = Arc::default();
+    // The callback moves into the round, so the test keeps this second
+    // handle to read what the callback kept.
+    let sink = Arc::clone(&kept);
+    let on_piece: PieceSink = Arc::new(move |piece| {
+        let mut pieces = sink.lock().unwrap();
+        if pieces.is_empty() {
+            pieces.push(piece);
+        }
+    });
+
+    let completion = broker
+        .chat(
+            binding(),
+            vec![Message::user("hi")],
+            Vec::new(),
+            CompletionOptions::new("m"),
+            round(ReplyOrigin::Chat),
+            Some(on_piece),
+        )
+        .await
+        .expect("the mock round completes");
+    assert_eq!(
+        *kept.lock().unwrap(),
+        vec![Delta::Reasoning("hmm".to_owned())],
+        "the callback kept the first piece alone"
+    );
+    assert_eq!(
+        reply_of(completion.result()),
+        "one two three",
+        "the finished reply is whole whatever the callback kept"
     );
 }
 
@@ -167,17 +204,19 @@ async fn every_round_whole_or_streamed_is_labeled_with_the_model_its_request_nam
                 Vec::new(),
                 CompletionOptions::new("routed-to"),
                 round(ReplyOrigin::Chat),
+                None,
             )
             .await
             .expect("the mock round completes");
         let (on_piece, _kept) = recording();
         let streamed = broker
-            .chat_streaming(
+            .chat(
                 binding(),
                 vec![Message::user("hi")],
                 Vec::new(),
                 CompletionOptions::new("routed-to"),
-                on_piece,
+                round(ReplyOrigin::Chat),
+                Some(on_piece),
             )
             .await
             .expect("the mock round completes");

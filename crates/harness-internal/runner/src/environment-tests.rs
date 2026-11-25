@@ -10,7 +10,7 @@ use runvil_engine::model::{
 use serde_json::json;
 
 use super::*;
-use crate::performers::OfflineBroker;
+use crate::performers::{OfflineBroker, PieceSink};
 
 #[tokio::test]
 async fn no_selection_and_an_empty_broker_catalog_bind_no_model() {
@@ -31,6 +31,10 @@ impl InferenceBroker for UnlistedBroker {
         Box::pin(async move { Err(make_completion_error(code, phrase(code))) })
     }
 
+    fn supports_streaming(&self) -> bool {
+        OfflineBroker.supports_streaming()
+    }
+
     fn chat(
         &self,
         binding: ModelBinding,
@@ -38,8 +42,9 @@ impl InferenceBroker for UnlistedBroker {
         tools: Vec<ToolSchema>,
         options: CompletionOptions,
         round: Round,
+        on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        OfflineBroker.chat(binding, messages, tools, options, round)
+        OfflineBroker.chat(binding, messages, tools, options, round, on_piece)
     }
 }
 

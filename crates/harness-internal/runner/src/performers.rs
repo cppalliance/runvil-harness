@@ -41,21 +41,49 @@ use serde_json::Value;
 
 pub use crate::performers_offline::OfflineBroker;
 
+/// One live piece of a model reply: a fragment of the answer text or of
+/// the model's reasoning text.
+///
+/// A broker hands each piece to the `on_piece` callback of its
+/// [`InferenceBroker::chat`] call as the model produces it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Delta {
+    /// A fragment of the answer text.
+    Text(String),
+    /// A fragment of the model's reasoning text.
+    Reasoning(String),
+}
+
+/// The callback a broker calls with each [`Delta`] of a reply as it forms.
+///
+/// The callback returns at once, and it calls neither the broker nor the
+/// Harness. It is an `Arc` so that a broker which wraps another broker
+/// can hand the same callback to the one it wraps.
+pub type PieceSink = Arc<dyn Fn(Delta) + Send + Sync>;
+
 /// The model inference the Host supplies to the Harness.
 ///
-/// A broker lists the models it serves and performs each `Chat` effect as
-/// one model round.
+/// A broker lists the models it serves, says whether it streams, and
+/// performs each `Chat` effect as one model round.
 ///
 /// The Harness polls each round inside the run's own future, so a broker
 /// must not block while polled. A broker sends blocking or CPU-heavy work
 /// to the Host's own runtime.
 ///
-/// Each method returns a [`BoxFuture`] for the Harness to poll. The future
-/// is `Send` and `'static`. It can move between threads, and it owns the
-/// data it uses.
+/// Each method but `supports_streaming` returns a [`BoxFuture`] for the
+/// Harness to poll. The future is `Send` and `'static`. It can move
+/// between threads, and it owns the data it uses.
 pub trait InferenceBroker: Send + Sync {
     /// Lists the models the broker serves.
     fn models(&self) -> BoxFuture<'static, Result<ModelCatalog, Error>>;
+
+    /// Tells whether the broker calls `on_piece` while a reply forms.
+    ///
+    /// The answer is a hint for a Host's display: a Host that shows live
+    /// text can tell the person using it that this broker streams nothing.
+    /// The Harness passes `on_piece` to `chat` whatever the answer is.
+    fn supports_streaming(&self) -> bool;
 
     /// Runs one model round and returns the finished reply.
     ///
@@ -64,8 +92,13 @@ pub trait InferenceBroker: Send + Sync {
     /// built from `binding`. `round` holds the round's run-wide id and the
     /// path that dispatched it.
     ///
-    /// The Harness takes only the finished reply. A broker that shows the
-    /// reply as it forms streams it on its own.
+    /// `on_piece` is the callback for the reply's live pieces. A broker
+    /// that streams calls it once for each piece, in the order the model
+    /// produced the pieces, one call at a time, inline from the round's
+    /// future, and never after that future has ended or been dropped. The
+    /// callback returns at once, and it calls neither the broker nor the
+    /// Harness. A broker that cannot stream leaves it unused. The
+    /// finished reply is whole either way.
     fn chat(
         &self,
         binding: ModelBinding,
@@ -73,6 +106,7 @@ pub trait InferenceBroker: Send + Sync {
         tools: Vec<ToolSchema>,
         options: CompletionOptions,
         round: Round,
+        on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>>;
 }
 

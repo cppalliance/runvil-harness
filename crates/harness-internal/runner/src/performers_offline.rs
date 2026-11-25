@@ -8,7 +8,7 @@ use runvil_engine::model::{
 };
 use runvil_engine::{BoxFuture, Error, ErrorCode};
 
-use crate::performers::InferenceBroker;
+use crate::performers::{InferenceBroker, PieceSink};
 
 /// The broker of a Host that runs prompts without a model.
 ///
@@ -24,6 +24,10 @@ use crate::performers::InferenceBroker;
 /// rounds on or from code outside the Harness, fails as
 /// [`Unavailable`](ErrorCode::Unavailable) with that code's fixed phrase.
 ///
+/// It streams nothing: it answers `false` to
+/// [`supports_streaming`](InferenceBroker::supports_streaming) and leaves
+/// each round's `on_piece` unused.
+///
 /// Both futures are ready at the first poll, on any executor.
 #[derive(Debug)]
 pub struct OfflineBroker;
@@ -33,6 +37,10 @@ impl InferenceBroker for OfflineBroker {
         Box::pin(async { Ok(ModelCatalog::empty()) })
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -40,6 +48,7 @@ impl InferenceBroker for OfflineBroker {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         _round: Round,
+        _on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         let code = ErrorCode::Unavailable;
         Box::pin(async move { Err(make_completion_error(code, phrase(code))) })
@@ -49,7 +58,8 @@ impl InferenceBroker for OfflineBroker {
 #[cfg(test)]
 mod tests {
     //! Tests for the stock offline broker: each of its two futures is
-    //! ready at the first poll, the list empty and the round refused.
+    //! ready at the first poll, the list empty and the round refused, and
+    //! the broker says it does not stream.
 
     use std::num::NonZeroU32;
 
@@ -88,11 +98,17 @@ mod tests {
                 Vec::new(),
                 options,
                 round,
+                None,
             )
             .now_or_never()
             .expect("the refusal is ready at the first poll")
             .expect_err("the offline broker refuses every round");
         assert_eq!(error.code, ErrorCode::Unavailable);
         assert_eq!(error.prose, phrase(ErrorCode::Unavailable));
+    }
+
+    #[test]
+    fn the_offline_broker_says_it_does_not_stream() {
+        assert!(!OfflineBroker.supports_streaming());
     }
 }

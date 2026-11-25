@@ -1,19 +1,18 @@
 //! The Gateway's inference broker: one model round per `Chat` effect on
 //! the Gateway client, and the Gateway's model list.
 //!
-//! The Harness takes only a round's finished reply, so the broker's
-//! `InferenceBroker` round returns it whole. A Host that shows the reply
-//! as it forms runs the round through [`GatewayBroker::chat_streaming`]
-//! instead, which hands each live piece to the Host's callback as it
-//! arrives, so no fragment ever reaches the Host's recorder. Either way
-//! the completion names the model the round's options sent it to, so a
-//! Host that routes a round to another model sees that model on its reply.
+//! The broker streams. It hands each live piece of a round's reply to the
+//! `on_piece` callback of [`InferenceBroker::chat`] as the piece arrives,
+//! mapped from the client's [`StreamDelta`] to the Harness's `Delta`, so
+//! no fragment ever reaches the Host's recorder. The round returns the
+//! whole reply whether or not the round has a callback. Either way the
+//! completion names the model the round's options sent it to, so a Host
+//! that routes a round to another model sees that model on its reply.
 
 use std::fmt;
-use std::sync::Arc;
 
 use runvil::effect::Round;
-use runvil::harness::InferenceBroker;
+use runvil::harness::{Delta, InferenceBroker, PieceSink};
 use runvil::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
 };
@@ -75,41 +74,30 @@ impl GatewayBroker {
         }
     }
 
-    /// Runs one model round and passes each piece of the reply to
-    /// `on_piece` as it arrives.
-    ///
-    /// The round is the same one `InferenceBroker::chat` runs. `on_piece`
-    /// receives the pieces in the order the stream delivers them. The
-    /// returned completion holds the whole reply.
-    ///
-    /// `on_piece` is called inline as each piece is read, so it must not
-    /// block.
-    pub fn chat_streaming(
-        &self,
-        _binding: ModelBinding,
-        messages: Vec<Message>,
-        tools: Vec<ToolSchema>,
-        options: CompletionOptions,
-        on_piece: Arc<dyn Fn(StreamDelta) + Send + Sync>,
-    ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        self.round(messages, tools, options, move |piece| on_piece(piece))
-    }
-
-    /// One round on the client, handing each live piece to `on_piece`.
+    /// One round on the client. Each live piece goes to `on_piece`, as the
+    /// Harness's [`Delta`], when the round has one.
     fn round(
         &self,
         messages: Vec<Message>,
         tools: Vec<ToolSchema>,
         options: CompletionOptions,
-        on_piece: impl Fn(StreamDelta) + Send + Sync + 'static,
+        on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         let client = self.client.clone();
         Box::pin(async move {
             // An empty advertisement sends no `tools` field at all, the
             // plain chat-completions shape.
             let tools = (!tools.is_empty()).then_some(tools.as_slice());
+            let on_delta = move |delta: StreamDelta| {
+                if let Some(sink) = on_piece.as_ref() {
+                    sink(match delta {
+                        StreamDelta::Text(text) => Delta::Text(text),
+                        StreamDelta::Reasoning(text) => Delta::Reasoning(text),
+                    });
+                }
+            };
             client
-                .complete(&messages, tools, &options, on_piece)
+                .complete(&messages, tools, &options, on_delta)
                 .await
                 .map(Box::new)
         })
@@ -123,6 +111,10 @@ impl InferenceBroker for GatewayBroker {
         Box::pin(async move { fetch_model_catalog(&api_root, key.expose()).await })
     }
 
+    fn supports_streaming(&self) -> bool {
+        true
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -130,8 +122,9 @@ impl InferenceBroker for GatewayBroker {
         tools: Vec<ToolSchema>,
         options: CompletionOptions,
         _round: Round,
+        on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
-        self.round(messages, tools, options, |_| {})
+        self.round(messages, tools, options, on_piece)
     }
 }
 

@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use harness_runner::RunSetup;
 use harness_runner::effect_loop::drive_run;
-use harness_runner::performers::InferenceBroker;
+use harness_runner::performers::{InferenceBroker, PieceSink};
 use harness_runner::recorder::{RecordKind, RunRecorder};
 use runvil_engine::Error;
 use runvil_engine::cancel::CancelHandle;
@@ -68,6 +68,10 @@ impl InferenceBroker for RecordingBroker {
         unreachable!("the effect loop never lists models")
     }
 
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
     fn chat(
         &self,
         _binding: ModelBinding,
@@ -75,6 +79,7 @@ impl InferenceBroker for RecordingBroker {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         round: Round,
+        _on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         let asked = messages
             .last()

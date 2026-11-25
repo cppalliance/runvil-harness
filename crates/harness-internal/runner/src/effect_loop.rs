@@ -582,7 +582,9 @@ impl Driver {
                 let broker = Arc::clone(&self.broker);
                 let options = binding.completion_options();
                 let round = async move {
-                    let completion = broker.chat(binding, messages, tools, options, round).await;
+                    let completion = broker
+                        .chat(binding, messages, tools, options, round, None)
+                        .await;
                     EffectAnswer::Chat(completion)
                 };
                 (Kind::Round, Box::pin(round))
