@@ -314,12 +314,13 @@ const CHAT_PART_TYPES: [&str; 2] = ["text", "image_url"];
 ///
 /// The record's JSON form nests at most [`DEPTH_LIMIT`] levels, the
 /// record's own object and the arrays and objects around a field's value
-/// included, and holds at most `values` values, the record's own object
-/// and its `role` included. A view of the record converts to data as that
-/// form, so a record past either limit would be one that no later `append`
-/// takes. `values` is what one conversion on the list's VM may spend: a
-/// builder converts each field by itself, so every field can be within
-/// that and the record past it.
+/// included, holds at most `values` values, the record's own object and
+/// its `role` included, and holds at most `bytes` bytes of text, the keys
+/// of its objects included. A view of the record converts to data as that
+/// form, so a record past a limit would be one that no later `append`
+/// takes. `values` and `bytes` are what one conversion on the list's VM
+/// may spend: a builder converts each field by itself, so every field can
+/// be within them and the record past one.
 /// Cross-record checks - unique call IDs, complete call-result pairing,
 /// provider-required alternation - belong to the per-dispatch projection
 /// ([`crate::projection`]).
@@ -327,6 +328,7 @@ pub(crate) fn parse_record(
     index: usize,
     entry: &serde_json::Value,
     values: usize,
+    bytes: usize,
 ) -> std::result::Result<MessageRecord, String> {
     let serde_json::Value::Object(entry) = entry else {
         return Err(format!("messages[{index}] must be a message table"));
@@ -426,16 +428,18 @@ pub(crate) fn parse_record(
             meta,
         },
         values,
+        bytes,
     )
 }
 
 /// `record`, which takes the position `index`, when its JSON form nests at
-/// most [`DEPTH_LIMIT`] levels and holds at most `values` values, and the
-/// refusal of a deeper or a larger one.
+/// most [`DEPTH_LIMIT`] levels and holds at most `values` values and
+/// `bytes` bytes of text, and the refusal of a deeper or a larger one.
 fn within_limits(
     index: usize,
     record: MessageRecord,
     values: usize,
+    bytes: usize,
 ) -> std::result::Result<MessageRecord, String> {
     let size = record.json_size();
     if size.depth > DEPTH_LIMIT {
@@ -449,6 +453,12 @@ fn within_limits(
         return Err(format!(
             "messages[{index}] holds {} values as JSON; the limit is {values} values",
             size.values
+        ));
+    }
+    if size.bytes > bytes {
+        return Err(format!(
+            "messages[{index}] holds {} bytes of text as JSON; the limit is {bytes} bytes",
+            size.bytes
         ));
     }
     Ok(record)

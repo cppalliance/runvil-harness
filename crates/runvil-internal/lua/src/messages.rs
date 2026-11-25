@@ -359,11 +359,11 @@ fn add(lua: &Lua, list: &MessageList, index: usize, entry: &Json) -> mlua::Resul
 }
 
 /// The record `entry` is at `index`, as [`parse_record`] reads it. The
-/// record holds at most the values one conversion on `lua` may spend, so a
-/// view of it converts.
+/// record holds at most the values and the bytes of text one conversion on
+/// `lua` may spend, so a view of it converts.
 fn parsed(lua: &Lua, index: usize, entry: &Json) -> mlua::Result<MessageRecord> {
-    let values = WalkBudget::for_vm(lua).values();
-    parse_record(index, entry, values).map_err(author_refusal)
+    let budget = WalkBudget::for_vm(lua);
+    parse_record(index, entry, budget.values(), budget.bytes()).map_err(author_refusal)
 }
 
 /// Appends the record a builder makes from `role` and `fields`, leaving

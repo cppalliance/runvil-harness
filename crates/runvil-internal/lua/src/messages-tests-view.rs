@@ -95,7 +95,7 @@ fn to_json_round_trips_every_record_shape_through_parse_record() {
     );
     for (position, record) in records.iter().enumerate() {
         assert_eq!(
-            parse_record(position + 1, &record.to_json(), usize::MAX).as_ref(),
+            parse_record(position + 1, &record.to_json(), usize::MAX, usize::MAX).as_ref(),
             Ok(record),
             "{record:?}"
         );
@@ -304,6 +304,33 @@ fn a_record_holds_at_most_the_values_one_conversion_spends() {
 }
 
 #[test]
+fn a_record_holds_at_most_the_bytes_of_text_one_conversion_spends() {
+    // 1,048,576 bytes of text. The record holds one string of 524,262
+    // bytes as its content and as an argument of its call, which is one
+    // string in the Lua heap, and beside it its keys `role`, `content`,
+    // and `tool_calls`, the role, the call's keys `id`, `name`,
+    // `arguments`, and `text`, and the name `f`: 50 bytes and the id.
+    let vm = TestVm::new().limits(1_048_576, 16).build();
+    vm.exec("text = string.rep('x', 524262)");
+    let assistant = |id: &str| {
+        format!(
+            "messages:assistant(text, {{ {{ id = '{id}', name = 'f', arguments = {{ text = text }} }} }})"
+        )
+    };
+    // 1,048,576 bytes: the largest record a builder takes, and a view of
+    // it is appended again.
+    vm.exec(&assistant("cc"));
+    vm.exec("messages:append(messages[1])");
+    // 1,048,577 bytes. The content is half of them and the call half, so
+    // each field converts by itself.
+    assert_eq!(
+        refusal(&vm, &assistant("ccc")),
+        "messages[3] holds 1048577 bytes of text as JSON; the limit is 1048576 bytes"
+    );
+    assert_eq!(read(&vm, "#messages"), Some(json!(2)));
+}
+
+#[test]
 fn each_view_field_reads_like_the_record_table_and_a_view_is_userdata() {
     let vm = TestVm::new().build();
     shapes(&vm);
@@ -442,8 +469,8 @@ fn a_view_appended_or_converted_gives_the_same_record_as_its_table_form() {
         let view = read(&vm, &format!("messages[{index}]")).expect("the view is present");
         let table = read(&vm, &format!("shapes[{index}]")).expect("the table is present");
         assert_eq!(
-            parse_record(index, &view, usize::MAX),
-            parse_record(index, &table, usize::MAX),
+            parse_record(index, &view, usize::MAX, usize::MAX),
+            parse_record(index, &table, usize::MAX, usize::MAX),
             "messages[{index}]"
         );
     }
