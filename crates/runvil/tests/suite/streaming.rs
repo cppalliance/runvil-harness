@@ -1,14 +1,10 @@
 //! Streaming pieces from a model round to a Host through the Harness.
 //!
 //! The Harness passes the broker an `on_piece` callback only for a
-//! section's own `Chat` rounds, wraps the Host's callback in a per-round
-//! latch, and keeps the finished reply on the normal recorder path.
+//! section's own `Chat` rounds, calls the Host's callback for every piece, and keeps the finished reply on the normal recorder path.
 
-use std::collections::HashSet;
 use std::num::NonZeroU32;
-use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use harness_gateway_client::{GatewayBroker, GatewayEndpoint, SecretString, TokioTimer};
@@ -41,8 +37,7 @@ const INFERS_THEN_CHATS: &str = "---\nname: rounds\ndescription: infers then cha
     return inferred .. '|' .. messages[#messages].content\n\
     ```\n";
 
-/// A program that chats twice so the latch of the first round can close
-/// and the second round still starts open.
+/// A program that chats twice so each Chat round's pieces can be checked independently.
 const CHATS_TWICE: &str = "---\nname: twice\ndescription: chats twice\n\
     runvil: 0\n---\n\n\
     ## Only\n\n```lua\n\
@@ -396,7 +391,7 @@ async fn a_chat_round_gets_a_sink_and_an_infer_round_gets_none() {
     let rounds = broker.rounds();
     let setup = RunSetup::new(MemoryRecorder::new(), broker, TokioTimer)
         .selected_model(MODEL)
-        .streaming(|_round, _delta| ControlFlow::Continue(()));
+        .streaming(|_round, _delta| {});
     let report = launch(INFERS_THEN_CHATS, setup)
         .run()
         .await
@@ -442,30 +437,18 @@ async fn leaving_streaming_unset_gives_every_round_no_sink() {
 }
 
 #[tokio::test]
-async fn a_break_after_k_pieces_keeps_the_first_k_in_order_and_resets_next_round() {
+async fn the_host_receives_every_piece_across_rounds() {
     let broker = PieceEmittingBroker::new(
         catalog().expect("the catalog builds"),
         vec!["one ", "two ", "three "],
     );
     let pieces: Arc<Mutex<Vec<(u64, String)>>> = Arc::default();
     let kept = Arc::clone(&pieces);
-    let closed_rounds: Arc<Mutex<HashSet<u64>>> = Arc::default();
     let setup = RunSetup::new(MemoryRecorder::new(), broker, TokioTimer)
         .selected_model(MODEL)
         .streaming(move |round, delta| {
-            let Delta::Text(text) = delta else {
-                return ControlFlow::Continue(());
-            };
-            let id = round.id.get();
-            kept.lock().unwrap().push((id, text));
-            if closed_rounds
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(id)
-            {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
+            if let Delta::Text(text) = delta {
+                kept.lock().unwrap().push((round.id.get(), text));
             }
         });
     let report = launch(CHATS_TWICE, setup)
@@ -474,11 +457,17 @@ async fn a_break_after_k_pieces_keeps_the_first_k_in_order_and_resets_next_round
         .expect("the run is reported");
 
     assert_eq!(report.result, Ok("re: second".to_owned()));
-    let pieces = pieces.lock().unwrap();
     assert_eq!(
-        *pieces,
-        [(0, "one ".to_owned()), (1, "one ".to_owned()),],
-        "the first round stops after one piece, and the second round starts open"
+        *pieces.lock().unwrap(),
+        [
+            (0, "one ".to_owned()),
+            (0, "two ".to_owned()),
+            (0, "three ".to_owned()),
+            (1, "one ".to_owned()),
+            (1, "two ".to_owned()),
+            (1, "three ".to_owned()),
+        ],
+        "the Harness forwards every piece in each Chat round"
     );
 }
 
@@ -494,7 +483,6 @@ async fn a_non_streaming_broker_receives_the_sink_but_does_not_call_it() {
         .selected_model(MODEL)
         .streaming(move |_round, _delta| {
             *called.lock().unwrap() = true;
-            ControlFlow::Continue(())
         });
     let report = launch(CHATS_ONCE, setup)
         .run()
@@ -524,10 +512,9 @@ async fn two_concurrent_runs_overlap_inside_the_broker_and_keep_their_payloads_s
         .selected_model(MODEL)
         .streaming(move |round, delta| {
             let Delta::Text(text) = delta else {
-                return ControlFlow::Continue(());
+                return;
             };
             first_seen_ref.lock().unwrap().push((round.id.get(), text));
-            ControlFlow::Continue(())
         });
 
     let second_seen: Arc<Mutex<Vec<(u64, String)>>> = Arc::default();
@@ -536,10 +523,9 @@ async fn two_concurrent_runs_overlap_inside_the_broker_and_keep_their_payloads_s
         .selected_model(MODEL)
         .streaming(move |round, delta| {
             let Delta::Text(text) = delta else {
-                return ControlFlow::Continue(());
+                return;
             };
             second_seen_ref.lock().unwrap().push((round.id.get(), text));
-            ControlFlow::Continue(())
         });
 
     let (first_report, second_report) = tokio::join!(
@@ -624,7 +610,7 @@ async fn a_run_with_streaming_on_records_the_same_history_as_streaming_off() {
         PieceEmittingBroker::new(catalog().expect("the catalog builds"), vec!["one ", "two "]);
     let on_setup = RunSetup::new(on_recorder.clone(), on_broker, TokioTimer)
         .selected_model(MODEL)
-        .streaming(|_round, _delta| ControlFlow::Continue(()));
+        .streaming(|_round, _delta| {});
     let on_report = launch(CHATS_ONCE, on_setup)
         .run()
         .await
@@ -697,7 +683,6 @@ async fn a_cancel_from_a_no_yield_sink_wins_over_the_ready_reply() {
             if let Some(control) = control_ref.lock().unwrap().as_ref() {
                 control.cancel();
             }
-            ControlFlow::Continue(())
         });
     let harness = launch(CHATS_ONCE, setup);
     *control_slot.lock().unwrap() = Some(harness.control());
@@ -740,7 +725,6 @@ async fn a_stop_from_a_no_yield_sink_wins_over_the_ready_reply() {
             if let Some(control) = control_ref.lock().unwrap().as_ref() {
                 control.stop_round();
             }
-            ControlFlow::Continue(())
         });
     let harness = launch(CHATS_ONCE, setup);
     *control_slot.lock().unwrap() = Some(harness.control());
@@ -787,7 +771,6 @@ async fn a_cancel_during_the_message_answer_drain_returns_the_taken_message_unre
             if let Some(control) = control_ref.lock().unwrap().as_ref() {
                 control.cancel();
             }
-            ControlFlow::Continue(())
         });
     let harness = launch(CHATS_ONCE, setup);
     *control_slot.lock().unwrap() = Some(harness.control());
@@ -833,7 +816,6 @@ async fn a_reserved_answer_is_accepted_before_the_next_landing_raises_stop() {
             {
                 control.stop_round();
             }
-            ControlFlow::Continue(())
         });
     let harness = launch(PARALLEL_CHATS, setup);
     *control_slot.lock().unwrap() = Some(harness.control());
@@ -873,7 +855,6 @@ async fn a_stop_during_the_message_answer_drain_drops_ready_answers_in_effect_or
             if let Some(control) = control_ref.lock().unwrap().as_ref() {
                 control.stop_round();
             }
-            ControlFlow::Continue(())
         });
     let harness = launch(PARALLEL_CHATS, setup);
     *control_slot.lock().unwrap() = Some(harness.control());
@@ -924,13 +905,12 @@ async fn canceling_from_the_sink_after_the_first_piece_drops_the_round() {
         .selected_model(MODEL)
         .streaming(move |_round, delta| {
             let Delta::Text(text) = delta else {
-                return ControlFlow::Continue(());
+                return;
             };
             delivered_ref.lock().unwrap().push(text);
             if let Some(control) = control_ref.lock().unwrap().as_ref() {
                 control.cancel();
             }
-            ControlFlow::Continue(())
         });
     let harness = launch(CHATS_ONCE, setup);
     *control_slot.lock().unwrap() = Some(harness.control());
@@ -987,83 +967,22 @@ async fn canceling_from_the_sink_after_the_first_piece_drops_the_round() {
 }
 
 #[tokio::test]
-async fn a_full_bounded_channel_breaks_and_does_not_resume_when_capacity_returns() {
+async fn a_full_host_queue_does_not_stop_harness_delivery_or_durable_reply() {
     let broker = PieceEmittingBroker::new(
         catalog().expect("the catalog builds"),
         vec!["one ", "two ", "three "],
     );
-    let (tx, rx) = sync_channel::<(u64, String)>(1);
-    let rx = Arc::new(Mutex::new(rx));
-    let attempted: Arc<Mutex<Vec<(u64, String)>>> = Arc::default();
+    let (tx, rx) = std::sync::mpsc::sync_channel::<String>(1);
+    tx.send("already queued".to_owned())
+        .expect("the Host queue accepts its initial item");
+    let attempted: Arc<Mutex<Vec<String>>> = Arc::default();
     let attempted_ref = Arc::clone(&attempted);
-    let did_break = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let did_break_ref = Arc::clone(&did_break);
-
     let setup = RunSetup::new(MemoryRecorder::new(), broker, TokioTimer)
         .selected_model(MODEL)
-        .streaming(move |round, delta| {
-            let Delta::Text(text) = delta else {
-                return ControlFlow::Continue(());
-            };
-            let id = round.id.get();
-            attempted_ref.lock().unwrap().push((id, text.clone()));
-            match tx.try_send((id, text)) {
-                Ok(()) => ControlFlow::Continue(()),
-                Err(TrySendError::Full(_)) => {
-                    did_break_ref.store(true, std::sync::atomic::Ordering::SeqCst);
-                    // Free capacity while the round is still in progress.
-                    let _ = rx.lock().unwrap().try_recv();
-                    ControlFlow::Break(())
-                }
-                Err(TrySendError::Disconnected(_)) => {
-                    did_break_ref.store(true, std::sync::atomic::Ordering::SeqCst);
-                    ControlFlow::Break(())
-                }
-            }
-        });
-    let report = launch(CHATS_TWICE, setup)
-        .run()
-        .await
-        .expect("the run is reported");
-
-    assert_eq!(report.result, Ok("re: second".to_owned()));
-    assert!(
-        did_break.load(std::sync::atomic::Ordering::SeqCst),
-        "the bounded channel became full"
-    );
-    assert_eq!(
-        *attempted.lock().unwrap(),
-        [
-            (0, "one ".to_owned()),
-            (0, "two ".to_owned()),
-            (1, "one ".to_owned()),
-            (1, "two ".to_owned()),
-        ],
-        "each round forwards the first two pieces; the second returns Break, freed capacity does not resume, and the next round resets"
-    );
-}
-
-#[tokio::test]
-async fn a_closed_bounded_channel_breaks_at_the_first_piece() {
-    let broker = PieceEmittingBroker::new(
-        catalog().expect("the catalog builds"),
-        vec!["one ", "two ", "three "],
-    );
-    let (tx, _) = sync_channel::<(u64, String)>(1);
-    let attempted: Arc<Mutex<Vec<(u64, String)>>> = Arc::default();
-    let attempted_ref = Arc::clone(&attempted);
-
-    let setup = RunSetup::new(MemoryRecorder::new(), broker, TokioTimer)
-        .selected_model(MODEL)
-        .streaming(move |round, delta| {
-            let Delta::Text(text) = delta else {
-                return ControlFlow::Continue(());
-            };
-            let id = round.id.get();
-            attempted_ref.lock().unwrap().push((id, text.clone()));
-            match tx.try_send((id, text)) {
-                Ok(()) => ControlFlow::Continue(()),
-                Err(_) => ControlFlow::Break(()),
+        .streaming(move |_round, delta| {
+            if let Delta::Text(text) = delta {
+                attempted_ref.lock().unwrap().push(text.clone());
+                let _ = tx.try_send(text);
             }
         });
     let report = launch(CHATS_ONCE, setup)
@@ -1074,9 +993,10 @@ async fn a_closed_bounded_channel_breaks_at_the_first_piece() {
     assert_eq!(report.result, Ok("re: hello".to_owned()));
     assert_eq!(
         *attempted.lock().unwrap(),
-        [(0, "one ".to_owned())],
-        "a closed channel breaks at the first piece and the broker still finishes the reply"
+        ["one ".to_owned(), "two ".to_owned(), "three ".to_owned()],
+        "the Harness delivers every piece even when the Host queue is full"
     );
+    assert_eq!(rx.try_recv().unwrap(), "already queued");
 }
 
 /// Serves `app` on a loopback port and returns its `/v1` root.
@@ -1153,7 +1073,7 @@ fn gateway_app(chat_body: String) -> axum::Router {
 }
 
 #[tokio::test]
-async fn a_gateway_stream_returns_the_full_reply_to_the_recorder_after_the_host_breaks() {
+async fn a_gateway_stream_returns_the_full_reply_to_the_recorder_after_the_host_stops_consuming() {
     let chat_body = sse_body(&[
         content_chunk("first "),
         content_chunk("second "),
@@ -1176,10 +1096,12 @@ async fn a_gateway_stream_returns_the_full_reply_to_the_recorder_after_the_host_
         .selected_model(MODEL)
         .streaming(move |_round, delta| {
             let Delta::Text(text) = delta else {
-                return ControlFlow::Continue(());
+                return;
             };
-            preview_ref.lock().unwrap().push(text);
-            ControlFlow::Break(())
+            let mut preview = preview_ref.lock().unwrap();
+            if preview.is_empty() {
+                preview.push(text);
+            }
         });
     let report = launch(CHATS_ONCE, setup)
         .run()
@@ -1190,7 +1112,7 @@ async fn a_gateway_stream_returns_the_full_reply_to_the_recorder_after_the_host_
     assert_eq!(
         *preview.lock().unwrap(),
         vec!["first ".to_owned()],
-        "the Host sees only the first preview piece before Break"
+        "the Host retains only the prefix it wants even as the Harness forwards every piece"
     );
     let records = recorder.records(report.run_id);
     let reply = records

@@ -116,7 +116,6 @@ use std::future::{Future, poll_fn};
 use std::num::NonZeroUsize;
 use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 
@@ -646,7 +645,10 @@ impl Driver {
                 let broker = Arc::clone(&self.broker);
                 let options = binding.completion_options();
                 let on_piece = match (streaming, round.origin) {
-                    (Some(host), ReplyOrigin::Chat) => Some(latched(Arc::clone(host), round)),
+                    (Some(host), ReplyOrigin::Chat) => {
+                        let host = Arc::clone(host);
+                        Some(Arc::new(move |delta| host(round, delta)) as PieceSink)
+                    }
                     _ => None,
                 };
                 let round = async move {
@@ -1176,23 +1178,6 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
         .copied()
         .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
         .unwrap_or("a panic with no message")
-}
-
-/// Wraps the Host's streaming callback in a per-round latch.
-///
-/// The latch starts open. While open, each piece is forwarded to the Host.
-/// When the Host returns [`ControlFlow::Break`], the latch closes and stays
-/// closed until the round ends, suppressing the rest of that round's pieces.
-/// The callback is called synchronously, one piece at a time, only while the
-/// round's future is polled, and nothing in the loop retains it after the
-/// round finishes.
-fn latched(host: crate::setup::HostSink, round: runvil_engine::effect::Round) -> PieceSink {
-    let open = AtomicBool::new(true);
-    Arc::new(move |delta| {
-        if open.load(Ordering::Acquire) && host(round, delta).is_break() {
-            open.store(false, Ordering::Release);
-        }
-    })
 }
 
 /// One record under `provenance`.

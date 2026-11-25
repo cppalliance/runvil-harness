@@ -3,7 +3,6 @@
 
 use std::fmt;
 use std::num::NonZeroUsize;
-use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use runvil_engine::RunLimits;
@@ -101,14 +100,15 @@ impl IntoShared<dyn Timer> for Arc<dyn Timer> {
 const DEFAULT_MAX_TOOL_CALLS_IN_FLIGHT: NonZeroUsize = NonZeroUsize::MIN.saturating_add(9);
 
 /// A Host callback that receives each live piece of a section's own model
-/// round and answers whether to keep receiving pieces for that round.
+/// round.
 ///
 /// The Harness keeps this callback for the run and calls it synchronously,
-/// one piece at a time, only while the run's future is polled. For each
-/// section round, the Harness gives the broker a separate round-scoped
+/// one piece at a time, only while the run's future is polled. The Host owns
+/// backpressure and decides whether to keep, drop, or buffer each piece. For
+/// each section round, the Harness gives the broker a separate round-scoped
 /// [`PieceSink`](crate::performers::PieceSink), which the broker must not
 /// retain beyond that round.
-pub type HostSink = Arc<dyn Fn(Round, Delta) -> ControlFlow<()> + Send + Sync>;
+pub type HostSink = Arc<dyn Fn(Round, Delta) + Send + Sync>;
 
 /// Everything one run gets on top of its Host. The launcher builds one
 /// per run, and the Harness reads each field once and keeps it for the
@@ -223,15 +223,12 @@ impl RunSetup {
     /// Turns streaming on for the run. `sink` is called for each piece of a
     /// section's own model round, in order, and must not block. It is called
     /// synchronously, one piece at a time, only while the run's future is
-    /// polled. The Harness keeps this callback for the run; the separate
-    /// broker-facing sink is round-scoped and must not be retained beyond
-    /// that round. Returning [`ControlFlow::Break`] stops the pieces for the rest of that round;
-    /// the next round starts open again.
+    /// polled. The Host owns backpressure and may drop or buffer pieces as
+    /// needed; the Harness continues forwarding every piece. The Harness
+    /// keeps this callback for the run; the separate broker-facing sink is
+    /// round-scoped and must not be retained beyond that round.
     #[must_use]
-    pub fn streaming(
-        mut self,
-        sink: impl Fn(Round, Delta) -> ControlFlow<()> + Send + Sync + 'static,
-    ) -> RunSetup {
+    pub fn streaming(mut self, sink: impl Fn(Round, Delta) + Send + Sync + 'static) -> RunSetup {
         self.streaming = Some(Arc::new(sink));
         self
     }

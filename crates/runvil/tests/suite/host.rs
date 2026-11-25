@@ -5,7 +5,6 @@
 
 use std::error::Error;
 use std::num::NonZeroU32;
-use std::ops::ControlFlow;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Poll, Waker};
@@ -242,12 +241,11 @@ async fn a_hosts_own_broker_streams_a_section_round_under_the_round_id_the_run_r
     let setup =
         RunSetup::new(recorder.clone(), broker, TokioTimer).streaming(move |round, delta| {
             let runvil::harness::Delta::Text(text) = delta else {
-                return ControlFlow::Continue(());
+                return;
             };
             // The test holds the receiver until the run ends, so a send
             // fails only once no one is left to read the piece.
             let _ = window.send((round.id.get(), text));
-            ControlFlow::Continue(())
         });
     let harness = launch(CHATS, setup);
     let report = harness.run().await.expect("the run is reported");
