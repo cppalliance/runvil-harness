@@ -240,6 +240,10 @@ fn the_label_mlua_wrote_stays_and_the_same_words_of_the_author_are_a_name() {
         ),
         (raised("0x1f"), "runtime error: 0x1f"),
         (
+            raised("?:?: stack overflow"),
+            "runtime error: stack overflow",
+        ),
+        (
             mlua::Error::external("runtime error: Thing: 0x1f"),
             "runtime error: Thing: (address)",
         ),

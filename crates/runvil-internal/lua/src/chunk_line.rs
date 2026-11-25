@@ -11,6 +11,54 @@ pub(crate) const STRING_CHUNK_OPENING: &str = "[string \"";
 /// prompt line the block starts on.
 pub(crate) const PROMPT_CHUNK_PREFIX: &str = "line ";
 
+/// What the name of every chunk of the Engine's own Lua starts with where
+/// Lua gives a position in it: the directory the chunks are in.
+pub(crate) const ENGINE_CHUNK_OPENING: &str = "crates/runvil-internal/lua/src/";
+
+/// How many bytes at the start of `text`, a failure as Lua raised it, are
+/// the position of a chunk of the Engine's own: `?:?: ` for a chunk with
+/// no debug info, and [`ENGINE_CHUNK_OPENING`], a file name, a line, and
+/// `: ` for any other. Zero for a text that starts with neither.
+///
+/// Lua puts the position of the running function in front of a failure
+/// it raises itself. It raises a stack overflow in the function that
+/// makes the call it has no room for, which is the author's function or
+/// one of the Engine's as the frames on the stack fall out. A function of
+/// the Engine's is one frame with no position to the author's code, so
+/// its position is no part of the failure.
+///
+/// The rule reads a text, so it cannot tell such a failure from a string
+/// that starts the same way, and it changes both: `error('?:?: x', 0)`
+/// reads `x`.
+pub(crate) fn engine_position_len(text: &[u8]) -> usize {
+    if text.starts_with(UNKNOWN_POSITION) {
+        return UNKNOWN_POSITION.len();
+    }
+    let Some(rest) = text.strip_prefix(ENGINE_CHUNK_OPENING.as_bytes()) else {
+        return 0;
+    };
+    let name = rest
+        .iter()
+        .take_while(|byte| !matches!(byte, b':' | b'/' | b'\n'))
+        .count();
+    let line = rest[name..].strip_prefix(b":").map_or(0, |after| {
+        after
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count()
+    });
+    if name == 0 || line == 0 || !rest[name + 1 + line..].starts_with(b": ") {
+        return 0;
+    }
+    ENGINE_CHUNK_OPENING.len() + name + 1 + line + 2
+}
+
+/// `text` without the position [`engine_position_len`] finds at its
+/// start.
+pub(crate) fn without_engine_position(text: &str) -> &str {
+    &text[engine_position_len(text.as_bytes())..]
+}
+
 /// The prompt-source line a compiler `diagnostic` names, for the chunk
 /// named `chunk_name` that starts on `source_line`: the chunk-relative
 /// line after the chunk's marker, mapped to its absolute line, or
@@ -141,10 +189,49 @@ pub(crate) fn map_chunk_line_to_absolute(
     }
 }
 
+/// What Lua writes in front of a failure it raises in a chunk that was
+/// compiled with no debug info.
+const UNKNOWN_POSITION: &[u8] = b"?:?: ";
+
 /// The absolute prompt-source line of `chunk_line`, a chunk-relative line,
 /// in a chunk starting at `source_line`: the two summed, less one. `None`
 /// when the sum overflows `u32`, so a pathological line count cannot wrap
 /// into a wrong number.
 fn absolute_line(source_line: NonZeroU32, chunk_line: u32) -> Option<u32> {
     source_line.get().checked_add(chunk_line)?.checked_sub(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_engine_position;
+
+    #[test]
+    fn the_position_of_an_engine_chunk_goes_and_any_other_start_stays() {
+        for (text, left) in [
+            ("?:?: stack overflow", "stack overflow"),
+            (
+                "crates/runvil-internal/lua/src/__impl_stdlib_stock.lua:45: stack overflow",
+                "stack overflow",
+            ),
+            ("crates/runvil-internal/lua/src/coro.rs:1: x\ny", "x\ny"),
+            ("?:?: ?:?: x", "?:?: x"),
+        ] {
+            assert_eq!(without_engine_position(text), left);
+        }
+        for text in [
+            "",
+            "stack overflow",
+            "[string \"line 1\"]:2: stack overflow",
+            "?:?:x",
+            "?:1: x",
+            "crates/runvil-internal/lua/src/__impl_coro.lua: x",
+            "crates/runvil-internal/lua/src/__impl_coro.lua:91:x",
+            "crates/runvil-internal/lua/src/:91: x",
+            "crates/runvil-internal/lua/src/deeper/chunk.lua:91: x",
+            "crates/runvil-internal/lua/src/chunk\n.lua:91: x",
+            "crates/other/src/chunk.lua:91: x",
+        ] {
+            assert_eq!(without_engine_position(text), text);
+        }
+    }
 }

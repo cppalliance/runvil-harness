@@ -544,11 +544,11 @@ mod tests {
 
     use super::{
         FANOUT_CHUNK_NAME, FANOUT_SOURCE, SHIM_CHUNK_NAME, SHIM_SOURCE, TASKS_CHUNK_NAME,
-        TASKS_SOURCE, selection_captures,
+        TASKS_SOURCE, YIELD_CHUNK_NAME, selection_captures,
     };
     use crate::models::LuaModelHandle;
     use crate::test_vm::TestVm;
-    use crate::tests::assert_chunk_name_resolves;
+    use crate::tests::{assert_chunk_name_resolves, assert_engine_chunk_name};
 
     #[test]
     fn the_shim_chunk_name_resolves_to_the_shim_file() {
@@ -563,6 +563,11 @@ mod tests {
     #[test]
     fn the_fanout_chunk_name_resolves_to_the_fanout_file() {
         assert_chunk_name_resolves("FANOUT_CHUNK_NAME", FANOUT_CHUNK_NAME, FANOUT_SOURCE);
+    }
+
+    #[test]
+    fn the_yield_chunk_name_is_that_of_an_engine_chunk() {
+        assert_engine_chunk_name("YIELD_CHUNK_NAME", YIELD_CHUNK_NAME);
     }
 
     #[test]

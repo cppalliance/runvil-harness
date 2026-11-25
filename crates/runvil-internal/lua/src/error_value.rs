@@ -35,7 +35,7 @@ use runvil_types::error::{Error, ErrorCode, ErrorFact, coordinates};
 use runvil_types::ids::TaskId;
 use serde_json::Value as Json;
 
-use crate::chunk_line::first_prompt_line;
+use crate::chunk_line::{engine_position_len, first_prompt_line};
 use crate::error::{
     accepted_tags, author_line, authored_at, call_line, failure_text, lua_text,
     make_internal_error, make_lua_runtime_error, prompt_file, root_cause, root_text,
@@ -777,11 +777,21 @@ pub(crate) fn failure_message(lua: &Lua, failure: &mlua::Error) -> String {
 }
 
 /// Returns what `normalize_failure` returns for `value`: a Rust callback's
-/// failure as the error table its classification names, anything else
-/// unchanged, for the capture and the loop's compactor rule alike.
+/// failure as the error table its classification names, a string without
+/// the position of a chunk of the Engine's own in front of it, and
+/// anything else unchanged, for the capture and the loop's compactor rule
+/// alike.
 pub(crate) fn normalized(lua: &Lua, value: Value) -> mlua::Result<Value> {
     match value {
         Value::Error(error) => Ok(Value::Table(error_table(lua, &classified(lua, &error))?)),
+        Value::String(text) => {
+            let position = engine_position_len(&text.as_bytes());
+            if position == 0 {
+                return Ok(Value::String(text));
+            }
+            let raised = lua.create_string(&text.as_bytes()[position..])?;
+            Ok(Value::String(raised))
+        }
         other => Ok(other),
     }
 }

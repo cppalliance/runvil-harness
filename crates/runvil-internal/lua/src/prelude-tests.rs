@@ -488,6 +488,22 @@ fn a_prelude_that_raises_while_loading_fails_naming_its_pack() {
 }
 
 #[test]
+fn a_prelude_failure_loses_the_position_of_an_engine_chunk() {
+    // Lua writes `?:?: ` in front of a failure it raises in a function of
+    // the Engine's that has no debug info, such as a stack overflow under
+    // `tostring`.
+    let vm = section_vm();
+    let message = install_failure(&vm, &[prelude("boom", "error('?:?: boom', 0)")]);
+    assert_eq!(
+        message.split("\nstack traceback:").next(),
+        Some(
+            "Pack `boom`: its prelude failed to load: boom. A prelude only defines functions; it \
+             must not call tools or the store while loading."
+        )
+    );
+}
+
+#[test]
 fn a_prelude_that_calls_a_tool_while_loading_fails_naming_its_pack() {
     let vm = section_vm();
     let message = install_failure(&vm, &[prelude("eager", "tools.call('eager/run')")]);

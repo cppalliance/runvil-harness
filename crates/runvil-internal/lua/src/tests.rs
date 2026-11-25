@@ -19,6 +19,7 @@ use self::recording::{Observation, Recorder, boundary, null_emitter};
 use super::*;
 use runvil_types::error::ErrorCode;
 
+use crate::chunk_line::{ENGINE_CHUNK_OPENING, without_engine_position};
 use crate::engine_globals::LUA_LOG_CHARACTER_LIMIT;
 use crate::error::{Error, Result};
 use crate::hardening::install_cancel_hook;
@@ -258,6 +259,39 @@ fn first_differing_line(left: &str, right: &str) -> usize {
         )
 }
 
+/// The most bytes of a chunk name after its `@` that Lua writes whole in
+/// a position: `LUA_IDSIZE` in Lua's `luaconf.h`, less the zero byte at
+/// the end. Lua cuts a longer name to `...` and its end.
+const WHOLE_CHUNK_NAME_BYTES: usize = 59;
+
+/// Asserts that `chunk_name` names a chunk of the Engine's own Lua so that
+/// the rule on the position of an Engine chunk reads its positions: `@`,
+/// then [`ENGINE_CHUNK_OPENING`] and a file name, in few enough bytes
+/// that Lua writes the name whole. The rule itself is asked about a
+/// position under the name, so a name it does not read, such as one in a
+/// directory below, fails here. Returns the name without its `@`.
+pub(crate) fn assert_engine_chunk_name<'a>(constant: &str, chunk_name: &'a str) -> &'a str {
+    let Some(relative) = chunk_name.strip_prefix('@') else {
+        panic!(
+            "{constant}: required a chunk name carrying the `@` prefix PUC renders verbatim, \
+             actual {chunk_name:?}"
+        );
+    };
+    assert_eq!(
+        without_engine_position(&format!("{relative}:1: x")),
+        "x",
+        "{constant}: required a chunk name of {ENGINE_CHUNK_OPENING:?} and a file name, which \
+         is how a failure's text tells a position in an Engine chunk, actual {chunk_name:?}"
+    );
+    assert!(
+        relative.len() <= WHOLE_CHUNK_NAME_BYTES,
+        "{constant}: required a chunk name of at most {WHOLE_CHUNK_NAME_BYTES} bytes after \
+         its `@`, which Lua writes whole in a position, actual {} bytes in {chunk_name:?}",
+        relative.len()
+    );
+    relative
+}
+
 /// Asserts that a shim chunk name is a live repository path: that stripping
 /// its `@` prefix and resolving the rest from the repository root reaches
 /// the very file whose text the constant's sibling `include_str!` embedded.
@@ -265,12 +299,7 @@ fn first_differing_line(left: &str, right: &str) -> usize {
 /// A chunk name only earns its verbatim `file:line:` rendering while it
 /// points at the real file, and nothing else in the crate checks it.
 pub(crate) fn assert_chunk_name_resolves(constant: &str, chunk_name: &str, embedded: &str) {
-    let Some(relative) = chunk_name.strip_prefix('@') else {
-        panic!(
-            "{constant}: required a chunk name carrying the `@` prefix PUC renders verbatim, \
-             actual {chunk_name:?}"
-        );
-    };
+    let relative = assert_engine_chunk_name(constant, chunk_name);
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
         .join(relative);

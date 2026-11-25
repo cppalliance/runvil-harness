@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::adhoc::AdhocTools;
-use crate::chunk_line::map_chunk_line_to_absolute;
+use crate::chunk_line::{map_chunk_line_to_absolute, without_engine_position};
 
 #[test]
 fn lua_program_retains_source_and_round_trips_bytecode() {
@@ -356,5 +356,28 @@ fn malformed_lua_reports_its_region_and_the_diagnostic() {
     assert!(
         error.to_string().contains(location),
         "the displayed error must identify its source region"
+    );
+}
+
+#[test]
+fn lua_writes_a_chunk_name_whole_up_to_the_length_the_name_check_allows() {
+    // Lua cuts a longer name to `...` and its end, and the rule on the
+    // position of an Engine chunk does not read what is left.
+    let lua = Lua::new();
+    let raised_under = |name_bytes: usize| {
+        let file = "n".repeat(name_bytes - ENGINE_CHUNK_OPENING.len());
+        lua.load("local _, text = pcall(function() error('boom') end) return text")
+            .set_name(format!("@{ENGINE_CHUNK_OPENING}{file}"))
+            .eval::<String>()
+            .expect("the chunk runs")
+    };
+    assert_eq!(
+        without_engine_position(&raised_under(WHOLE_CHUNK_NAME_BYTES)),
+        "boom"
+    );
+    let cut = raised_under(WHOLE_CHUNK_NAME_BYTES + 1);
+    assert_eq!(
+        (&cut[..3], without_engine_position(&cut)),
+        ("...", cut.as_str())
     );
 }

@@ -7,7 +7,7 @@ use mlua::{Function, Lua, Table, Value};
 use runvil_types::error::{Error, ErrorCode, ErrorFact};
 use runvil_types::ids::TaskId;
 
-use super::super::{error_table, install_error_value, raised_from, retained_error};
+use super::super::{error_table, install_error_value, normalized, raised_from, retained_error};
 use super::every_store_failure;
 use crate::error::{
     QuotaResource, make_context_exhausted_error, make_internal_error, make_lua_quota_error,
@@ -217,6 +217,24 @@ fn a_table_with_no_usable_code_reads_back_as_the_failure_its_kind_names() {
     assert_eq!(back.code, ErrorCode::TaskCanceled);
     assert_eq!(back.facts.get(&ErrorFact::Task), Some(&"0.1".into()));
     assert_eq!(back.message, "gone");
+}
+
+#[test]
+fn a_caught_string_loses_the_position_of_an_engine_chunk_in_front_of_it() {
+    let lua = Lua::new();
+    for (raised, caught) in [
+        ("?:?: stack overflow", "stack overflow"),
+        (
+            "[string \"line 1\"]:2: stack overflow",
+            "[string \"line 1\"]:2: stack overflow",
+        ),
+    ] {
+        let failure = Value::String(lua.create_string(raised).expect("the string builds"));
+        let Value::String(text) = normalized(&lua, failure).expect("the failure reads") else {
+            panic!("{raised}: a string stays a string");
+        };
+        assert_eq!(text.to_string_lossy(), caught);
+    }
 }
 
 #[test]

@@ -26,9 +26,7 @@ use mlua::chunk::ChunkMode;
 use mlua::{Lua, Table, Value};
 use runvil_types::packs::{PackId, Prelude};
 
-use crate::error::{
-    self, Error, Result, TRACEBACK_HEADING, make_lua_runtime_error, without_address,
-};
+use crate::error::{self, Error, Result, TRACEBACK_HEADING, make_lua_runtime_error, raised_text};
 use crate::order::{FirstRefusal, is_weak};
 use crate::proxy::{key_path, key_text, read_only_proxy};
 
@@ -255,7 +253,7 @@ fn seal(lua: &Lua, pack: &PackId, name: &str, hidden: Table) -> Result<Table> {
 /// keeping the Lua traceback after it.
 fn make_load_failure_error(pack: &PackId, error: &mlua::Error) -> Error {
     let rendered = match error {
-        mlua::Error::RuntimeError(message) => without_address(message).into_owned(),
+        mlua::Error::RuntimeError(message) => raised_text(message).into_owned(),
         other => error::lua_text(other),
     };
     let (head, traceback) = match rendered.split_once(TRACEBACK_HEADING) {
