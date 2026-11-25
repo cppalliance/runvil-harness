@@ -2,15 +2,19 @@
 //! broker: the broker receives each round's `Round`, with origin `Infer`
 //! for a nested `models.infer` and `Chat` for a section's own round, and
 //! the run resumes with the broker's completion as each round's answer.
+//! A setup that streams hands a section's own round a callback that
+//! passes each piece, with its round, to the Host's callback in order,
+//! and a nested `Infer` round none. A setup without streaming hands
+//! every round none. Streaming changes no record of the run.
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 
-use harness_runner::RunSetup;
 use harness_runner::effect_loop::drive_run;
-use harness_runner::performers::{InferenceBroker, PieceSink};
-use harness_runner::recorder::{RecordKind, RunRecorder};
+use harness_runner::performers::{Delta, InferenceBroker, PieceSink};
+use harness_runner::recorder::{RecordKind, RunId, RunRecorder};
+use harness_runner::{HostSink, RunSetup};
 use runvil_engine::Error;
 use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::Round;
@@ -24,6 +28,7 @@ use runvil_engine::{BoxFuture, Prompt, Run, RunParams, Timestamp};
 use serde_json::{Value, json};
 
 use super::begun_log;
+use crate::scripted::{Kept, ScriptedBroker};
 use crate::support::{TEST_SEED, Unused};
 
 /// A program that infers once and then chats once: the nested round
@@ -159,5 +164,171 @@ async fn each_round_resumes_the_run_with_the_brokers_completion() {
         replies,
         vec![json!("re: infer round"), json!("re: chat round")],
         "each round's answer record holds the broker's completion"
+    );
+}
+
+/// The `Infer` round of [`INFERS_THEN_CHATS`], its first.
+fn infer_round() -> Round {
+    Round::new(RoundId::new(0), ReplyOrigin::Infer)
+}
+
+/// The `Chat` round of [`INFERS_THEN_CHATS`], its second.
+fn chat_round() -> Round {
+    Round::new(RoundId::new(1), ReplyOrigin::Chat)
+}
+
+/// The pieces the streaming brokers here emit to each round that has a
+/// callback: reasoning, then two fragments of text.
+fn pieces() -> Vec<Delta> {
+    vec![
+        Delta::Reasoning("hmm".to_owned()),
+        Delta::Text("one ".to_owned()),
+        Delta::Text("two".to_owned()),
+    ]
+}
+
+/// A Host callback that keeps every round and piece it is handed, beside
+/// what it kept.
+fn collecting() -> (
+    impl Fn(Round, Delta) + Send + Sync + 'static,
+    Kept<(Round, Delta)>,
+) {
+    let kept = Kept::default();
+    // The callback moves into a setup, so the test keeps this second
+    // handle to read what the callback collected.
+    let sink = Arc::clone(&kept);
+    (
+        move |round, piece| sink.lock().unwrap().push((round, piece)),
+        kept,
+    )
+}
+
+/// A Host callback that keeps the first piece it is handed and ignores
+/// the rest, beside what it kept.
+fn keeping_one() -> (
+    impl Fn(Round, Delta) + Send + Sync + 'static,
+    Kept<(Round, Delta)>,
+) {
+    let kept = Kept::default();
+    // The callback moves into a setup, so the test keeps this second
+    // handle to read what the callback kept.
+    let sink = Arc::clone(&kept);
+    (
+        move |round, piece| {
+            let mut first = sink.lock().unwrap();
+            if first.is_empty() {
+                first.push((round, piece));
+            }
+        },
+        kept,
+    )
+}
+
+/// Drives [`INFERS_THEN_CHATS`] over `setup` as the run `run_id`, which
+/// the setup's recorder has begun.
+async fn drive_it(setup: &RunSetup, run_id: RunId) {
+    drive_run(
+        infers_then_chats(),
+        setup,
+        Arc::new(Unused),
+        run_id,
+        CancelHandle::new(),
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn the_hosts_callback_gets_each_piece_in_order_under_the_chat_round() {
+    let (recorder, run_id) = begun_log().await;
+    let broker = ScriptedBroker::replying().emitting(pieces());
+    let (sink, collected) = collecting();
+    let setup = RunSetup::new(recorder, broker, Unused).streaming(sink);
+
+    drive_it(&setup, run_id).await;
+    assert_eq!(
+        *collected.lock().unwrap(),
+        pieces()
+            .into_iter()
+            .map(|piece| (chat_round(), piece))
+            .collect::<Vec<_>>(),
+        "every piece reaches the Host's callback in order, each with the chat round's id"
+    );
+}
+
+#[tokio::test]
+async fn an_infer_round_is_handed_no_callback_and_a_chat_round_one() {
+    let (recorder, run_id) = begun_log().await;
+    let broker = ScriptedBroker::replying().emitting(pieces());
+    let handed = broker.handed();
+    let setup = RunSetup::new(recorder, broker, Unused).streaming(|_round, _piece| {});
+
+    drive_it(&setup, run_id).await;
+    assert_eq!(
+        *handed.lock().unwrap(),
+        vec![(infer_round(), false), (chat_round(), true)],
+        "only the section's own round is handed a callback"
+    );
+}
+
+#[tokio::test]
+async fn a_setup_without_streaming_hands_every_round_no_callback() {
+    let (recorder, run_id) = begun_log().await;
+    let broker = ScriptedBroker::replying().emitting(pieces());
+    let handed = broker.handed();
+    let setup = RunSetup::new(recorder, broker, Unused);
+
+    drive_it(&setup, run_id).await;
+    assert_eq!(
+        *handed.lock().unwrap(),
+        vec![(infer_round(), false), (chat_round(), false)],
+        "a setup that leaves streaming unset hands no round a callback"
+    );
+}
+
+/// The kind and payload of every record of one run of
+/// [`INFERS_THEN_CHATS`] over a broker that emits [`pieces`], with
+/// `streaming` as the setup's callback.
+async fn recorded(streaming: Option<HostSink>) -> Vec<(RecordKind, Value)> {
+    let (recorder, run_id) = begun_log().await;
+    let broker = ScriptedBroker::replying().emitting(pieces());
+    // The setup owns one handle to the recorder, and the test keeps this
+    // second one to read the run's records after the drive.
+    let mut setup = RunSetup::new(Arc::clone(&recorder), broker, Unused);
+    setup.streaming = streaming;
+
+    drive_it(&setup, run_id).await;
+    recorder
+        .records(run_id)
+        .into_iter()
+        .map(|record| (record.kind, record.payload))
+        .collect()
+}
+
+#[tokio::test]
+async fn the_kind_and_payload_of_every_record_are_equal_across_three_runs() {
+    let off = recorded(None).await;
+
+    let (all, collected) = collecting();
+    let streamed = recorded(Some(Arc::new(all))).await;
+    assert_eq!(
+        collected.lock().unwrap().len(),
+        pieces().len(),
+        "the streaming run's callback saw every piece"
+    );
+
+    let (one, kept) = keeping_one();
+    let keeps_one = recorded(Some(Arc::new(one))).await;
+    assert_eq!(
+        kept.lock().unwrap().len(),
+        1,
+        "the third run's callback kept one piece"
+    );
+
+    assert!(!off.is_empty(), "the runs recorded something to compare");
+    assert_eq!(streamed, off, "streaming changes no record");
+    assert_eq!(
+        keeps_one, off,
+        "a callback that keeps one piece changes no record"
     );
 }

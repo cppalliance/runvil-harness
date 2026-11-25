@@ -253,6 +253,11 @@ impl Drop for EndOnDrop {
 /// [`stop_round`](Self::stop_round) drops the work in flight, and the run
 /// goes on. [`cancel`](Self::cancel) ends the run.
 ///
+/// The streaming callback of
+/// [`RunSetup::streaming`](crate::RunSetup::streaming) runs inside that
+/// future, so the callback must not call `send`, `stop_round`, or
+/// `cancel`. A Host calls them from its own code, outside the callback.
+///
 /// Cloning is cheap, and every clone controls the same run. Take one from
 /// [`Harness::control`](crate::Harness::control) before you call
 /// [`Harness::run`](crate::Harness::run), because `run` consumes the

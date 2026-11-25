@@ -1,7 +1,8 @@
 //! The scripted Host the Harness suites run against: a broker that lists
-//! one model, or a second one before it, and plays each round from a
-//! script, performers whose every future is held until it is torn down,
-//! and a Pack whose one tool is held.
+//! one model, or a second one before it, plays each round from a script,
+//! and emits pieces to a round's callback when it is told to, performers
+//! whose every future is held until it is torn down, and a Pack whose one
+//! tool is held.
 
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -9,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harness_runner::Host;
-use harness_runner::performers::{InferenceBroker, PieceSink, Timer};
+use harness_runner::performers::{Delta, InferenceBroker, PieceSink, Timer};
 use runvil_engine::effect::Round;
 use runvil_engine::model::{
     Completion, CompletionOptions, CompletionResult, Message, ModelBinding, ModelCatalog, ModelId,
@@ -49,12 +50,16 @@ pub(crate) enum Listing {
 
 /// Lists the scripted model and plays every round through its script,
 /// keeping each round it was handed and counting the listings it was
-/// asked for.
+/// asked for. A broker that emits pieces calls the callback of a round
+/// that has one with each of them before the round's answer, and says it
+/// streams. It keeps for each round whether it was handed a callback.
 pub(crate) struct ScriptedBroker {
     listing: Listing,
     script: Arc<ChatScript>,
     rounds: Kept<Round>,
+    handed: Kept<(Round, bool)>,
     listings: Arc<AtomicUsize>,
+    pieces: Vec<Delta>,
 }
 
 impl ScriptedBroker {
@@ -69,7 +74,9 @@ impl ScriptedBroker {
             listing: Listing::Lists,
             script: Arc::new(script),
             rounds: Kept::default(),
+            handed: Kept::default(),
             listings: Arc::default(),
+            pieces: Vec::new(),
         }
     }
 
@@ -89,10 +96,25 @@ impl ScriptedBroker {
         Self { listing, ..self }
     }
 
+    /// This broker emitting `pieces`, in order, to the callback of each
+    /// round that has one.
+    pub(crate) fn emitting(self, pieces: impl IntoIterator<Item = Delta>) -> Self {
+        Self {
+            pieces: pieces.into_iter().collect(),
+            ..self
+        }
+    }
+
     /// The rounds this broker keeps, readable after it moved into a
     /// Harness.
     pub(crate) fn rounds(&self) -> Kept<Round> {
         Arc::clone(&self.rounds)
+    }
+
+    /// Each round this broker was handed, with whether it was handed a
+    /// callback for it, readable after it moved into a Harness.
+    pub(crate) fn handed(&self) -> Kept<(Round, bool)> {
+        Arc::clone(&self.handed)
     }
 
     /// The count of listings this broker was asked for.
@@ -115,7 +137,7 @@ impl InferenceBroker for ScriptedBroker {
     }
 
     fn supports_streaming(&self) -> bool {
-        false
+        !self.pieces.is_empty()
     }
 
     fn chat(
@@ -125,10 +147,26 @@ impl InferenceBroker for ScriptedBroker {
         _tools: Vec<ToolSchema>,
         _options: CompletionOptions,
         round: Round,
-        _on_piece: Option<PieceSink>,
+        on_piece: Option<PieceSink>,
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         self.rounds.lock().unwrap().push(round);
-        (self.script)(round, messages)
+        self.handed
+            .lock()
+            .unwrap()
+            .push((round, on_piece.is_some()));
+        let answer = (self.script)(round, messages);
+        // The callback takes each piece by value and the broker keeps its
+        // list for the next round, so a round that was handed a callback
+        // gets a copy of the list, which is that round's second owner.
+        let emission = on_piece.map(|sink| (sink, self.pieces.clone()));
+        Box::pin(async move {
+            if let Some((sink, pieces)) = emission {
+                for piece in pieces {
+                    sink(piece);
+                }
+            }
+            answer.await
+        })
     }
 }
 

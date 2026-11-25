@@ -222,9 +222,9 @@ A failed compaction restores the records and leaves a tool's side effects in pla
 
 ## 7. The broker and the Gateway client
 
-### The Gateway client always asks for a stream, and the standard broker hands each piece to its round's callback
+### The Gateway client always asks for a stream, and a Host that sets `RunSetup::streaming` receives the pieces as they form
 
-The Gateway client sends every request with `stream` set to true and calls a callback with each piece of text or reasoning. The Harness asks the Host's `InferenceBroker` for the finished reply ([The Harness and the Host API](harness-and-host.md)). The standard broker uses the Gateway client, and its `chat` hands each piece to the callback it is given. A Host that shows a reply as it forms passes a callback from a broker of its own, as Workshop does.
+The Gateway client sends every request with `stream` set to true and calls a callback with each piece of text or reasoning. The standard broker uses the Gateway client, and its `chat` hands each piece to the callback the Harness gives the round. A Host that shows a reply as it forms sets `RunSetup::streaming`, and the Harness hands that callback each piece of a section's own round ([The Harness and the Host API](harness-and-host.md)). The Harness asks the Host's `InferenceBroker` for the finished reply either way, and the record holds it.
 
 The client has one transport path, the stream, because two paths would diverge.
 

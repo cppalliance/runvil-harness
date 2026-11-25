@@ -14,7 +14,9 @@
 //! prompts without a model.
 //! A launcher hands each run a [`RunSetup`] with everything that
 //! run gets on top of the Host: the recorder, the broker, and the timer
-//! it waits on, and its own inputs. A [`Harness`] over the Host, the parsed
+//! it waits on, its own inputs, and, when it sets one, the callback that
+//! receives each live piece of a section's own model rounds
+//! ([`RunSetup::streaming`]). A [`Harness`] over the Host, the parsed
 //! prompt, and the setup begins the run at the setup's recorder with the
 //! inputs the Engine refuses to draw itself, resolves the run's model
 //! through the setup's broker, prepares an Engine `Run` (making the run's
@@ -40,7 +42,12 @@
 //!   and a performer with blocking or CPU-heavy work hands it to the
 //!   Host's own runtime. A file operation is the exception: it is
 //!   synchronous by design and holds the run until it returns. The
-//!   crate's async needs come from `futures-util`,
+//!   Host's streaming callback runs under the same rule: the loop calls
+//!   it inside the run's future, so it returns at once and never calls
+//!   into the Harness (`RunControl::send`, `stop_round`, `cancel`, or any
+//!   call that starts, polls, or drops a run), and a Host that reacts to
+//!   a piece does so from its own code.
+//!   The crate's async needs come from `futures-util`,
 //!   and `tokio` and `tokio-util` appear only under `[dev-dependencies]`
 //!   (enforced by the Harness tokio ban in `cargo test -p build-xtask`).
 //! - The Harness reads each [`RunSetup`] field once per run: the run's
@@ -118,4 +125,4 @@ pub use prompt_finders::{FindFilePrompt, FindTextPrompt, PromptSet};
 pub use recorder::{
     MemoryRecorder, Record, RecordKind, RunId, RunMeta, RunRecorder, make_recorder_error,
 };
-pub use setup::{IntoShared, RunSetup};
+pub use setup::{HostSink, IntoShared, RunSetup};

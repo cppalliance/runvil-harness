@@ -123,7 +123,7 @@ use futures_util::future::{AbortHandle, Abortable, Aborted, FutureExt as _};
 use futures_util::stream::{FuturesUnordered, StreamExt as _};
 use runvil_engine::cancel::CancelHandle;
 use runvil_engine::effect::{Effect, EffectAnswer, EffectId, IssuedEffect, VfsAsker, VfsReceipt};
-use runvil_engine::event::Event;
+use runvil_engine::event::{Event, ReplyOrigin};
 use runvil_engine::ids::{Provenance, TaskId};
 use runvil_engine::vfs::{Access, VfsError, VfsOp, VfsOutcome, perform_vfs_op};
 use runvil_engine::{BoxFuture, Error, ErrorCode};
@@ -132,9 +132,9 @@ use runvil_plugin::ToolFiles;
 use tracing::Instrument as _;
 
 use crate::harness::{RunControl, SendQueue, StopSignal};
-use crate::performers::{InferenceBroker, Timer, ToolPerformer};
+use crate::performers::{InferenceBroker, PieceSink, Timer, ToolPerformer};
 use crate::recorder::{Record, RecordKind, RunId, RunRecorder, make_recorder_error, refused};
-use crate::setup::RunSetup;
+use crate::setup::{HostSink, RunSetup};
 use crate::tool_files::{Asked, CallDesk};
 
 /// The message of the failure a stalled run ends with.
@@ -156,6 +156,16 @@ const STALLED: &str = "the effect loop has nothing to await for a pending run";
 /// error, once every future the loop still holds is torn down, unless its
 /// main chain waits for input: nothing can send to a run this function
 /// drives, so only `cancel` ends that wait.
+///
+/// When `setup.streaming` holds the Host's callback, each model round of a
+/// section's own `models.loop` is handed a callback that adds the round
+/// to each piece and passes both on to the Host's callback, which the
+/// setup keeps for the whole drive. The loop passes every piece on, and
+/// it neither buffers nor skips one. The Host's callback returns at once
+/// and never calls into the Harness, `RunControl` included: the loop is
+/// not reentrant and handles a stop, a message, or a cancel only when it
+/// waits. A Host's callback that panics ends its round `Dropped`, as a
+/// broker that panics does.
 ///
 /// The future is boxed internally: the step machinery is large, and the
 /// caller's own future stays small. It is `Send`, and it needs no runtime
@@ -205,7 +215,7 @@ pub(crate) async fn drive(
         sends: Arc::clone(control.send_queue()),
         unread: Vec::new(),
     };
-    let result = Box::pin(driver.drive()).await;
+    let result = Box::pin(driver.drive(setup.streaming.as_ref())).await;
     (result, driver.unread)
 }
 
@@ -259,7 +269,9 @@ struct InlineVfs {
 }
 
 impl Driver {
-    async fn drive(&mut self) -> Result<String, Error> {
+    /// Drives the run to its end. `streaming` is the setup's callback for
+    /// live pieces, which the setup owns for the whole drive.
+    async fn drive(&mut self, streaming: Option<&HostSink>) -> Result<String, Error> {
         let early = self.sends.take();
         self.deliver(early).await?;
         loop {
@@ -333,7 +345,7 @@ impl Driver {
                         // answered here; every other kind goes in flight.
                         // The run is not stepped between inline answers:
                         // the whole batch is resumed, then stepped once.
-                        if let Some(vfs) = self.perform(id, provenance, issued.effect) {
+                        if let Some(vfs) = self.perform(id, provenance, issued.effect, streaming) {
                             self.answer_vfs(id, provenance, vfs).await?;
                             answered = true;
                         }
@@ -565,11 +577,16 @@ impl Driver {
     ///
     /// A Vfs effect goes nowhere and is handed back as it is, for the
     /// caller to answer inline.
+    ///
+    /// A section's own `Chat` round is handed a callback that adds the
+    /// round to each piece and passes it to `streaming`, the Host's
+    /// callback, when the setup has one. Every other round gets none.
     fn perform(
         &mut self,
         id: EffectId,
         provenance: &Provenance,
         effect: Effect,
+        streaming: Option<&HostSink>,
     ) -> Option<InlineVfs> {
         let (kind, answer): (Kind, BoxFuture<'static, EffectAnswer>) = match effect {
             Effect::Chat {
@@ -581,9 +598,19 @@ impl Driver {
             } => {
                 let broker = Arc::clone(&self.broker);
                 let options = binding.completion_options();
+                // An Infer round uses only the finished reply, so it gets None.
+                let on_piece: Option<PieceSink> = match (streaming, round.origin) {
+                    (Some(host), ReplyOrigin::Chat) => {
+                        // The round's future is `'static`, so its callback owns a handle
+                        // to the Host's callback: one count for each round that streams.
+                        let host = Arc::clone(host);
+                        Some(Arc::new(move |piece| host(round, piece)))
+                    }
+                    _ => None,
+                };
                 let round = async move {
                     let completion = broker
-                        .chat(binding, messages, tools, options, round, None)
+                        .chat(binding, messages, tools, options, round, on_piece)
                         .await;
                     EffectAnswer::Chat(completion)
                 };

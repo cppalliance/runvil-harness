@@ -80,7 +80,7 @@ Every find happens in `Host::parse` because a stock finder reads a file with a b
 
 ### `RunSetup::new` takes the recorder, the broker, and the timer, and every other field has a default
 
-`RunSetup::new(recorder, broker, timer)` sets the required fields. Every other field starts at a default: an empty in-memory file system in `vfs`, no selection in `selected_model`, the empty object `{}` in `args`, the default `RunLimits` in `limits`, 10 in `max_tool_calls_in_flight`, and `false` in `has_user`. The default limits include 24 loop rounds and 8 concurrent tasks.
+`RunSetup::new(recorder, broker, timer)` sets the required fields. Every other field starts at a default: an empty in-memory file system in `vfs`, no selection in `selected_model`, the empty object `{}` in `args`, the default `RunLimits` in `limits`, 10 in `max_tool_calls_in_flight`, `false` in `has_user`, and no callback in `streaming`. The default limits include 24 loop rounds and 8 concurrent tasks.
 
 `RunSetup::new` takes each service in the form in which the Host holds it: the service itself, an `Arc` of it, or an `Arc<dyn ..>` of its trait. A run shares each service, so the setup holds each one inside an `Arc`. `RunSetup::new` puts a service that arrives by itself into a new `Arc`, and it keeps an `Arc` that the Host hands over as it is. A Host that reads its recorder after the run therefore keeps a handle and hands over a clone of it, and the Host and the run hold the same recorder. The trait `IntoShared` names the forms, so a function of the Host takes a service in the same way.
 
@@ -90,7 +90,7 @@ The broker is a required argument because the Harness asks the broker of every r
 
 ### Each optional field of `RunSetup` has a method that sets it and returns the setup
 
-Each field that `RunSetup::new` starts at a default has a method of the same name, which takes the setup, sets the field, and returns the setup. A Host writes a setup as one expression, as in `RunSetup::new(recorder, broker, timer).args(text).has_user(true)`. The method `selected_model` takes the model id itself. The fields are public too, so a Host that holds a setup assigns a field directly.
+Each field that `RunSetup::new` starts at a default has a method of the same name, which takes the setup, sets the field, and returns the setup. A Host writes a setup as one expression, as in `RunSetup::new(recorder, broker, timer).args(text).has_user(true)`. The method `selected_model` takes the model id itself, and the method `streaming` takes the Host's callback for the live pieces of a reply (see Inference, the clock, and what a Host hands its Plugins). The fields are public too, so a Host that holds a setup assigns a field directly.
 
 The methods let a Host name only the fields it changes. The recorder, the broker, and the timer are set by `RunSetup::new` alone, because they are its required arguments.
 
@@ -188,9 +188,13 @@ The map has one entry because `RunSetup` has one `selected_model`. A model for e
 
 The Harness exports the broker because Hosts run prompts without a model: a tool that runs a prompt whose Lua does all the work, and a Host whose Gateway is not configured yet. Each would otherwise write the same broker and import the chat vocabulary of a round to do it. The Host still passes the broker to `RunSetup::new`, so a run without a model is a choice that the Host's code states.
 
-### The broker returns each reply whole, and hands the pieces to a callback as they arrive
+### A Host streams through a callback on its setup, and each Host owns its queue
 
-`InferenceBroker::chat` takes an optional callback, `on_piece`, and returns one finished `Completion`. A broker that streams calls the callback once for each piece of the reply, answer text or reasoning text, in the order the model produced them, and it never calls it after the round ends. The callback returns at once and calls neither the broker nor the Harness. The standard broker streams. A Host that shows a reply as it forms passes a callback to the standard broker's `chat` from a broker of its own. The record contains the finished reply, as an `assistant_reply` event, and omits the pieces.
+A Host that shows a reply as it forms sets `RunSetup::streaming` to a callback. The Harness hands the callback each piece of a section's own model round, with the round, in the order the model produced the pieces. A round that a nested `models.infer` runs hands the Host its finished reply alone. The Harness passes every piece on, and it neither buffers nor skips one. A broker that streams calls the `on_piece` callback of `InferenceBroker::chat` once for each piece, never after the round ends, and `supports_streaming()` tells a Host whether its broker does, for its display. The record contains the finished reply, as an `assistant_reply` event, and omits the pieces.
+
+The callback is the simpler primitive, and each Host owns its queue. The Host chooses the queue's type, its capacity, what happens when it is full, and how much memory it may use, where a stream from the Harness would choose one answer for every Host. A Host that lags stops taking pieces in its own code, keeps the first part of the reply, and takes the rest from the finished reply.
+
+The callback returns at once and never calls into the Harness. It runs inside the future that drives the run, so a callback that waits stalls every effect of the run. The Harness is not reentrant, so it promises nothing about a call to `RunControl::send`, `RunControl::stop_round`, or `RunControl::cancel` from the callback. A Host that reacts to a piece does so from its own code, outside the callback: the callback hands the piece to a channel, a flag, or a broadcast and returns, and the Host's own task then stops the round or cancels the run. A callback that panics ends its round as a broker that panics does: the Harness answers the round `Dropped`.
 
 ### The Host's `Timer` performs each sleep and stamps each run's start
 

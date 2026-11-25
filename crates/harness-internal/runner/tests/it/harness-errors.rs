@@ -5,7 +5,8 @@
 //! `run` or while the broker holds its list with the cancel, each before
 //! the run starts; a recorder that refuses a write is a `RecorderFailed`
 //! failure naming the run id it issued; a broker that panics answers
-//! its round `Dropped`; and a run over the stock offline broker binds no
+//! its round `Dropped`, and so does a streaming callback that panics;
+//! and a run over the stock offline broker binds no
 //! model, so a round its prompt asks for fails as `model_required` and
 //! never reaches the broker.
 
@@ -13,7 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::task::Poll;
 
-use harness_runner::performers::OfflineBroker;
+use harness_runner::performers::{Delta, OfflineBroker};
 use harness_runner::recorder::{MemoryRecorder, RunId};
 use harness_runner::{Harness, RunReport, RunSetup, display_chain};
 use runvil_engine::model::{Completion, phrase};
@@ -46,6 +47,15 @@ const CATCHES_A_ROUND: &str = "---\nname: catches\ndescription: d\nrunvil: 0\n\
     ---\n\n\
     ## Only\n\n```lua\n\
     local ok, err = pcall(models.infer, 'asked')\n\
+    return tostring(ok) .. ':' .. err.kind\n```\n";
+
+/// A prompt whose one section round, a `models.loop` of the section's
+/// own, sits under a `pcall` that reports how it ended.
+const CATCHES_A_LOOP: &str = "---\nname: catches-loop\ndescription: d\nrunvil: 0\n\
+    ---\n\n\
+    ## Only\n\n```lua\n\
+    messages:user('asked')\n\
+    local ok, err = pcall(models.loop)\n\
     return tostring(ok) .. ':' .. err.kind\n```\n";
 
 /// A Harness running `source` with `setup` and no Packs.
@@ -261,6 +271,28 @@ async fn a_panicking_broker_answers_its_round_dropped() {
             "a panic in the {what}: the round is answered Dropped"
         );
     }
+}
+
+#[tokio::test]
+async fn a_streaming_callback_that_panics_answers_its_round_dropped() {
+    let recorder = Arc::new(MemoryRecorder::new());
+    let broker = ScriptedBroker::replying().emitting([Delta::Text("one".to_owned())]);
+    // The setup owns one handle to the recorder, and the test keeps this
+    // second one to read the run's records.
+    let setup = setup(recorder.clone(), broker).streaming(|_round, _piece| {
+        panic!("the Host's callback panics");
+    });
+
+    let report = harness_with(CATCHES_A_LOOP, setup)
+        .run()
+        .await
+        .expect("a panicking callback does not end the run with an error");
+    let records = recorder.records(report.run_id);
+    assert_eq!(
+        answers_to(&records, "Chat"),
+        [serde_json::json!("Dropped")],
+        "the round whose callback panicked is answered Dropped"
+    );
 }
 
 #[tokio::test]

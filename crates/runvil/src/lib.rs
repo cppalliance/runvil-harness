@@ -98,6 +98,11 @@ pub mod harness {
     //! in the form in which the Host holds it, the service itself, an
     //! `Arc` of it, or an `Arc<dyn ..>` of its trait, and [`IntoShared`]
     //! names those forms.
+    //! A broker that streams hands each live piece of a reply, a
+    //! [`Delta`], to the [`PieceSink`] of its round. A Host that sets
+    //! `RunSetup::streaming` receives each piece of a section's own model
+    //! rounds with its round, through a [`HostSink`], which returns at
+    //! once and never calls into the Harness.
     //! A Host hands its builder its [`HostResources`], the JSON values
     //! it offers its Plugins of the C contract under `vendor/name` names,
     //! and every tool call of such a Plugin is lent them as they are when
@@ -110,6 +115,7 @@ pub mod harness {
     pub use harness_plugin_loader::insert_plugin_dir;
     pub use harness_runner::FindFilePrompt;
     pub use harness_runner::FindTextPrompt;
+    pub use harness_runner::HostSink;
     pub use harness_runner::IntoShared;
     pub use harness_runner::PromptSet;
     pub use harness_runner::display_chain;
