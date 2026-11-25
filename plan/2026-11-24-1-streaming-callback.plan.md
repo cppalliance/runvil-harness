@@ -4,25 +4,25 @@ overview: "Build the streaming design as it stands: `InferenceBroker::chat` take
 todos:
   - id: prep
     content: "Prep: check that all three trees are clean, fast-forward runvil-harness and runvil-workshop to upstream and runvil-design to origin, note the three heads, recount the brokers if the runner or Gateway client changed, confirm the Harness's pin of runvil-plugin-sys still equals Workshop's pin of runvil-plugin-sdk, rebuild verify.ps1, verify-workshop.ps1 and check-message.ps1 in cabinet/_scratch/streaming-callback/, run verify.ps1 once for the Harness's base test count, post the comment on #74 and assign it"
-    status: pending
+    status: completed
   - id: harness-plan-copy
     content: "Harness commit 0: copy the approved plan alone to runvil-harness/plan/<date>-<n>-streaming-callback.plan.md, with the date of that day and the next free number, and commit it with the plan line"
-    status: pending
+    status: completed
   - id: h1-trait
     content: "Harness commit 1: Delta, PieceSink, supports_streaming and the on_piece parameter on the trait; the effect loop passes None; nine brokers adapt and the one direct test call of chat passes None; GatewayBroker forwards pieces, returns true and loses chat_streaming; facade re-exports; Gateway client tests rewritten plus two new tests; docs; page entries in harness-and-host.md and models-and-conversations.md; bless the listing (9 new lines, 1 changed); verify.ps1 -Tag h1 (base + 2); the clone audit; commit"
-    status: pending
+    status: completed
   - id: h2-run-setup
     content: "Harness commit 2: HostSink, the public streaming field and setter on RunSetup; the effect loop lends perform the Host's callback as Option<&HostSink>, without a copy for the run, and builds the per-round closure for Chat rounds with the one Arc::clone a 'static future needs, and changes nothing else; exports; ScriptedBroker learns to emit pieces; seven new tests and the rewritten facade Streaming test; docs that state the callback's rules outright (returns at once, never calls into the Harness, RunControl's three calls named); final page entries; bless the listing (3 new lines); verify.ps1 -Tag h2 (commit 1 + 7); the clone audit; the sweep's searches clean on the Harness tree; commit"
-    status: pending
+    status: completed
   - id: workshop-check
     content: "Workshop commit 0 and the check on today's Harness, edited while the Harness verifies and verified when that run has ended: commit the plan copy in runvil-workshop/plan/; then set the three rev values to the Harness head from prep, cargo fetch, verify-workshop.ps1 -Tag today (its two counts are Workshop's base); if all is green, git restore the tree and make no commit; if the 20 commits in between break Workshop, the pin, the fix and a test of the fix are one commit"
-    status: pending
+    status: completed
   - id: workshop-dry-run
     content: "Workshop dry run on the tree as the check left it, under a temporary [patch] on the local Harness: make the cutover edits (delete RunBroker, WorkshopBroker forwards on_piece, live_pieces in setup_for, tests, docs), clippy with warnings denied and nextest for workshop-agents and workshop-server, the sweep's searches clean on the edited tree, save the code edits with git diff --output and leave Cargo.toml and Cargo.lock out, git restore the tree"
-    status: pending
+    status: completed
   - id: record
     content: "Harness commit 3: add 'What the build found' and the todo statuses to the Harness copy of the plan, and commit it alone, with the two lines close #74 and close #75"
-    status: pending
+    status: completed
   - id: harness-pr
     content: "Run cargo doc for runvil with warnings denied and cargo deny check; push the Harness to the fork; open its pull request to cppalliance, with a body that closes #74 and names #75"
     status: pending
@@ -551,3 +551,64 @@ I read these from the code and could not run them. #75's green checks settled th
 - **`ChatRequest`,** one argument for `chat`. The next new argument after this one forces it.
 - **A stream adapter type.** The doc of `streaming` shows the channel form as text.
 - **A guard that catches a call into the Harness from the callback.** The rule is doc text, like "returns at once". A guard is about 15 lines: the Harness's closure marks the thread while the Host's callback runs, and the three `RunControl` calls panic when they find the mark, which ends that round as `Dropped`.
+
+# What the build found
+
+The plan held in all three repos. This record was written after the two Harness code commits, Workshop's check on today's Harness, and the Workshop dry run, and before anything was pushed. These points differ from the plan above, or add to it.
+
+## Before the first commit
+
+- **All three repos were where this plan said.** The Harness was at `22a0992f` with upstream at `6df50aba` and the fork at `ee89d088`. Workshop was at `f40a4fce` with upstream at `3c12833c`. The design repo was at `85bcf91`, the same as its remote. All three trees were clean, and the Harness and Workshop fast-forwarded to upstream.
+- **The counts held.** The Harness has 10 `impl InferenceBroker for` lines in 9 files, and Workshop has 2 in one file. Both repos pin the plugin contract at `74f9e08b`.
+- **The lines of the effect loop held.** The one call of `chat`, the call of `Driver::drive`, and the call of `perform` sat where the plan put them.
+- **The three scripts were rebuilt** in the scratch folder: `verify.ps1`, `verify-workshop.ps1`, and `check-message.ps1`. The Harness's base is 4,049 tests with 25 skipped, and all eight steps pass. The first run took about six minutes, and a run on a warm build takes about a minute and a half.
+- **The comment is on #74,** and the issue is assigned to you.
+
+## Harness commit 0, `f125b9ba`: the plan
+
+- **The copy is the approved text,** with every todo `pending`. The pre-commit hook runs `cargo fmt --all --check`.
+
+## Harness commit 1, `83da52a0`: the trait takes `on_piece`
+
+- **The count is 4,051,** the base plus the two new tests. The three round tests of the Gateway client moved onto the new call and did not change the count.
+- **The listing diff is the ten lines the plan named,** nine new and one changed. The Engine's listing did not change.
+- **Clippy accepted `chat` with seven inputs,** as the checks of #75 had shown.
+- **Two docs went beyond this plan's list.** The doc of `OfflineBroker` says that it streams nothing, and the doc of `InferenceBroker` says that each method but `supports_streaming` returns a boxed future.
+- **Both pages lost the owner's quote** with the sentence that held it. No file links the anchors of the two headings that changed.
+- **The clone audit found five `.to_owned()` calls and one `Arc::clone`.** The five build the owned text of an expected `Delta` in a test. The `Arc::clone(&kept)` is in the test for a callback that keeps one piece: the callback moves into the round, and the test reads what it kept through the second handle. A comment beside it says so.
+- **`rustfmt` broke the call of `chat` in the effect loop** onto three lines.
+
+## Harness commit 2, `6e212954`: `RunSetup::streaming`
+
+- **The count is 4,058,** commit 1 plus the seven new tests. The facade's `Streaming` test was rewritten and did not change the count.
+- **The listing diff is the three lines the plan named,** and the `auto` line of `RunSetup` did not change.
+- **The first build settled the open reads in the plan's favor.** The custom lints accepted the `emitting` builder. The structural checks and the custom lints accepted a callback that the loop lends as `Option<&HostSink>`, and `Driver` stayed at its 12 fields. The `pcall(models.loop)` around a panicking callback caught the dropped round, and its test asserts the `Dropped` answer and the report. The three runs of the record test recorded equal kinds and payloads with no field left out of the comparison.
+- **The loop's change is the argument and the closure.** `Driver::drive` and `perform` take `Option<&HostSink>`, the free function `drive` lends `setup.streaming.as_ref()`, and the file imports `ReplyOrigin` and `PieceSink`. Nothing else in the loop changed.
+- **Clippy refused two things in the facade tests.** It refused an `expect` in a helper that is not a test, so the helper takes the stub catalog from the test. It refused two unused run reports, so the new test asserts each run's result, `You said: Hello, desk.` and `You said: Goodbye, desk.`.
+- **One heading was reworded inside the commit.** The new heading in `models-and-conversations.md` said "shows live text", one of the old descriptions that the sweep searches for, so it says "receives the pieces as they form".
+- **The sweep's searches came back clean on the Harness tree.** Search 4 listed `RunSetup::new` in a doc example and in two page entries, which names the constructor and stays.
+- **Docs beyond this plan's list:** the `Debug` doc of `RunSetup`, and the module docs of `scripted.rs`, `harness-errors.rs`, `effect_loop-broker.rs`, and the tests of `setup.rs`.
+- **The clone audit.** `Arc::clone(host)` in `perform` and `self.pieces.clone()` in `ScriptedBroker` are on this plan's list, each with a comment. The test files add `Arc::clone(&kept)` twice, `Arc::clone(&recorder)`, `recorder.clone()` twice, and `Arc::clone(&broker)`, each with a comment that names the second owner. The accessor `Arc::clone(&self.handed)` is written as the existing `rounds()` is. The `.to_owned()` calls build the text of a `Delta`.
+
+## Workshop's check on today's Harness
+
+- **Workshop builds and passes on Harness `6df50aba` with no change of its own.** That head is 20 commits past Workshop's pin at `ee89d088`. All nine steps passed, and the two counts of Workshop's base are 706 and 354 tests, with 1 and 4 skipped.
+- **Nothing broke,** so there is no extra commit. `Cargo.lock` changed its 14 Harness source lines and nothing else, and `git restore .` left Workshop at `c9a99f94`, its plan copy.
+
+## The Workshop dry run
+
+- **Workshop as edited builds and passes on Harness `6e212954`** through the temporary `[patch]` section. Cargo locked 14 packages to the local checkout, so the patch was in use. Clippy with warnings denied passed for `workshop`, `workshop-server`, and `workshop-server-api`, and the tests of `workshop-agents` and `workshop-server` passed: 278 run, with 2 skipped.
+- **The counts stay at the base.** The test of `RunBroker` goes, and the test of `live_pieces` takes its place.
+- **The edits are one patch file of four files:** `agents.rs`, `agents/broker.rs`, `agents/broker-tests.rs`, and `agents/tests.rs`. It passes `git apply --check` on the clean tree, and `Cargo.toml` and `Cargo.lock` are not in it.
+- **The two socket tests that stream deltas pass as they are** over the real launch path: `a_full_turn_streams_deltas_and_indexed_events_sharing_the_reply_id` and `gate_streaming_delivers_text_and_reasoning_deltas_then_the_reply`.
+- **`with_host_state` needed no change.** It rebuilds the setup with struct update syntax, so `streaming` carries through.
+- **The sweep's searches came back clean on the edited tree,** and search 4 found nothing. The clone audit found `self.inner.broker.clone()` and `conversation.clone()` in `setup_for`, both named by one comment, and three `.to_owned()` calls that build the text of a `Delta`.
+
+## Still to come when this record was written
+
+- The push of the Harness to the fork, and its pull request, which closes #74 and names #75.
+- Workshop's code commit on the real pin, with Workshop's whole verification list, and Workshop's pull request.
+- The design repo's pages and its pull request.
+- The checks of GitHub Actions, the three merges in the order of the pins, and the sweep.
+
+Each of those is reported in its pull request and in the chat, because a record of them would be one more commit after the merge.
