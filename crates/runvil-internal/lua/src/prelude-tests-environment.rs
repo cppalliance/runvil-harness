@@ -132,6 +132,29 @@ end";
 }
 
 #[test]
+fn the_var_view_quotes_the_start_of_a_long_key_in_its_path() {
+    let long = "k".repeat(100);
+    let vm = section_vm_with_var(&json!({ long.as_str(): { "x": {} } }));
+    let probe = "\
+function probe_long()
+  local ok, err = pcall(function() var[string.rep('k', 100)].x.y = 1 end)
+  return tostring(err)
+end";
+    install_preludes(vm.lua(), &[prelude("probe", probe)]).expect("the prelude installs");
+    let message = vm.eval::<String>("return probe_long()");
+    assert_eq!(
+        refusal_line(&message),
+        Some(
+            format!(
+                "var.{}... (100 bytes).x is read-only inside a Pack prelude; cannot set 'y'",
+                "k".repeat(64)
+            )
+            .as_str()
+        )
+    );
+}
+
+#[test]
 fn a_prelude_function_called_from_a_block_yields_its_tool_call() {
     let vm = section_vm();
     install_preludes(

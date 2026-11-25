@@ -206,6 +206,41 @@ fn one_invalid_table_built_in_two_key_orders_in_two_fresh_vms_raises_one_message
 }
 
 #[test]
+fn a_path_quotes_the_start_of_a_long_key_and_its_length() {
+    let vm = json_vm();
+    // A key of 64 bytes is quoted whole.
+    assert_eq!(
+        caught(
+            &vm,
+            "json.encode({ [string.rep('k', 64)] = function() end })"
+        ),
+        lua_error(&format!(
+            "json.encode: value.{} must be JSON data, got function",
+            "k".repeat(64)
+        ))
+    );
+    // A character of two bytes and one of four, each with its last byte
+    // past the 64 that a path quotes.
+    for (start, character) in [(63, "\u{e9}"), (61, "\u{1f600}")] {
+        let bytes = start + character.len() + 100;
+        assert_eq!(
+            caught(
+                &vm,
+                &format!(
+                    "json.encode({{ [string.rep('k', {start}) .. '{character}' .. \
+                     string.rep('k', 100)] = function() end }})"
+                )
+            ),
+            lua_error(&format!(
+                "json.encode: value.{}... ({bytes} bytes) must be JSON data, got function",
+                "k".repeat(start)
+            )),
+            "{character:?} after {start} bytes"
+        );
+    }
+}
+
+#[test]
 fn a_table_that_contains_itself_raises_but_a_shared_table_encodes() {
     let vm = json_vm();
     assert_eq!(

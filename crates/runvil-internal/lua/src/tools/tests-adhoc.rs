@@ -8,6 +8,7 @@ use serde_json::{Value as Json, json};
 
 use super::super::objects::TOOL_OBJECTS_REGISTRY;
 use super::parameters::search_set;
+use crate::error::root_text;
 use crate::test_vm::{TestVm, lua_over, offer_set, raised, scoped};
 
 /// The `grab` definition of the listing, held in a local.
@@ -148,6 +149,54 @@ fn each_refusal_raises_on_the_defining_line() {
         .map(|binding| binding.id().to_string())
         .collect();
     assert_eq!(ids, ["adhoc/grab"], "no refused definition registers");
+}
+
+#[test]
+fn a_refusal_quotes_the_start_of_a_long_text_and_its_length() {
+    let vm = lua_over(offer_set());
+    let start = "a".repeat(64);
+    for (call, expected) in [
+        (
+            "tools.adhoc({ name = string.rep('a', 1000), description = 'y' }, function() end)",
+            format!(
+                "tools.adhoc: invalid name \"{start}... (1000 bytes)\": expected \
+                 [A-Za-z][A-Za-z0-9_-]{{0,63}}"
+            ),
+        ),
+        // A cut steps back over the three bytes at most that continue a
+        // character: text with four such bytes there is not UTF-8 and is
+        // cut at 64 bytes, and its length is that of the author's bytes.
+        (
+            "tools.adhoc({ name = string.rep('a', 60) .. string.rep('\\x80', 40), \
+               description = 'y' }, function() end)",
+            format!(
+                "tools.adhoc: invalid name \"{}{}... (100 bytes)\": expected \
+                 [A-Za-z][A-Za-z0-9_-]{{0,63}}",
+                "a".repeat(60),
+                "\u{fffd}".repeat(4)
+            ),
+        ),
+        (
+            "tools.adhoc({ name = 'x', description = 'y', [string.rep('a', 1000)] = 1 }, \
+               function() end)",
+            format!(
+                "tools.adhoc: unknown key \"{start}... (1000 bytes)\"; accepted keys are name, \
+                 description, parameters"
+            ),
+        ),
+        (
+            "tools.adhoc({ name = 'x', description = 'y', \
+               parameters = { [string.rep('a', 1000)] = string.rep('a', 1048576) } }, \
+               function() end)",
+            format!(
+                "tools.adhoc: param \"{start}... (1000 bytes)\" has unsupported type \
+                 \"{start}... (1048576 bytes)\": expected \"string\", \"integer\", \"number\", or \
+                 \"boolean\""
+            ),
+        ),
+    ] {
+        assert_eq!(root_text(&vm.eval_err(call)), expected, "{call}");
+    }
 }
 
 #[test]

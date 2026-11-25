@@ -10,7 +10,7 @@ use serde_json::{Value as Json, json};
 
 use super::userdata::LuaToolHandle;
 use crate::order::FirstRefusal;
-use crate::proxy::view_data_within;
+use crate::proxy::{quoted, view_data_within};
 use crate::walk_budget::{TooLarge, WalkBudget};
 
 /// Resolves the tool a script's `tools.call` names to its id.
@@ -91,7 +91,9 @@ fn object_id(value: &Value) -> Option<String> {
 /// own walk or in none.
 ///
 /// The first refusal drops the schema built so far, and nothing is copied
-/// after it: a table to refuse costs the reads and no more.
+/// after it: a table to refuse costs the reads and no more. A refusal
+/// quotes a name and a type as [`quoted`] gives them, so its size does not
+/// follow theirs.
 ///
 /// `properties` is a `serde_json::Map`, a `BTreeMap` while `serde_json`'s
 /// `preserve_order` is off, so only `required` needs the sort below.
@@ -181,13 +183,14 @@ fn adhoc_param(
     budget
         .charge_bytes(name.as_bytes().len())
         .map_err(too_large)?;
-    let shown = match name.to_str() {
-        Ok(shown) => shown,
-        Err(error) => return Ok(Err(error)),
-    };
+    if let Err(error) = name.to_str() {
+        return Ok(Err(error));
+    }
+    let shown = || quoted(&name.as_bytes());
     let Some((ty, description)) = type_and_description(budget, spec)? else {
         return Ok(Err(mlua::Error::external(format!(
-            "tools.adhoc: param {shown:?} must be a type string or a {{type, description}} array"
+            "tools.adhoc: param {:?} must be a type string or a {{type, description}} array",
+            shown()
         ))));
     };
     budget
@@ -197,10 +200,11 @@ fn adhoc_param(
         .into_iter()
         .find(|known| ty.as_bytes() == known.as_bytes());
     let Some(ty) = known else {
-        let ty = ty.to_string_lossy();
         return Ok(Err(mlua::Error::external(format!(
-            "tools.adhoc: param {shown:?} has unsupported type {ty:?}: \
-             expected \"string\", \"integer\", \"number\", or \"boolean\""
+            "tools.adhoc: param {:?} has unsupported type {:?}: \
+             expected \"string\", \"integer\", \"number\", or \"boolean\"",
+            shown(),
+            quoted(&ty.as_bytes())
         ))));
     };
     if let Some(description) = &description {

@@ -11,6 +11,7 @@
 
 use std::collections::HashSet;
 use std::ffi::c_void;
+use std::fmt;
 
 use mlua::{
     AnyUserData, Function, Lua, LuaSerdeExt, LuaString, MaybeSend, MetaMethod, MultiValue, Table,
@@ -29,13 +30,56 @@ pub(crate) fn key_text(key: &Value) -> String {
     }
 }
 
-/// Renders the path of the field `key` under `path`: `path.name` for a
-/// string key, `path[key]` for any other, its key rendered by [`key_text`].
-pub(crate) fn key_path(path: &str, key: &Value) -> String {
+/// Renders the step from a table to its field `key`, as a path shows it:
+/// the [`name_step`] of a string key, and the [`index_step`] of any
+/// other, its key rendered by [`key_text`].
+pub(crate) fn key_step(key: &Value) -> String {
     match key {
-        Value::String(name) => format!("{path}.{}", name.to_string_lossy()),
-        other => format!("{path}[{}]", key_text(other)),
+        Value::String(name) => name_step(&name.as_bytes()),
+        other => index_step(key_text(other)),
     }
+}
+
+/// Renders the step to the field `name`: `.name`, the name as [`quoted`]
+/// gives it, so the step of a name of any size is small.
+pub(crate) fn name_step(name: &[u8]) -> String {
+    format!(".{}", quoted(name))
+}
+
+/// Renders the step to the item or the key that `shown` names: `[shown]`.
+pub(crate) fn index_step(shown: impl fmt::Display) -> String {
+    format!("[{shown}]")
+}
+
+/// Renders the path of the field `key` under `path`: `path` and then the
+/// [`key_step`] to the field.
+pub(crate) fn key_path(path: &str, key: &Value) -> String {
+    format!("{path}{}", key_step(key))
+}
+
+/// `text` as a refusal quotes it: all of it up to 64 bytes, and of a
+/// longer one its start, to the end of a character, and its length. Only
+/// the start is copied, so the refusal of a text of any size is small.
+pub(crate) fn quoted(text: &[u8]) -> String {
+    /// The most bytes of one text of the author's that a refusal quotes.
+    const QUOTED_BYTES: usize = 64;
+    /// The most bytes that continue one character of UTF-8.
+    const CONTINUATIONS: usize = 3;
+    if text.len() <= QUOTED_BYTES {
+        return String::from_utf8_lossy(text).into_owned();
+    }
+    // A byte of the form 10xxxxxx continues a character, so a character
+    // starts at the last byte that has another form. Text with no such
+    // byte in reach is not UTF-8 there, and is cut where it stands.
+    let end = (QUOTED_BYTES - CONTINUATIONS..=QUOTED_BYTES)
+        .rev()
+        .find(|&at| text[at] & 0xC0 != 0x80)
+        .unwrap_or(QUOTED_BYTES);
+    format!(
+        "{}... ({} bytes)",
+        String::from_utf8_lossy(&text[..end]),
+        text.len()
+    )
 }
 
 /// Builds an empty proxy whose `__index` is `index`, whose `__newindex`
