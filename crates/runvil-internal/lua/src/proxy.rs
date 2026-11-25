@@ -4,7 +4,8 @@
 //! formatter their refusals and field paths share, and [`unseal`], which
 //! reads a table through such views without calling into Lua.
 //! [`view_len`] and [`view_data`] make a view measure and walk as the
-//! table it stands for.
+//! table it stands for, and [`field_weakness`] tells whether the read of
+//! one field of a table is the same in every run.
 //! `tools.stats` and `tools.packs` build on the walkable [`read_only_walk`].
 //! Tool and Pack objects share [`registry_object`] and [`add_frozen_guard`].
 
@@ -18,7 +19,7 @@ use mlua::{
 
 use crate::meta_names::MetaNames;
 use crate::walk_budget::ReadCost;
-use crate::weak::{ModeBudget, weakness_of};
+use crate::weak::{ModeBudget, Spent, fallback_weakness, weakness_of};
 
 /// Renders a table key for a refusal: a string as its text, an integer as
 /// its digits, and any other key by its type name.
@@ -232,18 +233,33 @@ pub(crate) fn view_data(
     names: &MetaNames,
     table: &Table,
 ) -> mlua::Result<Result<Table, String>> {
+    let data = view_data_counted(lua, names, table, &mut ModeBudget::new(lua))?;
+    Ok(data.map(|(data, _)| data))
+}
+
+/// What a refusal says of `table`, after the words that name it, when the
+/// read of `table[key]` that Lua makes, metamethods included, is one the
+/// Engine must not make, or `None` when it can: the words of
+/// [`view_data`] for `table` and the views it is read through, and those
+/// of [`fallback_weakness`] for a table that the read looks into past the
+/// data, as far as Lua follows the read. One [`ModeBudget`] counts the
+/// scans of both and the tables past the data.
+///
+/// The caller makes the read next, with no code of the author between
+/// the two.
+///
+/// # Errors
+/// Returns the failure of reading a table, a metatable, or the registry.
+pub(crate) fn field_weakness(
+    lua: &Lua,
+    names: &MetaNames,
+    table: &Table,
+    key: &Value,
+) -> mlua::Result<Option<String>> {
     let mut budget = ModeBudget::new(lua);
-    let mut past_budget = None;
-    let read = view_data_within(lua, names, table, |cost| match cost {
-        ReadCost::View => Ok(()),
-        ReadCost::Mode(bytes) => budget.charge(bytes).map_err(|refusal| {
-            past_budget = Some(refusal.clone());
-            mlua::Error::external(refusal)
-        }),
-    });
-    match past_budget {
-        Some(refusal) => Ok(Err(refusal)),
-        None => Ok(read?.map_err(str::to_owned)),
+    match view_data_counted(lua, names, table, &mut budget)? {
+        Ok((data, views)) => fallback_weakness(lua, names, &data, views, key, &mut budget),
+        Err(refusal) => Ok(Some(refusal)),
     }
 }
 
@@ -326,6 +342,34 @@ pub(crate) fn add_frozen_guard<T, M: UserDataMethods<T>>(methods: &mut M, label:
             )))
         },
     );
+}
+
+/// [`view_data`] with the bytes counted against the caller's `budget`,
+/// for a caller that scans more in the same Rust call, and with the
+/// number of views the read passed on the way to the data.
+///
+/// # Errors
+/// Returns the failure of reading a metatable.
+fn view_data_counted(
+    lua: &Lua,
+    names: &MetaNames,
+    table: &Table,
+    budget: &mut ModeBudget<'_>,
+) -> mlua::Result<Result<(Table, usize), String>> {
+    let mut views = 0_usize;
+    let read = budget.counting(|spend| {
+        view_data_within(lua, names, table, |cost| match cost {
+            ReadCost::View => {
+                views = views.saturating_add(1);
+                Ok(())
+            }
+            ReadCost::Mode(bytes) => spend(Spent::Mode(bytes)),
+        })
+    })?;
+    Ok(read.and_then(|data| match data {
+        Ok(data) => Ok((data, views)),
+        Err(weakness) => Err(weakness.to_owned()),
+    }))
 }
 
 #[cfg(test)]

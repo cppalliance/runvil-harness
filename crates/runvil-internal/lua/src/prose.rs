@@ -20,6 +20,7 @@
 //! `prose` between a [`swap`] and a [`restore`], which hands the caller's
 //! read back with its memo.
 
+use std::cell::RefCell;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
@@ -30,6 +31,7 @@ use crate::data::data_of;
 use crate::error::{self, Result, make_lua_runtime_error};
 use crate::sys::SYS_LIVE_POISONED;
 use crate::var::var_to_json;
+use crate::weak::ModeBudget;
 
 /// The refusal an assignment of the `prose` global raises.
 pub(crate) const ASSIGNMENT_REFUSAL: &str =
@@ -111,11 +113,22 @@ where
             .lock()
             .map_err(|_| mlua::Error::external(error::make_internal_error(SYS_LIVE_POISONED)))?
             .clone();
+        // One render reads all its globals in this one Rust call.
+        let budget = RefCell::new(ModeBudget::new(lua));
         let globals_lookup = |name: &str| -> Result<Option<Json>> {
             if name == "prose" {
                 return Err(make_lua_runtime_error(
                     "recursive {{ prose }}: prose cannot reference itself".to_owned(),
                 ));
+            }
+            // The read asks an `__index` of the author's for a global that
+            // is not set, so a weak table on the way of it is refused.
+            let weakness = crate::globals::read_weakness(lua, name, &mut budget.borrow_mut())?;
+            if let Some(weakness) = weakness {
+                return Err(make_lua_runtime_error(format!(
+                    "prose reads the unset global `{name}` through _G, which must not be \
+                     {weakness}"
+                )));
             }
             let value: Value = lua.globals().get(name).map_err(error::make_lua_error)?;
             match value {

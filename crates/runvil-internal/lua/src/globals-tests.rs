@@ -13,6 +13,8 @@ use serde_json::json;
 use super::{GLOBALS_CHUNK_NAME, GLOBALS_SOURCE, RESERVED_NAMES, Reserved, reserved_name};
 use crate::test_vm::{BuiltVm, TestVm};
 use crate::tests::{assert_chunk_name_resolves, refusal_line};
+use crate::vm::DEFAULT_LUA_LOG_EVENTS;
+use crate::weak::{WEAK_METATABLE, WEAK_TABLE};
 
 /// The refusal line of an assignment to the `args` global.
 const ARGS_REFUSAL: &str = "args is read-only: assign to `var` or a section global instead";
@@ -288,6 +290,106 @@ fn the_other_fields_of_the_author_metatable_apply_to_g_from_each_setmetatable() 
     assert!(plain, "clearing drops the copied __tostring");
     assert!(!callable, "clearing drops the copied __call");
     assert_guards_hold(&vm, "forwarded metamethods");
+}
+
+#[test]
+fn prose_refuses_a_global_whose_read_looks_into_a_weak_table() {
+    // The guard reads a global that `_G` lacks from the `__index` of the
+    // author's metatable. A global that `_G` holds, and one of the guard's
+    // own, are read from no table of the author's.
+    let args = json!({ "query": "papers" });
+    let vm = TestVm::new().args(&args).shims().build();
+    let reads = |setup: &str| {
+        vm.install_lazy_prose(|state| {
+            let reads = ["given", "set", "args"].map(|name| match (state.globals)(name) {
+                Ok(Some(value)) => format!("{name}={value}"),
+                Ok(None) => format!("{name} is not set"),
+                Err(error) => error.message,
+            });
+            Ok(reads.join("|"))
+        })
+        .expect("the prose guard installs");
+        vm.exec(setup);
+        vm.eval::<String>("return prose")
+    };
+    let held = "set=2|args={\"query\":\"papers\"}";
+    assert_eq!(
+        reads("set = 2 setmetatable(_G, { __index = { given = 1 } })"),
+        format!("given=1|{held}")
+    );
+    assert_eq!(
+        reads("setmetatable(_G, { __index = setmetatable({ given = 1 }, { __mode = 'v' }) })"),
+        format!(
+            "prose reads the unset global `given` through _G, which must not be a table whose \
+             __index leads to {WEAK_TABLE}|{held}"
+        )
+    );
+    // The author's metatable is weak itself, so its `__index` is there or
+    // not as the collector leaves it.
+    assert_eq!(
+        reads(
+            "local meta = { __index = { given = 1 } } \
+             setmetatable(_G, meta) \
+             setmetatable(meta, { __mode = 'k' })"
+        ),
+        format!(
+            "prose reads the unset global `given` through _G, which must not be \
+             {WEAK_METATABLE}|{held}"
+        )
+    );
+    assert_eq!(
+        reads("setmetatable(_G, { __index = function(_, name) return name .. '!' end })"),
+        format!("given=\"given!\"|{held}")
+    );
+    // The guard reads `given` as a field of the author's `__index`, so
+    // Lua asks that table and 2000 values past it: the read looks into
+    // the last of 2001 tables.
+    assert_eq!(
+        reads(
+            "local last = setmetatable({ given = 1 }, { __mode = 'v' }) \
+             for _ = 1, 2000 do last = setmetatable({}, { __index = last }) end \
+             setmetatable(_G, { __index = last })"
+        ),
+        format!(
+            "prose reads the unset global `given` through _G, which must not be a table whose \
+             __index leads to {WEAK_TABLE}|{held}"
+        )
+    );
+}
+
+#[test]
+fn prose_refuses_globals_whose_reads_follow_more_tables_than_one_render_follows() {
+    // Each read of a global that `_G` lacks goes through the 1024 tables
+    // of the author's `__index`, the last of which holds `given`. A 4 MiB
+    // heap gives one render 524288 tables to follow: 512 reads are that
+    // many, and the next is past it.
+    let vm = TestVm::new()
+        .shims()
+        .limits(4 * 1024 * 1024, DEFAULT_LUA_LOG_EVENTS)
+        .build();
+    vm.install_lazy_prose(|state| {
+        let reads = (0..513)
+            .map(|_| match (state.globals)("given") {
+                Ok(Some(value)) => format!("given={value}"),
+                Ok(None) => "given is not set".to_owned(),
+                Err(error) => error.message,
+            })
+            .collect::<Vec<_>>();
+        let taken = reads.iter().take_while(|read| *read == "given=1").count();
+        Ok(format!("{taken} reads, then {}", reads[taken..].join("|")))
+    })
+    .expect("the prose guard installs");
+    vm.exec(
+        "local last = { given = 1 } \
+         for _ = 1, 1023 do last = setmetatable({}, { __index = last }) end \
+         setmetatable(_G, { __index = last })",
+    );
+    assert_eq!(
+        vm.eval::<String>("return prose"),
+        "512 reads, then prose reads the unset global `given` through _G, which must not be a \
+         table whose __index chain is followed through more than 524288 tables: one call \
+         follows at most 524288"
+    );
 }
 
 #[test]

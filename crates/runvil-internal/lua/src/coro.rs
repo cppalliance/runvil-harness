@@ -32,7 +32,7 @@ use crate::hardening::CancelHook;
 use crate::meta_names::MetaNames;
 use crate::models::{LuaModelHandle, selection_poisoned};
 use crate::program::LuaProgram;
-use crate::proxy::view_data;
+use crate::proxy::{field_weakness, view_data};
 use crate::var::var_snapshot_table;
 
 /// The shim chunk's name.
@@ -346,7 +346,9 @@ fn recording_yield(lua: &Lua, raw_yield: Function) -> Result<Function> {
 ///
 /// `weakness(table)` gives the words a refusal says of a table that a read
 /// must not look into, as [`view_data`] tells them, or nil: a weak table,
-/// a view that leads to one, or a table whose metatable is weak. The chunk
+/// a view that leads to one, or a table whose metatable is weak.
+/// `weakness(table, key)` asks that of every table that the read of
+/// `table[key]` looks into, as [`field_weakness`] tells them. The chunk
 /// reads a set of tasks, a Task handle, and a table of options in Lua, by
 /// index and by key, and asks this of each first.
 fn tasks_shim(
@@ -357,7 +359,12 @@ fn tasks_shim(
 ) -> Result<(Table, Function)> {
     let names = MetaNames::default();
     let weakness = lua
-        .create_function(move |lua, table: Table| Ok(view_data(lua, &names, &table)?.err()))
+        .create_function(move |lua, (table, key): (Table, Value)| {
+            if key.is_nil() {
+                return Ok(view_data(lua, &names, &table)?.err());
+            }
+            field_weakness(lua, &names, &table, &key)
+        })
         .map_err(map_lua)?;
     TASKS_PROGRAM
         .as_ref()
@@ -586,6 +593,7 @@ mod tests {
     use crate::models::LuaModelHandle;
     use crate::test_vm::TestVm;
     use crate::tests::{assert_chunk_name_resolves, assert_engine_chunk_name};
+    use crate::weak::{WEAK_METATABLE, WEAK_TABLE};
 
     #[test]
     fn the_shim_chunk_name_resolves_to_the_shim_file() {
@@ -721,6 +729,101 @@ mod tests {
     }
 
     #[test]
+    fn the_tasks_functions_refuse_a_read_that_looks_into_a_weak_table() {
+        // A table that lacks a field hands the read of it to the `__index`
+        // of its metatable, so the read looks into the table that gives.
+        // Options, a handle, and a set that are not weak, and that Lua
+        // reads from a weak table: the collector would decide what the
+        // call takes.
+        let vm = TestVm::new().shims().build();
+        let behind = |weakness: &str| format!("a table whose __index leads to {weakness}");
+        let weak = behind(WEAK_TABLE);
+        let chain_too_long = "'__index' chain too long; possible loop".to_owned();
+        for (call, refusal) in [
+            (
+                format!("tasks.spawn('a', {})", inherits("item = {}", "v")),
+                format!("tasks.spawn opts must not be {weak}"),
+            ),
+            (
+                format!("tasks.cancel({})", inherits("task = 't1'", "k")),
+                format!("tasks.cancel expects a Task handle or task id, got {weak}"),
+            ),
+            (
+                format!("tasks.join({})", inherits("'t1'", "v")),
+                format!("tasks.join expects a set of tasks, got {weak}"),
+            ),
+            // The weak table is two tables on, and it is the metatable of
+            // the table that would give the field.
+            (
+                "tasks.join({ 't1' }, setmetatable({}, { __index = setmetatable({}, { \
+                 __index = setmetatable({ timeout = 1 }, setmetatable({}, { __mode = 'k' })) \
+                 }) }))"
+                    .to_owned(),
+                format!("tasks.join opts must not be {}", behind(WEAK_METATABLE)),
+            ),
+            (
+                through_a_string(
+                    "strings.__index = setmetatable({}, { __mode = 'v' })",
+                    "strings.__index = kept",
+                ),
+                format!("tasks.spawn opts must not be {weak}"),
+            ),
+            (
+                through_a_string(
+                    "setmetatable(strings, { __mode = 'v' })",
+                    "setmetatable(strings, nil)",
+                ),
+                "tasks.spawn opts must not be a table whose __index leads to a string, whose \
+                 metatable is a weak table: the fields the collector leaves in that metatable \
+                 are not the same in two runs"
+                    .to_owned(),
+            ),
+            // A table that holds the field ends the read, so the weak
+            // table past it is not looked into.
+            (
+                "tasks.cancel(setmetatable({}, { __index = setmetatable({ task = 5 }, { \
+                 __index = setmetatable({}, { __mode = 'v' }) }) }))"
+                    .to_owned(),
+                "tasks.cancel expects a Task handle or task id, got integer".to_owned(),
+            ),
+            // The read is followed as far as Lua follows it: to a weak
+            // table 2000 values on, and not to one that Lua refuses the
+            // read before. A view on the way is one of those values.
+            (far(0, 2000), format!("tasks.spawn opts must not be {weak}")),
+            (far(0, 2001), chain_too_long.clone()),
+            (far(3, 1997), format!("tasks.spawn opts must not be {weak}")),
+            (far(3, 1998), chain_too_long.clone()),
+            (
+                "(function() local handle = {} \
+                 return tasks.cancel(setmetatable(handle, { __index = handle })) end)()"
+                    .to_owned(),
+                chain_too_long,
+            ),
+            // The scans of the tables that a read looks into count as
+            // those of the views do: 65 tables that share one `__mode` of
+            // 1 MiB, which makes none of them weak, are one more scan
+            // than the 64 MiB of the heap allow.
+            (
+                "(function() local mode = string.rep('x', 2^20) \
+                 local opts = {} \
+                 for _ = 1, 65 do \
+                 opts = setmetatable({}, { __index = opts, __mode = mode }) \
+                 end \
+                 return tasks.spawn('a', opts) end)()"
+                    .to_owned(),
+                "tasks.spawn opts must not be a table with 68157440 bytes of __mode to scan: \
+                 one call scans at most 67108864 bytes"
+                    .to_owned(),
+            ),
+        ] {
+            let message = vm.eval::<String>(&format!(
+                "local _, failure = pcall(function() return {call} end) return tostring(failure)"
+            ));
+            assert_eq!(message, refusal, "{call}");
+        }
+    }
+
+    #[test]
     fn the_tasks_functions_call_no_global_that_a_block_replaced() {
         // Each call fails before its first yield, and some name the type of
         // a value through a helper of the chunk that holds `pcall`. A
@@ -827,5 +930,43 @@ mod tests {
             "the refusal names the Lua type: {error}"
         );
         assert_eq!(label(), None, "a refused write leaves the selection alone");
+    }
+
+    /// A Lua table with no field of its own, whose `__index` is a weak
+    /// table of the mode `mode` that holds `fields`.
+    fn inherits(fields: &str, mode: &str) -> String {
+        format!(
+            "setmetatable({{}}, {{ __index = \
+             setmetatable({{ {fields} }}, {{ __mode = '{mode}' }}) }})"
+        )
+    }
+
+    /// A `tasks.spawn` with options whose `__index` is a string, which
+    /// hands the read of a field to the `__index` of the metatable of
+    /// strings. `change` makes that read look into a weak table, and
+    /// `undo` puts the metatable back before the failure is raised again.
+    fn through_a_string(change: &str, undo: &str) -> String {
+        format!(
+            "(function() local strings = getmetatable('') \
+             local kept = strings.__index \
+             {change} \
+             local _, failure = \
+             pcall(tasks.spawn, 'a', setmetatable({{}}, {{ __index = 'text' }})) \
+             {undo} \
+             error(failure, 0) end)()"
+        )
+    }
+
+    /// A `tasks.spawn` with options that are `views` views of a table
+    /// whose field comes from a weak table `hops` tables on.
+    fn far(views: usize, hops: usize) -> String {
+        format!(
+            "(function() local opts = setmetatable({{ item = 1 }}, {{ __mode = 'v' }}) \
+             for _ = 1, {hops} do opts = setmetatable({{}}, {{ __index = opts }}) end \
+             for _ = 1, {views} do \
+             opts = setmetatable({{}}, {{ __index = opts, __metatable = false }}) \
+             end \
+             return tasks.spawn('a', opts) end)()"
+        )
     }
 }

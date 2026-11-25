@@ -39,7 +39,9 @@ use std::sync::LazyLock;
 use mlua::{AnyUserData, Function, Lua, Table, Value};
 
 use crate::error::{self, Error, Result};
+use crate::meta_names::MetaNames;
 use crate::program::LuaProgram;
+use crate::weak::{ModeBudget, WEAK_METATABLE, index_weakness, is_weak};
 
 /// The guard chunk's name.
 const GLOBALS_CHUNK_NAME: &str = "@crates/runvil-internal/lua/src/__impl_globals.lua";
@@ -172,6 +174,65 @@ pub(crate) fn messages(lua: &Lua) -> Result<AnyUserData> {
         )),
     }
 }
+
+/// What a refusal says of `_G`, after the words that name it, when a
+/// read of the global `name` looks into a table that it must not look
+/// into, or `None` when it meets none. Past `budget`, the words are
+/// those `budget` gives.
+///
+/// The guard answers a global that `_G` lacks from the `__index` of the
+/// metatable the author gave `_G`: a function is called, and any other
+/// value is read by `name`, as Lua reads a field. So the read is refused
+/// for a weak table on that way, as [`index_weakness`] tells one, and
+/// for an author's metatable that is a weak table itself, whose
+/// `__index` is there or not as the collector leaves it. `args`,
+/// `prose`, and `messages` are the guard's own, and a global that `_G`
+/// holds is read from `_G`, which is never weak.
+///
+/// The caller makes the read next, with no code of the author between
+/// the two. One that reads many globals in one Rust call counts them
+/// against one `budget`: every such read goes the same way.
+///
+/// # Errors
+/// Returns a `LuaRuntime` failure if the guard's slot table is missing,
+/// or a table or a metatable cannot be read.
+pub(crate) fn read_weakness(
+    lua: &Lua,
+    name: &str,
+    budget: &mut ModeBudget<'_>,
+) -> Result<Option<String>> {
+    if GUARDED.contains(&name) {
+        return Ok(None);
+    }
+    let key = lua
+        .create_string(name)
+        .map(Value::String)
+        .map_err(error::make_lua_error)?;
+    let held = lua
+        .globals()
+        .raw_get::<Value>(&key)
+        .map_err(error::make_lua_error)?;
+    if !held.is_nil() {
+        return Ok(None);
+    }
+    let Value::Table(author) = state(lua)?
+        .raw_get::<Value>("author")
+        .map_err(error::make_lua_error)?
+    else {
+        return Ok(None);
+    };
+    if is_weak(&author).map_err(error::make_lua_error)? {
+        return Ok(Some(WEAK_METATABLE.to_owned()));
+    }
+    let index = author
+        .raw_get::<Value>("__index")
+        .map_err(error::make_lua_error)?;
+    let names = MetaNames::default();
+    index_weakness(lua, &names, &index, &key, budget).map_err(error::make_lua_error)
+}
+
+/// The globals the guard answers itself, from its slot table.
+const GUARDED: [&str; 3] = ["args", "prose", "messages"];
 
 /// The guard's slot table.
 fn state(lua: &Lua) -> Result<Table> {

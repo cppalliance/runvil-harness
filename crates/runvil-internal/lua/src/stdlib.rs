@@ -75,13 +75,16 @@ use crate::program::LuaProgram;
 ///
 /// The `mistyped` function made here is the one of the VM: [`mistyped`]
 /// gives it to a chunk installed later, so nothing makes an [`Events`]
-/// under the run's limit.
+/// under the run's limit. The metatable of strings is kept for
+/// [`strings_metatable`] for the same reason.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure if the chunk cannot load or run.
 pub(crate) fn install(lua: &Lua) -> Result<()> {
     let events = Events::new(lua).map_err(error::make_lua_error)?;
     let strings = events.strings.clone();
+    lua.set_named_registry_value(STRINGS_REGISTRY, strings.clone())
+        .map_err(error::make_lua_error)?;
     let read = events.clone();
     let unaddressed = lua
         .create_function(move |lua, value: Value| {
@@ -156,6 +159,16 @@ pub(crate) fn mistyped(lua: &Lua) -> mlua::Result<Function> {
     lua.named_registry_value(MISTYPED_REGISTRY)
 }
 
+/// The one metatable all strings share, as [`install`] found it, or `None`
+/// on a VM that [`install`] did not run on or whose strings have none.
+/// [`Events`] tells why nothing takes it from Lua a second time.
+///
+/// # Errors
+/// Returns the `mlua` error of a read of the registry that fails.
+pub(crate) fn strings_metatable(lua: &Lua) -> mlua::Result<Option<Table>> {
+    lua.named_registry_value(STRINGS_REGISTRY)
+}
+
 /// The Lua function `argument_error(level, function, argument, reason)`,
 /// which gives the text stock Lua refuses an argument with
 /// (`luaL_argerror` in `lauxlib.c`), for a function the Engine writes in
@@ -213,6 +226,9 @@ pub(crate) fn argument_error(lua: &Lua) -> mlua::Result<Function> {
 
 /// The registry key of the `mistyped` function that [`install`] makes.
 const MISTYPED_REGISTRY: &str = "runvil.stdlib.mistyped";
+
+/// The registry key of the metatable of strings that [`install`] keeps.
+const STRINGS_REGISTRY: &str = "runvil.stdlib.strings";
 
 /// How many `__call` metamethods Lua follows from a value that is no
 /// function before it refuses the call, `MAX_CCMT` in Lua's `lstate.h`.

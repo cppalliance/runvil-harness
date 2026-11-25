@@ -216,24 +216,34 @@ fn a_weak_array_is_refused_before_its_first_read_and_after_each_metamethod() {
     // and either can make it weak: no entry is read after the `__len` of
     // the second array, and one is after the `__index` of the third. A
     // weak metatable has its `__len` or not as the collector leaves it.
+    // An `__index` that is a table gives the entries the array lacks, so
+    // the read of the last array looks into a weak table.
     let vm = TestVm::new().tools(offer_set()).build();
     for verb in ["tools.offer", "tools.offer_dynamic"] {
         for (array, weakness) in [
-            ("setmetatable({ 'web' }, { __mode = 'v' })", WEAK_TABLE),
+            (
+                "setmetatable({ 'web' }, { __mode = 'v' })",
+                WEAK_TABLE.to_owned(),
+            ),
             (
                 "setmetatable({}, { __len = function(t) \
                    getmetatable(t).__mode = 'v' t.p = {} return 0 end })",
-                WEAK_TABLE,
+                WEAK_TABLE.to_owned(),
             ),
             (
                 "setmetatable({}, { __len = function() return 1 end, __index = function(t) \
                    getmetatable(t).__mode = 'k' return 'web' end })",
-                WEAK_TABLE,
+                WEAK_TABLE.to_owned(),
             ),
             (
                 "setmetatable({ 'web' }, setmetatable({ __len = function() return 1 end }, \
                    { __mode = 'v' }))",
-                WEAK_METATABLE,
+                WEAK_METATABLE.to_owned(),
+            ),
+            (
+                "setmetatable({}, { __len = function() return 1 end, \
+                   __index = setmetatable({ 'web' }, { __mode = 'v' }) })",
+                format!("a table whose __index leads to {WEAK_TABLE}"),
             ),
         ] {
             assert_eq!(
@@ -351,6 +361,40 @@ fn an_array_with_more_mode_than_one_call_scans_is_refused() {
             vm.exec(&format!("{verb}({taken})"));
             assert_eq!(offers(&vm).last(), Some(&format!("{mode}:web")), "{taken}");
         }
+    }
+}
+
+#[test]
+fn an_array_whose_reads_follow_more_tables_than_one_call_follows_is_refused() {
+    // The read of each entry that the array lacks goes through the 1024
+    // tables behind it, the last of which holds the entries. A 4 MiB heap
+    // gives one call 524288 tables to follow: 512 entries are that many,
+    // and 513 are past it.
+    let vm = TestVm::new()
+        .tools(offer_set())
+        .limits(4 * 1024 * 1024, DEFAULT_LUA_LOG_EVENTS)
+        .build();
+    vm.exec(
+        "local last = {} \
+         for index = 1, 513 do last[index] = 'web' end \
+         for _ = 1, 1023 do last = setmetatable({}, { __index = last }) end \
+         function array(entries) \
+           return setmetatable({}, { __index = last, __len = function() return entries end }) \
+         end",
+    );
+    for (verb, mode) in [
+        ("tools.offer", "static"),
+        ("tools.offer_dynamic", "dynamic"),
+    ] {
+        assert_eq!(
+            root_text(&vm.eval_err(&format!("{verb}(array(513))"))),
+            format!(
+                "{verb} takes an array, got a table whose __index chain is followed through \
+                 more than 524288 tables: one call follows at most 524288"
+            )
+        );
+        vm.exec(&format!("{verb}(array(512))"));
+        assert_eq!(offers(&vm).last(), Some(&format!("{mode}:web")));
     }
 }
 

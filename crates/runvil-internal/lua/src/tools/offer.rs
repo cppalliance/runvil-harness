@@ -27,7 +27,7 @@ use crate::packs::{LuaPackHandle, is_adhoc, pack_object};
 use crate::proxy::key_text;
 use crate::scope::{OFFERS_POISONED, OfferMode, OfferTarget, Offers};
 use crate::walk_budget::HELD_KEY_LIMIT;
-use crate::weak::{ModeBudget, weakness_of};
+use crate::weak::{ModeBudget, Spent, fallback_weakness, weakness_of};
 
 /// The refusal of an offer verb once the section's sets are frozen,
 /// after the verb's name.
@@ -230,7 +230,13 @@ impl Offering {
 /// `__len` and an `__index` are code of the author, and either can make
 /// the table weak while it runs, so [`refuse_weak`] makes the check
 /// before the first read and again after each call of one: every read
-/// here is of a table that is not weak.
+/// here is of a table that is not weak. An entry that the table lacks is
+/// read through its `__index`, which can be a table and lead to more of
+/// them, so that read is refused for a weak table on its way, as
+/// [`fallback_weakness`] tells one. The read of each such entry follows
+/// that way anew, since the code of the author that ran for the entry
+/// before can have changed it, so the tables followed are counted
+/// against one budget for the array, which is refused past it.
 fn array(lua: &Lua, verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
     let names = &MetaNames::default();
     let budget = &mut ModeBudget::new(lua);
@@ -253,11 +259,15 @@ fn array(lua: &Lua, verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
         )));
     }
     let mut entries = Vec::with_capacity(count);
-    for index in 1..=count {
-        let mut entry = table.raw_get::<Value>(index)?;
+    for (index, key) in (1..=count).zip(1_i64..) {
+        let mut entry = table.raw_get::<Value>(key)?;
         if entry.is_nil() {
             // Only an `__index` gives an entry that the table lacks.
-            entry = table.get(index)?;
+            let weakness = fallback_weakness(lua, names, table, 0, &Value::Integer(key), budget)?;
+            if let Some(reason) = weakness {
+                return Err(make_not_an_array_error(verb, &reason));
+            }
+            entry = table.get(key)?;
             refuse_weak(lua, names, budget, verb, table)?;
         }
         match entry {
@@ -310,12 +320,20 @@ fn refuse_weak(
     let Some(metatable) = table.metatable() else {
         return Ok(());
     };
-    let refuse =
-        |reason: &str| mlua::Error::external(format!("{verb} takes an array, got {reason}"));
     let weakness = weakness_of(lua, names, &metatable, |bytes| {
-        budget.charge(bytes).map_err(|reason| refuse(&reason))
+        budget
+            .spend(Spent::Mode(bytes))
+            .map_err(|reason| make_not_an_array_error(verb, &reason))
     })?;
-    weakness.map_or(Ok(()), |weakness| Err(refuse(weakness)))
+    weakness.map_or(Ok(()), |weakness| {
+        Err(make_not_an_array_error(verb, weakness))
+    })
+}
+
+/// The refusal, for the offer verb `verb`, of a table that is no array
+/// for the reason `reason`, which says what the table is.
+fn make_not_an_array_error(verb: &str, reason: &str) -> mlua::Error {
+    mlua::Error::external(format!("{verb} takes an array, got {reason}"))
 }
 
 /// The refusal of `entry`, at `index` of an array or alone, as a value
