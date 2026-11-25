@@ -7,28 +7,28 @@ todos:
     status: completed
   - id: shipped-prompts
     content: "Add the three helpers and the five tests to crates/runvil-engine/tests/suite/shipped.rs, and read the research prompt through the new helper"
-    status: pending
+    status: completed
   - id: round-hand-off
     content: "Make the recording broker in crates/harness-internal/runner/tests/it/effect_loop-broker.rs keep each round's options and tool names, and add the test"
-    status: pending
+    status: completed
   - id: live
     content: "Add crates/harness-gateway-client/tests/live.rs with the two ignored tests, which share one run of hello.md"
-    status: pending
+    status: completed
   - id: breaks
     content: "Apply each of the eight breaks, confirm the test named for it now fails, and revert it"
-    status: pending
+    status: completed
   - id: runs
     content: "Run the two live tests against real Gateways, in the cases the Testing Plan lists"
-    status: pending
+    status: completed
   - id: verify
     content: "Run every verification command and vibelight"
-    status: pending
+    status: completed
   - id: automate
     content: "Add tools/live-tests.mjs and the live job of ci.yml, which run the first live test on every pull request"
-    status: pending
+    status: completed
   - id: pr
     content: "Push the branch qa-plan-tests to the fork and open one PR against cppalliance/runvil-harness"
-    status: pending
+    status: in_progress
 ---
 
 # Check the shipped prompts, what a round hands the broker, and a run through a real Gateway
@@ -215,6 +215,27 @@ The six tests of a normal run are checked by their breaks: each break must fail 
   - A model round's record names the role it ran under as `alias` (`crates/runvil-internal/runtime/src/execute/run/effect.rs`). The tests of the shipped prompts read the role from there.
   - The Engine's side of the hand-off is checked by `models_use_forwards_binding_completion_options_to_the_gateway`, and the client's side by `complete_sends_completion_options_and_stream_flags_on_the_wire`. When the test of the hand-off was written, dropping a round's messages failed at least eleven tests, so the messages need no new check.
   - `cargo nextest run -p harness-gateway-client --test live` with no other test selected ends with "no tests to run", since every test of that file is ignored. A run of the crate or the workspace reports them as skipped.
+  - Every result below that names no other commit was measured on `upstream/master` at commit `5d9c7bf86`, onto which the branch was rebased on 2026-11-25. Without this plan's tests the workspace runs 4,061 tests there and skips 22. With them it runs 4,067 and skips 24.
+  - Result of the breaks without this plan's tests: with breaks 1 to 5 applied together, and with each of breaks 6, 7, and 8 applied alone, all 4,061 tests passed.
+  - Result of breaks 1 to 5 with the tests: each fails exactly the test named for it, and the other six tests of `shipped.rs` pass. With all five applied, the workspace ran 4,067 tests, the five new ones failed, and the other 4,062 passed.
+  - Result of breaks 6 to 8 with the tests: under each, the workspace ran 4,067 tests, the new test failed, and the other 4,066 passed.
+  - Result of the two breaks of `current_model` without this plan's tests: with `catalog.models().first()` changed to `catalog.models().last()`, `a_run_with_no_selection_binds_the_first_listed_model` failed. With `catalog.get(&id)` changed to `catalog.get(&id).and(catalog.models().first())`, `a_prompt_reads_the_selected_model_through_a_roles_handle` failed. The other 4,060 tests passed under each.
+  - Result of the rebase of 2026-11-25. Upstream's five commits that stream a reply to the Host changed `effect_loop-broker.rs` and the broker trait: the trait has a new method, `supports_streaming`, and `chat` is handed a callback for the pieces of a reply. This plan's test and its helpers were put back into upstream's new version of the file, where the recording broker takes the callback and leaves it unused. `shipped.rs` and `live.rs` are as they were. Upstream's new tests of streaming pass under breaks 6 to 8, as the result above says.
+  - The live runs used a Gateway built from `cppalliance/runvil-gateway` at commit `52fd92d`. Until 2026-11-23 it served Qwen3 0.6B from a local file and, for the cloud runs, Claude Haiku 5.5 at Anthropic's OpenAI-compatible address, `https://api.anthropic.com/v1`. Since then it serves CheapSeek release 1.1.0 as a remote endpoint on its own machine, and the second live test has not been run again. The cloud entries of its settings are the ones the Gateway's settings page writes from its model sheet.
+  - Result of the runs of the first live test on CheapSeek, on 2026-11-23: with the Gateway running, it passed three times with no model named and three times with the model named `cheapseek`, in 0.05 to 0.07 seconds a run. With the Gateway stopped it failed with `Transport`, and the message named `http://127.0.0.1:8189/v1/models` and "Connection refused".
+  - Result of `tools/live-tests.mjs` on 2026-11-25, with the Gateway of release `gateway-v0.3.1` and CheapSeek 1.1.0: it passed three runs of three, and the test took 0.05 to 0.07 seconds in each. With `CHEAPSEEK_BASE_URL` empty, and with a Gateway path that does not exist, it stopped before it started a Gateway, with one line that names the fault. With a CheapSeek address where nothing listens, the test failed and the script exited 1. After every run the Gateway that the script had started was gone.
+  - Result of the runs of the first live test on the local model, before 2026-11-23: with the Gateway running, it passed with no model named, in 9.8 seconds, as the first request after the Gateway started, and three times with the model named, in 0.08 to 0.09 seconds. With the Gateway stopped it failed with `Transport`, and the message named `http://127.0.0.1:8189/v1/models` and "Connection refused".
+  - Result of the run of the second live test with no cloud model served: it failed before any run with "the Gateway's settings name no chat model whose endpoint is off its machine". The crate's own run reported 160 passed and 2 skipped.
+  - Result of the cloud runs, which were made on 2026-11-20, before the two later rebases. With a provider key that was not scoped to one workspace, the test found both models, the local run ended with text, and the cloud run failed: the provider refused the request with status 400, because of the key and not because of the request, "This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use." With a key scoped to one workspace, the test passed three times in a row, in 0.65 to 0.82 seconds a run. The Gateway sent straight to the provider, and its log shows no refused request.
+  - The cloud run was not made again after those rebases, because each cloud run is charged. Since the last one, the run both tests share changed in three ways: its timer is the crate's stock `TokioTimer`, handed to the run's setup, its Host is built through `Host::builder`, and its read of `hello.md` names the file when it fails. The first live test makes the same run and passed after all three.
+  - Found in the cloud runs: a Gateway cannot use a provider key that is not scoped to one workspace. An `[[endpoint]]` entry has an id, a protocol, an address, a key, and a dominion, and no setting for a request header. In a trial, a relay on the Gateway's machine added the header and passed each request on, and the provider then answered, so the header was the only thing missing.
+  - Found in the cloud runs: the Gateway's caller is told only "upstream returned 400". The provider's reason is in the Gateway's log and nowhere in the run's error.
+  - Found in the cloud runs: the Gateway lists the cloud model before the local one. The first live test selects no model unless one is named, so it runs on the cloud model whenever the Gateway serves one.
+  - Found by the `dylint` job of the draft pull request, the one check not run locally: `io_try_without_context` refused the read of `hello.md` in the shared run, whose `?` passed on an error that named no file. The read now names its file, in the words the other tests of this repository use.
+  - Result of the exit criteria. `cargo nextest run --locked --workspace --all-features` ran 4,067 tests, all passed, and 24 were skipped, the two live tests among them. `cargo clippy --workspace --all-targets --all-features`, `cargo fmt --all --check`, `cargo test -p build-xtask`, and the wording check passed. The docs builds, `xtask api --check`, and the custom lints were not run locally. `cargo-dylint` is not installed on the author's machine.
+  - CI runs the checks that were not run locally on the pull request, cppalliance/runvil-harness#60. Its eleven checks passed on the branch as it stood on 2026-11-21, on `upstream/master` at commit `665ff7d87`: `api-surface`, `ci-green`, `clippy`, `docs`, `dylint`, `fmt`, `msrv`, `supply-chain`, `test`, `test-windows`, and `wording`.
+  - `vibelight` outlines each crate's library code and not its `tests/` folder, so it was run on each changed test file alone, last on 2026-11-25. It reports no lead in `effect_loop-broker.rs` or `live.rs`, and two in `shipped.rs`: the bodies of the greet and hello tests are alike, because the two samples do the same thing, and the literal `web/search` repeats in three functions that were already there. Earlier runs flagged three things that were then changed: a role passed as a string in `shipped.rs`, now a `ModelRole`; near-identical bodies of its one-round tests, which now share one checking helper; and a type alias used once in `effect_loop-broker.rs`, now a small struct.
+  - This work was first written as five plans. They were merged into this plan on 2026-11-21, at the user's word: "let's merge those into 1".
 
 ### Deferred and Out of Scope
 
