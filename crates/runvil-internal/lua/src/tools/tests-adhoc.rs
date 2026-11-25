@@ -153,6 +153,14 @@ fn each_refusal_raises_on_the_defining_line() {
                parameters = setmetatable({ p = 'string' }, { __mode = 'k' }) }, function() end)",
             format!("parameters are {WEAK_TABLE}"),
         ),
+        // Of several unknown keys the refusal names the one that comes
+        // first in the shared order of keys, a boolean before a number. By
+        // the order of their texts it would name `1`.
+        (
+            "tools.adhoc({ name = 'x', description = 'y', zz = 1, [1] = 1, [true] = 1 }, \
+               function() end)",
+            "unknown key \"boolean\"; accepted keys are name, description, parameters".to_owned(),
+        ),
     ] {
         let refusal = root_text(&vm.eval_err(call));
         assert_eq!(refusal, format!("tools.adhoc: {expected}"), "{call}");

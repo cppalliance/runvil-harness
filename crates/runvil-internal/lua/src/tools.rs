@@ -32,6 +32,7 @@ use crate::error::{self, Result};
 use crate::json::to_json;
 use crate::messages::MessageList;
 use crate::meta_names::MetaNames;
+use crate::order::FirstRefusal;
 use crate::packs::{ADHOC_PACK, install_pack_list, install_pack_objects};
 use crate::proxy::{key_text, quoted, view_data};
 use crate::scope::{OfferMode, Offers};
@@ -190,7 +191,7 @@ fn adhoc_info(lua: &Lua, attrs: &Table, adhoc: &AdhocTools) -> mlua::Result<(Str
     // `tools.adhoc(var.tool, f)` would report a missing `name` for a table
     // Lua reads fine.
     let attrs = &read_table(lua, names, attrs, "the attributes are")?;
-    let mut unknown: Vec<String> = Vec::new();
+    let mut unknown = FirstRefusal::default();
     for pair in attrs.pairs::<Value, Value>() {
         let (key, _) = pair?;
         let known = matches!(&key, Value::String(text)
@@ -200,15 +201,14 @@ fn adhoc_info(lua: &Lua, attrs: &Table, adhoc: &AdhocTools) -> mlua::Result<(Str
                 Value::String(text) => quoted(&text.as_bytes()),
                 other => key_text(other),
             };
-            unknown.push(shown);
+            unknown.refuse(&key, shown);
         }
     }
-    unknown.sort();
-    if let Some(key) = unknown.first() {
-        return Err(mlua::Error::external(format!(
+    unknown.into_result().map_err(|key| {
+        mlua::Error::external(format!(
             "tools.adhoc: unknown key {key:?}; accepted keys are name, description, parameters"
-        )));
-    }
+        ))
+    })?;
     let name = attr_text(attrs, "name")?;
     let name = match name.to_str() {
         Ok(text) if is_alias(&text) => text.to_owned(),
