@@ -262,7 +262,10 @@ fn reassigning_the_var_global_fails_read_back() {
                   setmetatable(_G, { __index = function(_, name)\n\
                     if name == 'var' then return kept end\n\
                   end })";
-    for source in ["var = 5", "var = {}", hidden] {
+    // The table in its place is the proxy or it is not: an `__eq` of the
+    // block's that calls the two equal does not run.
+    let equal = "var = setmetatable({}, { __eq = function() return true end })";
+    for source in ["var = 5", "var = {}", hidden, equal] {
         let error =
             run(source, &json!({})).expect_err("reassigning the var global must fail at read-back");
         assert!(

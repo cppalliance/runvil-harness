@@ -348,18 +348,17 @@ pub(crate) fn var_snapshot_table(lua: &Lua) -> Result<mlua::Table> {
         .map_err(error::make_lua_error)?;
     // A raw read: a `var` that a block took out of the globals is
     // reassigned, whatever an `__index` of the block's on the globals
-    // would answer for it.
+    // would answer for it. The comparison is by identity, as `rawequal`
+    // makes it: a table in its place whose `__eq` calls the two equal is
+    // reassigned too, and that `__eq` does not run.
     let current = lua
         .globals()
         .raw_get::<Value>("var")
         .map_err(error::make_lua_error)?;
-    match current {
-        Value::Table(ref table) if table.equals(&proxy).map_err(error::make_lua_error)? => {}
-        _ => {
-            return Err(make_lua_runtime_error(
-                "the `var` global was reassigned; write `var.<field>` instead".to_owned(),
-            ));
-        }
+    if current != Value::Table(proxy) {
+        return Err(make_lua_runtime_error(
+            "the `var` global was reassigned; write `var.<field>` instead".to_owned(),
+        ));
     }
     let data: mlua::Table = lua
         .named_registry_value(VAR_DATA_REGISTRY)

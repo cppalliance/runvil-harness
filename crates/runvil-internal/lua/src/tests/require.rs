@@ -314,6 +314,35 @@ fn a_saved_false_comes_back_without_a_rerun() {
 }
 
 #[test]
+fn a_saved_table_with_an_eq_comes_back_and_its_eq_does_not_run() {
+    // `require` tells a saved value from the mark of a load under way with
+    // no metamethod, so a library whose table calls itself equal to every
+    // table is no cycle, and the second `require` runs none of its code.
+    let (vm, _) = require_vm(
+        vec![(
+            "/a",
+            library(
+                "a",
+                "/a",
+                &["loads = (loads or 0) + 1\n\
+                   return setmetatable({ count = loads }, { __eq = function()\n\
+                     compared = (compared or 0) + 1\n\
+                     return true\n\
+                   end })"],
+            ),
+        )],
+        &null_emitter(),
+    );
+    let value = returned(
+        &vm,
+        "local first = require '/a'\n\
+         local second = require '/a'\n\
+         return first.count .. ':' .. second.count .. ':' .. loads .. ':' .. tostring(compared)",
+    );
+    assert_eq!(value.as_deref(), Some("1:1:1:nil"));
+}
+
+#[test]
 fn a_library_requiring_a_loaded_library_gets_its_saved_value() {
     let (vm, _) = require_vm(
         vec![

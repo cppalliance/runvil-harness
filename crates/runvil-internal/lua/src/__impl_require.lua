@@ -33,9 +33,12 @@ local error, setmetatable = error, setmetatable
 
 -- Each library's saved value under its identity, or `LOADING` while its
 -- blocks run. Keyed by identity, never by the path's text, so a library
--- loads once however its path is spaced.
+-- loads once however its path is spaced. The mark is a function, which
+-- `==` compares by identity with no metamethod, whatever the saved value
+-- is: a table as the mark would run the `__eq` of a table that a library
+-- returned.
 local cache = {}
-local LOADING = {}
+local function LOADING() end
 
 -- The loads under way, outermost first, for the cycle message.
 local loading = {}
