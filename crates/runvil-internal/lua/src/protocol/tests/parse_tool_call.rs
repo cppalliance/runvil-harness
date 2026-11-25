@@ -250,6 +250,29 @@ fn a_tool_call_with_a_non_table_args_is_the_calls_error() {
 }
 
 #[test]
+fn tool_call_args_with_a_gap_in_a_list_are_refused_for_the_missing_item() {
+    let lua = Lua::new();
+    let table = lua_table(
+        &lua,
+        "{ op = 'tool_call', alias = 'tools/echo', args = { rows = { [1] = 'a', [3] = 'c' } } }",
+    );
+    match Request::from_yield(&lua, &Value::Table(table)) {
+        YieldParse::Refused(Error {
+            code: ErrorCode::LuaRuntime,
+            message,
+            ..
+        }) => {
+            assert_eq!(
+                message,
+                "args must be a JSON-representable table: deserialize error: value.rows is \
+                 missing list item [2]"
+            );
+        }
+        other => panic!("expected the args call error, got {other:?}"),
+    }
+}
+
+#[test]
 fn a_tool_call_with_an_unrepresentable_args_table_is_the_calls_error() {
     let lua = Lua::new();
     let table = lua_table(

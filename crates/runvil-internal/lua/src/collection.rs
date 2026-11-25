@@ -15,12 +15,13 @@
 //! comes before every key that is no integer from 1 up. A collection that
 //! is a sealed view enumerates as the table it stands for.
 
-use mlua::{Lua, LuaSerdeExt, Table, Value};
+use mlua::{Lua, Table, Value};
 
+use crate::data::data_of;
 use crate::error::{self, Result, make_lua_runtime_error};
 use crate::meta_names::MetaNames;
 use crate::order::{FirstRefusal, KeyError, WalkPlace, listed, sort_key, sort_list};
-use crate::proxy::{plain, view_data};
+use crate::proxy::view_data;
 
 /// Enumerates fanout's collection argument as the sequence of members the
 /// shim spawns arms over: the list in order, then every other entry as a
@@ -162,14 +163,13 @@ pub fn render_item(item: &serde_json::Value) -> String {
 /// # Errors
 /// Returns a `LuaRuntime` failure when the value has no JSON form.
 pub(crate) fn render_item_value(lua: &Lua, item: Value) -> Result<String> {
-    let json: serde_json::Value = plain(lua, item)
-        .and_then(|item| lua.from_value(item))
-        .map_err(error::make_lua_error)?;
+    let json = data_of(lua, item).map_err(error::make_lua_error)?;
     Ok(render_item(&json))
 }
 
 #[cfg(test)]
 mod tests {
+    use mlua::LuaSerdeExt;
     use serde_json::json;
 
     use super::*;
@@ -614,6 +614,13 @@ mod tests {
         assert_eq!(
             render_item_value(&lua, view).expect("a view renders as its data"),
             "{\"key\":\"alpha\",\"value\":1}"
+        );
+        let gap = eval(&lua, "return { [1] = 'a', [3] = 'c' }");
+        assert_eq!(
+            render_item_value(&lua, gap)
+                .expect_err("a list with a gap has no JSON form")
+                .message,
+            "deserialize error: value is missing list item [2]"
         );
     }
 }

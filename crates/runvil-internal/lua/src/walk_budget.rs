@@ -35,6 +35,11 @@ const NODES_PER_VIEW: usize = 6;
 /// itself keeps alive.
 pub(crate) const HELD_KEY_LIMIT: usize = 100_000;
 
+/// The most tables deep a value may nest, the top-level table being level
+/// 1: the depth `json.decode` accepts, so a value that converts is one
+/// that reads back.
+pub(crate) const DEPTH_LIMIT: usize = 127;
+
 /// The walk went past its budget.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct TooLarge;
@@ -81,6 +86,11 @@ impl WalkBudget {
         }
     }
 
+    /// How many values are left to spend.
+    pub(crate) fn values(&self) -> usize {
+        self.nodes
+    }
+
     /// How many bytes of text are left to spend.
     pub(crate) fn bytes(&self) -> usize {
         self.bytes
@@ -88,15 +98,19 @@ impl WalkBudget {
 
     /// Spends one value, failing once none are left.
     pub(crate) fn charge_node(&mut self) -> Result<(), TooLarge> {
-        self.nodes = self.nodes.checked_sub(1).ok_or(TooLarge)?;
+        self.charge_nodes(1)
+    }
+
+    /// Spends `n` values, failing when fewer than `n` are left.
+    pub(crate) fn charge_nodes(&mut self, n: usize) -> Result<(), TooLarge> {
+        self.nodes = self.nodes.checked_sub(n).ok_or(TooLarge)?;
         Ok(())
     }
 
     /// Spends one view passed on the way to a table, for a walk that can
     /// pass one view many times, failing once too few values are left.
     pub(crate) fn charge_view(&mut self) -> Result<(), TooLarge> {
-        self.nodes = self.nodes.checked_sub(NODES_PER_VIEW).ok_or(TooLarge)?;
-        Ok(())
+        self.charge_nodes(NODES_PER_VIEW)
     }
 
     /// Spends what the read of one table asks for: a value for a view

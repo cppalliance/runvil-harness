@@ -23,11 +23,11 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use mlua::{Lua, LuaSerdeExt, Value};
+use mlua::{Lua, Value};
 use serde_json::Value as Json;
 
+use crate::data::data_of;
 use crate::error::{self, Result, make_lua_runtime_error};
-use crate::proxy::plain;
 use crate::sys::SYS_LIVE_POISONED;
 use crate::var::var_to_json;
 
@@ -128,11 +128,7 @@ where
                 }
                 // A view the global holds is read as the table it stands
                 // for.
-                other => Ok(Some(
-                    plain(lua, other)
-                        .and_then(|value| lua.from_value(value))
-                        .map_err(error::make_lua_error)?,
-                )),
+                other => Ok(Some(data_of(lua, other).map_err(error::make_lua_error)?)),
             }
         };
         let rendered = render(ProseState {
@@ -152,4 +148,23 @@ where
 #[track_caller]
 fn memo_poisoned() -> mlua::Error {
     mlua::Error::external(error::make_internal_error("prose memo slot was poisoned"))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_vm::TestVm;
+
+    #[test]
+    fn a_global_with_a_gap_in_a_list_is_refused_for_the_missing_item() {
+        let vm = TestVm::new().build();
+        vm.install_lazy_prose(|state| {
+            Ok(match (state.globals)("rows") {
+                Err(error) => error.message,
+                Ok(found) => format!("rows was not refused: {found:?}"),
+            })
+        })
+        .expect("the prose guard installs");
+        let prose = vm.eval::<String>("rows = { [1] = 'a', [3] = 'c' }\nreturn prose");
+        assert_eq!(prose, "deserialize error: value is missing list item [2]");
+    }
 }

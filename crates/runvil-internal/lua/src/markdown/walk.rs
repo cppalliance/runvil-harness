@@ -21,11 +21,7 @@ use mlua::{Lua, LuaString, Table, Value};
 use crate::error::author_refusal;
 use crate::meta_names::MetaNames;
 use crate::proxy::{Unsealed, unseal};
-use crate::walk_budget::WalkBudget;
-
-/// The most lists deep that blocks may nest, the list given being level 1:
-/// the depth `json.encode` accepts.
-const DEPTH_LIMIT: usize = 127;
+use crate::walk_budget::{DEPTH_LIMIT, WalkBudget};
 
 /// One walk over a list of blocks, for one call of a `markdown` function.
 pub(super) struct Walk<'lua> {
@@ -179,7 +175,8 @@ impl<'lua> Walk<'lua> {
     }
 
     /// Opens the list `value` and returns the table its items are read
-    /// from. [`close`](Self::close) ends it.
+    /// from. [`close`](Self::close) ends it. Blocks nest at most
+    /// [`DEPTH_LIMIT`] lists deep, the list given being level 1.
     ///
     /// # Errors
     /// Returns the refusal of a value that is not a table, of a block

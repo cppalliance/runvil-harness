@@ -6,7 +6,7 @@
 use mlua::{LuaSerdeExt, Table};
 
 use super::*;
-use crate::proxy::plain;
+use crate::data::{data_of, plain};
 use crate::test_vm::raised;
 
 /// A VM whose `var` and `args` each hold a list, an object, and an empty
@@ -178,7 +178,6 @@ fn a_value_with_no_view_inside_is_handed_back_as_it_is() {
     let lua = vm.lua();
     for source in [
         "return { 1, { a = 'x' }, n = 2 }",
-        "return { 1, nil, 3 }",
         "return {}",
         "return 'text'",
         "return sys",
@@ -232,7 +231,7 @@ fn a_table_beside_a_view_is_shared_with_the_copy_not_copied() {
 }
 
 #[test]
-fn a_table_that_contains_itself_converts_as_it_does_with_no_walk_before_it() {
+fn a_table_that_contains_itself_is_refused_in_the_words_of_the_conversion() {
     let vm = views_vm();
     let lua = vm.lua();
     for source in [
@@ -243,10 +242,7 @@ fn a_table_that_contains_itself_converts_as_it_does_with_no_walk_before_it() {
         let direct = lua
             .from_value::<serde_json::Value>(value.clone())
             .expect_err("a table that contains itself has no JSON form");
-        let handed = plain(lua, value).expect("the walk ends at the repeated table");
-        let walked = lua
-            .from_value::<serde_json::Value>(handed)
-            .expect_err("the walk leaves the table containing itself");
+        let walked = data_of(lua, value).expect_err("the walk refuses the repeated table");
         assert_eq!(walked.to_string(), direct.to_string(), "{source}");
     }
 }

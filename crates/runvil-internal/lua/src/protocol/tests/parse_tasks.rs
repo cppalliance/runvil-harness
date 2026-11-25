@@ -174,6 +174,30 @@ fn an_unconvertible_spawn_item_is_the_calls_error_naming_the_conversion_failure(
 }
 
 #[test]
+fn a_spawn_item_with_a_gap_in_a_list_is_refused_for_the_missing_item() {
+    let lua = Lua::new();
+    let table = lua_table(
+        &lua,
+        "{ op = 'spawn', target = '../Child', var = { k = 1 }, \
+           item = { rows = { [1] = 'a', [2] = 'b', [3] = 'c', [5] = 'e' } } }",
+    );
+    match Request::from_yield(&lua, &Value::Table(table)) {
+        YieldParse::Refused(Error {
+            code: ErrorCode::LuaRuntime,
+            message,
+            ..
+        }) => {
+            assert_eq!(
+                message,
+                "item must be a JSON-representable value: deserialize error: value.rows is \
+                 missing list item [4]"
+            );
+        }
+        other => panic!("expected the item call error, got {other:?}"),
+    }
+}
+
+#[test]
 fn a_malformed_task_id_is_the_calls_error_naming_the_parse_failure() {
     let lua = Lua::new();
     let cause = "0.x".parse::<TaskId>().expect_err("`0.x` is not a task id");

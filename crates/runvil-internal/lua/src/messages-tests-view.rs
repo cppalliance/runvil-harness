@@ -6,7 +6,7 @@ use serde_json::{Value as Json, json};
 
 use super::list::refusal;
 use crate::protocol::{
-    ContentPart, MessageContent, MessageRecord, NonEmpty, ToolCallRecord, parse_record,
+    ContentPart, JsonSize, MessageContent, MessageRecord, NonEmpty, ToolCallRecord, parse_record,
 };
 use crate::test_vm::{BuiltVm, TestVm};
 use crate::tests::{assistant, system, tool_result, user};
@@ -95,11 +95,212 @@ fn to_json_round_trips_every_record_shape_through_parse_record() {
     );
     for (position, record) in records.iter().enumerate() {
         assert_eq!(
-            parse_record(position + 1, &record.to_json()).as_ref(),
+            parse_record(position + 1, &record.to_json(), usize::MAX).as_ref(),
             Ok(record),
             "{record:?}"
         );
+        assert_eq!(
+            record.json_size(),
+            JsonSize::of(&record.to_json()),
+            "{record:?}"
+        );
     }
+    // An object, two strings of 6 and 8 bytes, and keys of 4 and 7.
+    assert_eq!(
+        records[0].json_size(),
+        JsonSize {
+            depth: 1,
+            values: 3,
+            bytes: 25
+        }
+    );
+}
+
+#[test]
+fn a_view_inside_a_value_nests_as_the_record_it_stands_for() {
+    let vm = TestVm::new().build();
+    vm.exec("messages:assistant('seed')");
+    // Each record holds the one before it, four levels down: a record
+    // object, its calls, a call, and the arguments.
+    let nest = "messages:assistant('', { \
+                  { id = 'c', name = 'f', arguments = { prev = messages[#messages] } } })";
+    for _ in 1..=31 {
+        vm.exec(nest);
+    }
+    assert_eq!(
+        refusal(&vm, nest),
+        "messages[33] tool_calls must be JSON-representable: \
+         value[1].arguments.prev is nested more than 127 levels deep"
+    );
+    let last = read(&vm, "messages[#messages]").expect("the list holds 32 records");
+    assert_eq!(
+        serde_json::from_str::<Json>(&last.to_string())
+            .ok()
+            .as_ref(),
+        Some(&last),
+        "the deepest record reads back from its JSON text"
+    );
+    // A record whose arguments nest `depth` tables is three levels deeper
+    // than they are, and a record whose meta nests `depth` tables is one
+    // level deeper.
+    let with_arguments = |depth: usize| {
+        format!(
+            "local arguments = {{}} \
+             local inner = arguments \
+             for _ = 2, {depth} do inner.n = {{}} inner = inner.n end \
+             messages:assistant('', {{ {{ id = 'c', name = 'f', arguments = arguments }} }})"
+        )
+    };
+    let with_meta = |depth: usize| {
+        format!(
+            "local meta = {{}} \
+             for _ = 2, {depth} do meta = {{ meta }} end \
+             messages:user('x', meta)"
+        )
+    };
+    // A record 127 deep is the deepest a builder takes. A view of it is
+    // appended again, and its JSON text reads back.
+    for deepest in [with_arguments(124), with_meta(126)] {
+        vm.exec(&deepest);
+        vm.exec("messages:append(messages[#messages])");
+        let record = read(&vm, "messages[#messages]").expect("the list holds the record");
+        assert_eq!(
+            serde_json::from_str::<Json>(&record.to_string())
+                .ok()
+                .as_ref(),
+            Some(&record)
+        );
+    }
+    // Each field of these is within the limit by itself, and the record
+    // around it is not.
+    for too_deep in [with_arguments(125), with_meta(127)] {
+        assert_eq!(
+            refusal(&vm, &too_deep),
+            "messages[37] is nested 128 levels deep as JSON; the limit is 127 levels"
+        );
+    }
+    assert_eq!(read(&vm, "#messages"), Some(json!(36)));
+    // A list is its items, so a view under another key of it is left out
+    // and is not checked: one of a record 127 deep is no fault there, and
+    // beside a fault it is not the fault, though its key comes first.
+    vm.exec("messages:user('ok', { 'a', x = { messages[36] } })");
+    assert_eq!(read(&vm, "messages[37].meta"), Some(json!(["a"])));
+    assert_eq!(
+        refusal(
+            &vm,
+            "messages:user('ok', { function() end, [true] = { messages[36] } })"
+        ),
+        "messages[38] meta must be JSON-representable: unsupported value type `function`"
+    );
+}
+
+#[test]
+fn a_view_inside_a_value_spends_the_budget_of_the_record_it_stands_for() {
+    // 262,144 bytes of text and 32,768 values.
+    let vm = TestVm::new().limits(262_144, 16).build();
+    vm.exec("messages:user(string.rep('x', 4096))");
+    let with_views = |count: usize| {
+        format!(
+            "local value = {{ z = function() end }} \
+             for i = 1, {count} do value['k' .. i] = messages[1] end \
+             messages:user('ok', value)"
+        )
+    };
+    assert_eq!(
+        refusal(&vm, &with_views(10)),
+        "messages[2] meta must be JSON-representable: unsupported value type `function`"
+    );
+    assert_eq!(
+        refusal(&vm, &with_views(65)),
+        "messages[2] meta must be JSON-representable: the value is too large to convert",
+        "65 views of 4,096 bytes hold more text than the budget"
+    );
+    vm.exec(
+        "local list = {} \
+         for i = 1, 1000 do list[i] = i end \
+         messages:assistant('', { { id = 'c', name = 'f', arguments = { list = list } } })",
+    );
+    assert_eq!(
+        refusal(
+            &vm,
+            "local value = {} \
+             for i = 1, 40 do value[i] = messages[2] end \
+             messages:user('ok', value)"
+        ),
+        "messages[3] meta must be JSON-representable: the value is too large to convert",
+        "40 views of 1,009 values hold more values than the budget"
+    );
+}
+
+#[test]
+fn a_view_inside_a_value_spends_the_values_of_the_table_it_reads_as() {
+    // 32,768 values. The record is three values, its object and two
+    // strings, and so is the table of the same data. `rows` lists of
+    // `each` of either, with `more` values beside them, are
+    // `rows * (1 + 3 * each) + 1 + more` values.
+    let vm = TestVm::new().limits(262_144, 16).build();
+    vm.exec("messages:user('seed')");
+    let refused = |item: &str, rows: usize, each: usize, more: &str| {
+        refusal(
+            &vm,
+            &format!(
+                "local item, row, value = {item}, {{}}, {{ {more} }} \
+                 for i = 1, {each} do row[i] = item end \
+                 for i = 1, {rows} do value['r' .. i] = row end \
+                 messages:user('ok', value)"
+            ),
+        )
+    };
+    let too_large =
+        "messages[2] meta must be JSON-representable: the value is too large to convert";
+    for item in ["messages[1]", "{ role = 'user', content = 'seed' }"] {
+        // The walk before the conversion: 32,768 values convert, and the
+        // data is then too long for a `meta`, and 32,769 do not.
+        assert_eq!(
+            refused(item, 217, 50, ""),
+            "messages[2] meta is 359896 bytes as JSON; the limit is 8192 bytes",
+            "{item}"
+        );
+        assert_eq!(refused(item, 217, 50, "last = true"), too_large, "{item}");
+        // The walk that names a fault: 32,768 values with a function among
+        // them are refused for the function, and 32,769 are too large.
+        assert_eq!(
+            refused(item, 258, 42, "f = function() end"),
+            "messages[2] meta must be JSON-representable: unsupported value type `function`",
+            "{item}"
+        );
+        assert_eq!(
+            refused(item, 258, 42, "f = function() end, last = true"),
+            too_large,
+            "{item}"
+        );
+    }
+}
+
+#[test]
+fn a_record_holds_at_most_the_values_one_conversion_spends() {
+    // 65,536 values. A record of `parts` text parts is its object, its
+    // role, the list of the parts, and three values for each part, so
+    // `3 + 3 * parts` values and those of its `meta`.
+    let vm = TestVm::new().limits(524_288, 16).build();
+    let user = |meta: &str| {
+        format!(
+            "local part, parts = {{ type = 'text', text = 'x' }}, {{}} \
+             for i = 1, 21844 do parts[i] = part end \
+             messages:user(parts, {meta})"
+        )
+    };
+    // 65,536 values: the largest record a builder takes, and a view of it
+    // is appended again.
+    vm.exec(&user("1"));
+    vm.exec("messages:append(messages[1])");
+    // 65,537 values. The content is 65,533 of them and the `meta` two, so
+    // each field converts by itself.
+    assert_eq!(
+        refusal(&vm, &user("{ 1 }")),
+        "messages[3] holds 65537 values as JSON; the limit is 65536 values"
+    );
+    assert_eq!(read(&vm, "#messages"), Some(json!(2)));
 }
 
 #[test]
@@ -241,8 +442,8 @@ fn a_view_appended_or_converted_gives_the_same_record_as_its_table_form() {
         let view = read(&vm, &format!("messages[{index}]")).expect("the view is present");
         let table = read(&vm, &format!("shapes[{index}]")).expect("the table is present");
         assert_eq!(
-            parse_record(index, &view),
-            parse_record(index, &table),
+            parse_record(index, &view, usize::MAX),
+            parse_record(index, &table, usize::MAX),
             "messages[{index}]"
         );
     }

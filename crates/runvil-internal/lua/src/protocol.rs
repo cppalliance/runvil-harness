@@ -31,7 +31,7 @@ pub use answer::{
 };
 pub use non_empty::NonEmpty;
 pub use parse::YieldParse;
-pub(crate) use record::parse_record;
 pub use record::{ContentPart, MessageContent, MessageRecord, RecordRole, ToolCallRecord};
+pub(crate) use record::{JsonSize, parse_record};
 pub(crate) use render::{Retained, render_envelope};
 pub use request::{AdhocToolOutcome, ModelCall, Request};

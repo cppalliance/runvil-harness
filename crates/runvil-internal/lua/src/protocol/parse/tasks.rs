@@ -9,11 +9,11 @@
 use std::num::NonZeroU64;
 use std::time::Duration;
 
-use mlua::{Lua, LuaSerdeExt, MultiValue, Value};
+use mlua::{Lua, MultiValue, Value};
 use runvil_types::ids::TaskId;
 
+use crate::data::data_of;
 use crate::protocol::{NonEmpty, Request};
-use crate::proxy::plain;
 use crate::section::scalar_return;
 
 use super::{FieldFailure, call_args, call_error, call_string, call_target, shim_from, shim_var};
@@ -52,7 +52,7 @@ pub(super) fn parse_spawn(
             )));
         }
         // A view inside the item is read as the table it stands for.
-        Ok(value) => match plain(lua, value).and_then(|value| lua.from_value(value)) {
+        Ok(value) => match data_of(lua, value) {
             Ok(item) => Some(item),
             Err(error) => {
                 return Err(call_error(format!(

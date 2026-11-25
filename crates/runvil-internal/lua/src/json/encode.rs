@@ -22,12 +22,8 @@ use super::keys::{Entries, Shape, entries, shape};
 use crate::error::author_refusal;
 use crate::meta_names::MetaNames;
 use crate::proxy::{Unsealed, key_path, key_text, unseal};
-use crate::walk_budget::{HELD_KEY_LIMIT, TooLarge, WalkBudget};
+use crate::walk_budget::{DEPTH_LIMIT, HELD_KEY_LIMIT, TooLarge, WalkBudget};
 use crate::weak::{WEAK_METATABLE, WEAK_TABLE, is_weak};
-
-/// The most tables deep a value may nest, the top-level table being level
-/// 1: the depth `json.decode` accepts.
-const DEPTH_LIMIT: usize = 127;
 
 /// `json.encode(value [, options])`: `value` as one line of compact JSON.
 pub(super) fn encode(lua: &Lua, (value, options): (Value, Value)) -> mlua::Result<LuaString> {
@@ -191,7 +187,7 @@ fn weak(weakness: &str) -> String {
 }
 
 /// Why a table nested past the depth limit cannot be encoded.
-fn too_deep() -> String {
+pub(crate) fn too_deep() -> String {
     format!("is nested more than {DEPTH_LIMIT} levels deep")
 }
 

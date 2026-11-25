@@ -97,6 +97,7 @@ mod chunk_line;
 mod collection;
 mod compactors;
 mod coro;
+mod data;
 mod dispatch;
 mod engine_globals;
 mod engine_globals_store;

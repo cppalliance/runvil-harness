@@ -6,6 +6,7 @@
 use runvil_model_client::client::Role;
 
 use super::non_empty::NonEmpty;
+use crate::walk_budget::DEPTH_LIMIT;
 
 /// The most bytes a record's `meta` may take as compact JSON.
 const MAX_RECORD_META_BYTES: usize = 8 * 1024;
@@ -104,35 +105,48 @@ impl MessageRecord {
     /// parse accepts, so the parse turns it back into an equal record.
     #[must_use]
     pub(crate) fn to_json(&self) -> serde_json::Value {
-        let mut entry = serde_json::Map::new();
-        entry.insert("role".to_owned(), self.role.kind().as_str().into());
-        entry.insert("content".to_owned(), self.content.to_json());
-        if let Some(calls) = self.tool_calls_json() {
-            entry.insert("tool_calls".to_owned(), calls);
-        }
-        if let Some(id) = self.role.tool_call_id() {
-            entry.insert("tool_call_id".to_owned(), id.into());
-        }
-        if let Some(meta) = &self.meta {
-            entry.insert("meta".to_owned(), meta.clone());
-        }
-        serde_json::Value::Object(entry)
+        self.form()
+    }
+
+    /// The size of the record's JSON form, read from the record without
+    /// building the form.
+    pub(crate) fn json_size(&self) -> JsonSize {
+        self.form()
     }
 
     /// The `tool_calls` field's JSON form: an array of `{id, name,
     /// arguments}` objects, or `None` when the record holds no calls.
     pub(crate) fn tool_calls_json(&self) -> Option<serde_json::Value> {
+        self.calls_form()
+    }
+
+    /// The record's JSON form, made as `F`.
+    fn form<F: Form>(&self) -> F {
+        let fields = [
+            Some(("role", F::text(self.role.kind().as_str()))),
+            Some(("content", self.content.form())),
+            self.calls_form().map(|calls| ("tool_calls", calls)),
+            self.role
+                .tool_call_id()
+                .map(|id| ("tool_call_id", F::text(id))),
+            self.meta.as_ref().map(|meta| ("meta", F::json(meta))),
+        ];
+        F::object(fields.into_iter().flatten())
+    }
+
+    /// The `tool_calls` field's JSON form, made as `F`, or `None` when the
+    /// record holds no calls.
+    fn calls_form<F: Form>(&self) -> Option<F> {
         if self.tool_calls.is_empty() {
             return None;
         }
-        let calls = self.tool_calls.iter().map(|call| {
-            serde_json::json!({
-                "id": call.id,
-                "name": call.name,
-                "arguments": call.arguments,
-            })
-        });
-        Some(calls.collect())
+        Some(F::array(self.tool_calls.iter().map(|call| {
+            F::object([
+                ("id", F::text(&call.id)),
+                ("name", F::text(&call.name)),
+                ("arguments", F::json(&call.arguments)),
+            ])
+        })))
     }
 }
 
@@ -140,18 +154,134 @@ impl MessageContent {
     /// The `content` field's JSON form: the text, or an array of `text`
     /// and `image_url` parts.
     pub(crate) fn to_json(&self) -> serde_json::Value {
+        self.form()
+    }
+
+    /// The `content` field's JSON form, made as `F`.
+    fn form<F: Form>(&self) -> F {
         match self {
-            MessageContent::Text(text) => text.as_str().into(),
-            MessageContent::Parts(parts) => parts
-                .iter()
-                .map(|part| match part {
-                    ContentPart::Text(text) => serde_json::json!({ "type": "text", "text": text }),
-                    ContentPart::ImageUrl(url) => {
-                        serde_json::json!({ "type": "image_url", "image_url": { "url": url } })
-                    }
-                })
-                .collect(),
+            MessageContent::Text(text) => F::text(text),
+            MessageContent::Parts(parts) => F::array(parts.iter().map(|part| match part {
+                ContentPart::Text(text) => {
+                    F::object([("type", F::text("text")), ("text", F::text(text))])
+                }
+                ContentPart::ImageUrl(url) => F::object([
+                    ("type", F::text("image_url")),
+                    ("image_url", F::object([("url", F::text(url))])),
+                ]),
+            })),
         }
+    }
+}
+
+/// How large a JSON value is. A walk that meets a view of a record counts
+/// the record's JSON form by this, without building the form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct JsonSize {
+    /// How many arrays and objects deep the value nests: 0 for a value
+    /// that is neither, and 1 for an array or an object that holds none.
+    pub(crate) depth: usize,
+    /// How many values it holds, itself included.
+    pub(crate) values: usize,
+    /// The bytes of its strings, the keys of its objects included.
+    pub(crate) bytes: usize,
+}
+
+impl JsonSize {
+    /// The size of `json`.
+    pub(crate) fn of(json: &serde_json::Value) -> Self {
+        match json {
+            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+                Self::LEAF
+            }
+            serde_json::Value::String(text) => Self::text(text),
+            serde_json::Value::Array(items) => Self::array(items.iter().map(Self::of)),
+            serde_json::Value::Object(fields) => Self::holding(
+                fields
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), Self::of(value))),
+            ),
+        }
+    }
+
+    /// A value that is no string, array, or object.
+    const LEAF: Self = Self {
+        depth: 0,
+        values: 1,
+        bytes: 0,
+    };
+
+    /// An array or an object of the `entries`, each under its key, which
+    /// is empty for an item of an array.
+    fn holding<'key>(entries: impl IntoIterator<Item = (&'key str, Self)>) -> Self {
+        let empty = Self {
+            depth: 1,
+            ..Self::LEAF
+        };
+        entries.into_iter().fold(empty, |whole, (key, part)| Self {
+            depth: whole.depth.max(part.depth + 1),
+            values: whole.values + part.values,
+            bytes: whole.bytes + key.len() + part.bytes,
+        })
+    }
+}
+
+/// What the JSON form of a record is made as: the JSON itself, or its
+/// [`JsonSize`]. Both are made from the one description of the form, so
+/// the size is that of the JSON.
+trait Form: Sized {
+    /// The string `text`.
+    fn text(text: &str) -> Self;
+
+    /// The JSON value `json`.
+    fn json(json: &serde_json::Value) -> Self;
+
+    /// An array of the `items`.
+    fn array(items: impl Iterator<Item = Self>) -> Self;
+
+    /// An object of the `fields`, each under its name.
+    fn object(fields: impl IntoIterator<Item = (&'static str, Self)>) -> Self;
+}
+
+impl Form for serde_json::Value {
+    fn text(text: &str) -> Self {
+        Self::from(text)
+    }
+
+    fn json(json: &serde_json::Value) -> Self {
+        json.clone()
+    }
+
+    fn array(items: impl Iterator<Item = Self>) -> Self {
+        items.collect()
+    }
+
+    fn object(fields: impl IntoIterator<Item = (&'static str, Self)>) -> Self {
+        let fields = fields
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value));
+        Self::Object(fields.collect())
+    }
+}
+
+impl Form for JsonSize {
+    fn text(text: &str) -> Self {
+        Self {
+            bytes: text.len(),
+            ..Self::LEAF
+        }
+    }
+
+    fn json(json: &serde_json::Value) -> Self {
+        Self::of(json)
+    }
+
+    fn array(items: impl Iterator<Item = Self>) -> Self {
+        Self::holding(items.map(|item| ("", item)))
+    }
+
+    fn object(fields: impl IntoIterator<Item = (&'static str, Self)>) -> Self {
+        Self::holding(fields)
     }
 }
 
@@ -181,12 +311,22 @@ const CHAT_PART_TYPES: [&str; 2] = ["text", "image_url"];
 /// null, at most [`MAX_RECORD_META_BYTES`] as compact JSON. Fields beyond
 /// the five a record holds (`role`, `content`, `tool_call_id`,
 /// `tool_calls`, `meta`) are dropped.
+///
+/// The record's JSON form nests at most [`DEPTH_LIMIT`] levels, the
+/// record's own object and the arrays and objects around a field's value
+/// included, and holds at most `values` values, the record's own object
+/// and its `role` included. A view of the record converts to data as that
+/// form, so a record past either limit would be one that no later `append`
+/// takes. `values` is what one conversion on the list's VM may spend: a
+/// builder converts each field by itself, so every field can be within
+/// that and the record past it.
 /// Cross-record checks - unique call IDs, complete call-result pairing,
 /// provider-required alternation - belong to the per-dispatch projection
 /// ([`crate::projection`]).
 pub(crate) fn parse_record(
     index: usize,
     entry: &serde_json::Value,
+    values: usize,
 ) -> std::result::Result<MessageRecord, String> {
     let serde_json::Value::Object(entry) = entry else {
         return Err(format!("messages[{index}] must be a message table"));
@@ -277,12 +417,41 @@ pub(crate) fn parse_record(
             Some(meta.clone())
         }
     };
-    Ok(MessageRecord {
-        role,
-        content,
-        tool_calls,
-        meta,
-    })
+    within_limits(
+        index,
+        MessageRecord {
+            role,
+            content,
+            tool_calls,
+            meta,
+        },
+        values,
+    )
+}
+
+/// `record`, which takes the position `index`, when its JSON form nests at
+/// most [`DEPTH_LIMIT`] levels and holds at most `values` values, and the
+/// refusal of a deeper or a larger one.
+fn within_limits(
+    index: usize,
+    record: MessageRecord,
+    values: usize,
+) -> std::result::Result<MessageRecord, String> {
+    let size = record.json_size();
+    if size.depth > DEPTH_LIMIT {
+        return Err(format!(
+            "messages[{index}] is nested {} levels deep as JSON; the limit is {DEPTH_LIMIT} \
+             levels",
+            size.depth
+        ));
+    }
+    if size.values > values {
+        return Err(format!(
+            "messages[{index}] holds {} values as JSON; the limit is {values} values",
+            size.values
+        ));
+    }
+    Ok(record)
 }
 
 /// The refusal for a `content` that is neither a string nor a non-empty
