@@ -103,6 +103,11 @@ Offers are per section for isolation: a section's model sees only the tools that
 ### `tools.offer` takes tools and Packs, as ids or as objects
 
 Its single argument is a tool, a Pack, or an array of both, and each item is an id string or an object. A string that contains a slash is a tool id, and any other string is a Pack id. The owner's rule: "I think there should only be one api to offer tools".
+An array is the entries from index 1 to the first that the table itself lacks, or as many as its `__len` metamethod gives, and a key outside them raises an error.
+An entry that a `__len` counts and the table lacks is read through the `__index` of the table, and it raises an error when that read would look into a weak table ([The prompt language](prompt-language.md)).
+One call follows at most as many tables for those reads as one eighth of the VM's memory limit in bytes, and an array past that raises an error, so that the reads of one array stay short.
+
+The array does not end at `#t`, because the length that Lua gives a table with a gap differs between two runs ([The prompt language](prompt-language.md)), and an `__index` metamethod that gave a value at the gap would let one run accept a table that another refused.
 
 ### The first `models.loop` round builds the tool list, and later rounds reuse it
 
@@ -138,11 +143,15 @@ The model sees wire names, and a render can alter them. Prose that tells the mod
 
 `tools.adhoc(attrs, f)` takes a name, a description, optional parameters, and a function, and returns a tool object. The tool's wire name is the name as written, and its id is `adhoc/<name>` with the name in lower case. The prompt passes that object to `tools.offer`, or calls the tool itself with `tools.call`.
 The parameters are a JSON Schema object, or a short form: a table that maps each parameter's name to its type, or to an array of its type and its description.
+The attributes and the parameters may each be a view, such as a table read from `var` or `args`, and the Engine reads the table that the view stands for, so a tool defined from stored data gets the name and the parameters that the data has.
 A name in the short form is a string, and a number in its place raises an error.
 The type and the description are strings that the Engine reads from the table itself, so an `__index` metamethod of an array in the short form stays uncalled.
+A weak array raises an error whatever it holds, because the collector can take a description that is no string, and the array would then be a type alone in one run and an error in the next.
 The names, the types, and the descriptions of one short form may add up to as many bytes as the VM's memory limit, which is 64 MiB by default, and a description that several parameters share counts once for each.
+The bytes of a `__mode` that the Engine reads to tell whether a parameter's value is weak count with them.
 One short form may have as many parameters as one eighth of that limit, which is 8,388,608 at the default, and each view that the Engine reads through to reach a parameter's value counts as six parameters.
 A short form past either limit raises an error that reads `tools.adhoc: parameters are too large to convert`, whatever else is wrong with it.
+An error that quotes a key, a name, or a type shows at most its first 64 bytes, and the length of a longer one.
 
 Defining a tool is separate from offering it, so every tool has one offer path, and a prompt can define a helper tool that only Lua calls.
 A number is refused as a parameter's name because Lua converts it to a string on request, so the keys `1` and `'1'` of one table would name one parameter with two types.
