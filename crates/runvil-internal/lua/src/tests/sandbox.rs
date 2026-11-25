@@ -420,6 +420,12 @@ fn a_raised_value_with_no_text_fails_the_block_without_its_address() {
              end }))",
             "a: b: (address)",
         ),
+        // A name that starts as `mlua`'s label for a failure of Lua does is
+        // a name with a `: ` like any other.
+        (
+            "error(setmetatable({}, { __name = 'runtime error: Thing' }))",
+            "runtime error: Thing: (address)",
+        ),
         // A string that ends as such a value does reads the same to the
         // Engine, and loses its number.
         (address_like.as_str(), "size: (address)"),
