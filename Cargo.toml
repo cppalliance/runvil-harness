@@ -33,6 +33,10 @@ runvil = { path = "crates/runvil" }
 harness-runner = { path = "crates/harness-internal/runner" }
 harness-plugin-loader = { path = "crates/harness-internal/plugin-loader" }
 harness-gateway-client = { path = "crates/harness-gateway-client" }
+# The chat-completions client, from its own repository, pinned by commit.
+# `version` beside `git` keeps cargo-deny's wildcard check quiet. The
+# `harness-gateway-client` adapter converts its types to the Engine's.
+gateway-client = { version = "0.1.0", git = "https://github.com/cppalliance/gateway-client", rev = "91e4685c4bdbd70cc89a10fa791e1a37641f728f" }
 runvil-lua = { path = "crates/runvil-internal/lua" }
 runvil-markdown = { path = "crates/runvil-internal/markdown" }
 runvil-model-client = { path = "crates/runvil-internal/model-client" }

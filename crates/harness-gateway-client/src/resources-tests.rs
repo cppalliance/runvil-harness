@@ -7,12 +7,12 @@ use std::cell::Cell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use gateway_client::{GatewayEndpoint, SecretString};
 use runvil::harness::HostResources;
 use runvil::{ErrorCode, ErrorFact};
 use serde_json::{Value, json};
 
 use super::{WEB_SEARCH, provide_gateway_resources, web_search, web_search_entry};
-use crate::config::{GatewayEndpoint, SecretString};
 
 /// The bearer key of every Gateway here but the one the pinned entry
 /// names.

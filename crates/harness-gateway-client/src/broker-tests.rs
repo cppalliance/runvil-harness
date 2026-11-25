@@ -1,4 +1,4 @@
-//! The Gateway broker against the transport suite's mock gateways: the
+//! The Gateway broker against mock gateways: the
 //! broker says it streams, `chat` hands each piece to its callback in wire
 //! order, a round without a callback answers with the whole reply, a
 //! callback that keeps one piece leaves the reply whole, every round is
@@ -9,6 +9,7 @@
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 
+use gateway_client::{GatewayEndpoint, SecretString};
 use runvil::effect::Round;
 use runvil::event::ReplyOrigin;
 use runvil::harness::{Delta, InferenceBroker, PieceSink};
@@ -20,8 +21,7 @@ use runvil::model::{
 use serde_json::Value;
 
 use super::GatewayBroker;
-use crate::config::{GatewayEndpoint, SecretString};
-use crate::transport::tests::{content_chunk, serve, sse_app, sse_body};
+use crate::test_support::{content_chunk, serve, sse_app, sse_body};
 
 /// The bearer key every mock gateway here is keyed with.
 const KEY: &str = "tok";

@@ -1,24 +1,32 @@
-//! Tests for the request body: the OpenAI function-call shape of a replayed
-//! tool turn, message order, tool wrapping, and the option fields.
-//!
-//! A `ToolSchema` and an assistant tool-call message have no public
-//! constructor, so [`tool_round`] takes both from a facade `Run` that went
-//! through one tool round.
+//! The request a round sends, from messages, tools, and options that a real
+//! Engine run produced: the OpenAI function-call shape of a replayed tool
+//! turn, message order, tool wrapping, and the option fields. Each test
+//! sends the round through the broker to a mock gateway and reads back the
+//! body the gateway received. A `ToolSchema` and an assistant tool-call
+//! message have no public constructor, so [`tool_round`] takes both from a
+//! facade `Run` that went through one tool round.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::num::NonZeroU32;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use gateway_client::{GatewayEndpoint, SecretString};
+use runvil::effect::Round as EffectRound;
+use runvil::event::ReplyOrigin;
+use runvil::harness::InferenceBroker;
+use runvil::ids::RoundId;
+use runvil::model::{CompletionOptions, Message, ModelBinding, ModelInvocation, ToolSchema};
 use runvil_engine::effect::{Effect, EffectAnswer, IssuedEffect};
 use runvil_engine::model::{
     Completion, CompletionResult, ModelId, ModelInfo, ModelRole, ThinkingMode, ToolCall,
 };
 use runvil_engine::{Prompt, Run, RunParams, RunSeed, Step, Timestamp};
 use runvil_engine::{ToolCatalog, ToolId, ToolInfo, ToolOutput};
-use serde_json::json;
+use serde_json::{Value, json};
 
-use super::*;
+use super::GatewayBroker;
+use crate::test_support::{content_chunk, serve, sse_body};
 
 /// What a run's second `Chat` effect sent, after one tool round.
 struct Round {
@@ -136,6 +144,71 @@ fn echo() -> Offered {
     )
 }
 
+/// A mock gateway that records the JSON body of each completion it is sent
+/// and answers it with a one-chunk reply.
+fn recording_app(sent: Arc<Mutex<Option<Value>>>) -> axum::Router {
+    use axum::Router;
+    use axum::routing::post;
+
+    Router::new().route(
+        "/v1/chat/completions",
+        post(move |axum::Json(body): axum::Json<Value>| {
+            let sent = Arc::clone(&sent);
+            async move {
+                *sent.lock().unwrap() = Some(body);
+                let reply = sse_body(&[
+                    content_chunk("ok"),
+                    json!({ "choices": [{ "index": 0, "delta": {}, "finish_reason": "stop" }] }),
+                ]);
+                (
+                    [(axum::http::header::CONTENT_TYPE, "text/event-stream")],
+                    reply,
+                )
+            }
+        }),
+    )
+}
+
+/// A binding for the round; the broker runs the round under the effect's
+/// frozen options, so the binding's own fields are inert here.
+fn binding() -> ModelBinding {
+    ModelBinding::new(
+        "writer",
+        "the round's model",
+        ModelId::gateway("m").expect("a literal model name is valid"),
+        ModelInvocation::new(),
+        NonZeroU32::new(4096).expect("4096 is non-zero"),
+    )
+}
+
+/// Sends one round through the broker to a recording mock gateway and returns
+/// the JSON body the gateway received.
+async fn body_sent(
+    messages: Vec<Message>,
+    tools: Vec<ToolSchema>,
+    options: CompletionOptions,
+) -> Value {
+    let sent = Arc::new(Mutex::new(None));
+    let url = serve(recording_app(Arc::clone(&sent))).await;
+    let broker = GatewayBroker::new(
+        GatewayEndpoint::new(&url).expect("valid test endpoint"),
+        SecretString::new("tok").expect("non-empty test key"),
+    );
+    broker
+        .chat(
+            binding(),
+            messages,
+            tools,
+            options,
+            EffectRound::new(RoundId::new(0), ReplyOrigin::Chat),
+            None,
+        )
+        .await
+        .expect("the mock round completes");
+    let body = sent.lock().unwrap().take();
+    body.expect("the gateway received the request")
+}
+
 /// Checks every `messages[].tool_calls[]` entry against the OpenAI
 /// function-call schema a strict endpoint enforces, returning the
 /// offending path for the first violation.
@@ -196,10 +269,10 @@ fn check_openai_tool_calls(body: &Value) -> Result<(), String> {
     Ok(())
 }
 
-#[test]
-fn a_replayed_tool_call_turn_serializes_in_the_openai_function_shape() {
+#[tokio::test]
+async fn a_replayed_tool_call_turn_serializes_in_the_openai_function_shape() {
     let round = tool_round(&[echo()]);
-    let body = build_request_body(&round.messages, None, &round.options);
+    let body = body_sent(round.messages, Vec::new(), round.options).await;
     assert_eq!(check_openai_tool_calls(&body), Ok(()), "{body}");
     let call = &body["messages"][1]["tool_calls"][0];
     assert_eq!(call["id"], "call_1");
@@ -211,63 +284,14 @@ fn a_replayed_tool_call_turn_serializes_in_the_openai_function_shape() {
     assert_eq!(body["messages"][2]["content"], "echoed: one");
 }
 
-#[test]
-fn the_openai_check_names_each_way_a_replayed_call_breaks_the_schema() {
-    let round = tool_round(&[echo()]);
-    let replayed = build_request_body(&round.messages, None, &round.options);
-    let cases = [
-        (
-            json!({ "id": "call_1", "function": { "name": "echo", "arguments": "{}" } }),
-            ".type must be the string \"function\"",
-        ),
-        (
-            json!({ "id": " ", "type": "function", "function": { "name": "echo", "arguments": "{}" } }),
-            ".id was blank",
-        ),
-        (
-            json!({ "type": "function", "function": { "name": "echo", "arguments": "{}" } }),
-            " had no string id",
-        ),
-        (
-            json!({ "id": "call_1", "type": "function", "name": "echo", "arguments": "{}" }),
-            ".function was not an object",
-        ),
-        (
-            json!({ "id": "call_1", "type": "function", "function": { "name": "", "arguments": "{}" } }),
-            ".function.name was blank",
-        ),
-        (
-            json!({ "id": "call_1", "type": "function", "function": { "name": "echo", "arguments": { "value": "one" } } }),
-            ".function.arguments was not a JSON-encoded string",
-        ),
-        (
-            json!({ "id": "call_1", "type": "function", "function": { "name": "echo", "arguments": "{oops" } }),
-            ".function.arguments was not valid JSON",
-        ),
-        (
-            json!({ "id": "call_1", "type": "function", "function": { "name": "echo", "arguments": "[1]" } }),
-            ".function.arguments did not decode to a JSON object",
-        ),
-    ];
-    for (call, expected) in cases {
-        let mut body = replayed.clone();
-        body["messages"][1]["tool_calls"][0] = call;
-        let violation = check_openai_tool_calls(&body).expect_err("the call breaks the schema");
-        assert!(
-            violation.starts_with("messages[1].tool_calls[0]") && violation.contains(expected),
-            "expected {expected:?}, got {violation:?}"
-        );
-    }
-}
-
-#[test]
-fn messages_go_out_verbatim_in_order() {
-    let messages = [
+#[tokio::test]
+async fn messages_go_out_verbatim_in_order() {
+    let messages = vec![
         Message::user("draft text"),
         Message::assistant("done"),
         Message::tool("call_1", "echoed: one"),
     ];
-    let body = build_request_body(&messages, None, &CompletionOptions::new("m"));
+    let body = body_sent(messages, Vec::new(), CompletionOptions::new("m")).await;
     assert_eq!(
         body["messages"],
         json!([
@@ -278,18 +302,19 @@ fn messages_go_out_verbatim_in_order() {
     );
 }
 
-#[test]
-fn each_tool_is_wrapped_as_a_function_with_its_schema_in_order() {
+#[tokio::test]
+async fn each_tool_is_wrapped_as_a_function_with_its_schema_in_order() {
     let (_, _, parameters) = echo();
     let round = tool_round(&[
         echo(),
         ("grab", "Grab a value", json!({ "type": "object" })),
     ]);
-    let body = build_request_body(
-        &[Message::user("hi")],
-        Some(&round.tools),
-        &CompletionOptions::new("m"),
-    );
+    let body = body_sent(
+        vec![Message::user("hi")],
+        round.tools,
+        CompletionOptions::new("m"),
+    )
+    .await;
     assert_eq!(
         body["tools"],
         json!([
@@ -313,26 +338,28 @@ fn each_tool_is_wrapped_as_a_function_with_its_schema_in_order() {
     );
 }
 
-#[test]
-fn unset_options_send_no_option_fields() {
-    let body = build_request_body(
-        &[Message::user("hi")],
-        None,
-        &CompletionOptions::new("analyst"),
-    );
+#[tokio::test]
+async fn unset_options_send_no_option_fields() {
+    let body = body_sent(
+        vec![Message::user("hi")],
+        Vec::new(),
+        CompletionOptions::new("analyst"),
+    )
+    .await;
     assert_eq!(body["model"], "analyst");
     for field in ["temperature", "max_tokens", "chat_template_kwargs"] {
         assert!(body.get(field).is_none(), "{field} is absent: {body}");
     }
 }
 
-#[test]
-fn the_body_always_streams_and_asks_for_usage() {
-    let body = build_request_body(
-        &[Message::user("hi")],
-        None,
-        &CompletionOptions::new("analyst"),
-    );
+#[tokio::test]
+async fn the_body_always_streams_and_asks_for_usage() {
+    let body = body_sent(
+        vec![Message::user("hi")],
+        Vec::new(),
+        CompletionOptions::new("analyst"),
+    )
+    .await;
     assert_eq!(body["model"], "analyst");
     assert_eq!(body["stream"], true);
     assert_eq!(body["stream_options"]["include_usage"], true);
@@ -340,15 +367,15 @@ fn the_body_always_streams_and_asks_for_usage() {
     assert!(body.get("temperature").is_none());
 }
 
-#[test]
-fn options_and_tools_reach_the_body() {
+#[tokio::test]
+async fn options_and_tools_reach_the_body() {
     let options = CompletionOptions::new("analyst")
         .with_temperature(0.0)
         .expect("0.0 is valid")
         .with_max_tokens(NonZeroU32::new(128).expect("128 is non-zero"))
         .with_thinking(false);
     let round = tool_round(&[("echo", "Echo.", json!({ "type": "object" }))]);
-    let body = build_request_body(&[Message::user("hi")], Some(&round.tools), &options);
+    let body = body_sent(vec![Message::user("hi")], round.tools, options).await;
     assert_eq!(body["temperature"], 0.0);
     assert_eq!(body["max_tokens"], 128);
     assert_eq!(body["chat_template_kwargs"]["enable_thinking"], false);
@@ -357,13 +384,14 @@ fn options_and_tools_reach_the_body() {
     assert_eq!(body["tools"][0]["function"]["name"], "example_test_echo");
 }
 
-#[test]
-fn an_empty_tool_list_sends_no_tools_field() {
-    let body = build_request_body(
-        &[Message::user("hi")],
-        Some(&[]),
-        &CompletionOptions::new("m"),
-    );
+#[tokio::test]
+async fn an_empty_tool_list_sends_no_tools_field() {
+    let body = body_sent(
+        vec![Message::user("hi")],
+        Vec::new(),
+        CompletionOptions::new("m"),
+    )
+    .await;
     assert!(body.get("tools").is_none());
     assert!(body.get("tool_choice").is_none());
 }

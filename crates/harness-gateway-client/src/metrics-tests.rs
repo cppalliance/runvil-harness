@@ -1,6 +1,39 @@
-//! Tests for the lenient call-metadata parse and its degrade policy.
+//! Tests for the lenient parse of the llama.cpp and vLLM sections and its
+//! degrade policy. The client's tests hold the `usage` section and the model
+//! name.
+
+use runvil::metrics::{CallMetrics, LlamaTimings, VllmMetrics};
 
 use super::*;
+
+/// What the adapter reads out of a response body: the two backend sections,
+/// and a diagnostic for each present section that did not parse.
+struct ResponseMetadata {
+    metrics: CallMetrics,
+    diagnostics: Vec<String>,
+}
+
+/// Reads both sections the way `try_into_engine` does.
+fn response_metadata(body: &Value) -> ResponseMetadata {
+    let mut diagnostics = Vec::new();
+    let metrics = CallMetrics::new()
+        .with_llama(parse_section(
+            body,
+            "timings",
+            parse_llama_timings,
+            &mut diagnostics,
+        ))
+        .with_vllm(parse_section(
+            body,
+            "metrics",
+            parse_vllm_metrics,
+            &mut diagnostics,
+        ));
+    ResponseMetadata {
+        metrics,
+        diagnostics,
+    }
+}
 
 /// Parses the metadata and counts its diagnostics, so the tests can pin
 /// both halves of the degrade policy: malformed sections report, and
@@ -45,12 +78,6 @@ fn llama_body_parses_model_usage_and_timings() {
 
     let (metadata, warnings) = with_warn_count(&body);
     assert_eq!(warnings, 0, "a well-formed body must not warn");
-    assert_eq!(metadata.model, "qwen3-30b");
-    assert_eq!(
-        metadata.metrics.usage,
-        Some(Usage::new(7, 3, 10)),
-        "flat llama.cpp usage reports the token counts only"
-    );
     assert_eq!(
         metadata.metrics.llama,
         Some(
@@ -60,10 +87,6 @@ fn llama_body_parses_model_usage_and_timings() {
         )
     );
     assert_eq!(metadata.metrics.vllm, None);
-    assert_eq!(
-        metadata.metrics.client, None,
-        "only the transport's own clock fills the client section"
-    );
 }
 
 #[test]
@@ -115,12 +138,6 @@ fn vllm_body_parses_metrics_and_cached_tokens() {
 
     let (metadata, warnings) = with_warn_count(&body);
     assert_eq!(warnings, 0, "a well-formed body must not warn");
-    assert_eq!(metadata.model, "meta-llama/Llama-3.1-8B-Instruct");
-    assert_eq!(
-        metadata.metrics.usage,
-        Some(Usage::new(20, 5, 25).with_cached_tokens(Some(16))),
-        "the prompt_tokens_details cache detail must flatten into usage"
-    );
     assert_eq!(metadata.metrics.llama, None);
     assert_eq!(
         metadata.metrics.vllm,
@@ -153,54 +170,11 @@ fn vllm_metrics_omit_what_was_not_measured() {
 }
 
 #[test]
-fn frontier_body_parses_usage_detail_fields() {
-    let body = serde_json::json!({
-        "id": "chatcmpl-frontier",
-        "object": "chat.completion",
-        "model": "gpt-5.2",
-        "choices": reply_choice(),
-        "usage": {
-            "prompt_tokens": 100,
-            "completion_tokens": 40,
-            "total_tokens": 140,
-            "prompt_tokens_details": { "cached_tokens": 64, "audio_tokens": 0 },
-            "completion_tokens_details": {
-                "reasoning_tokens": 25,
-                "audio_tokens": 0,
-                "accepted_prediction_tokens": 0,
-                "rejected_prediction_tokens": 0
-            }
-        }
-    });
-
-    let (metadata, warnings) = with_warn_count(&body);
-    assert_eq!(warnings, 0, "a well-formed body must not warn");
-    assert_eq!(metadata.model, "gpt-5.2");
-    assert_eq!(
-        metadata.metrics.usage,
-        Some(
-            Usage::new(100, 40, 140)
-                .with_cached_tokens(Some(64))
-                .with_reasoning_tokens(Some(25))
-        )
-    );
-    assert_eq!(
-        metadata.metrics.llama, None,
-        "frontier bodies have no timings"
-    );
-    assert_eq!(
-        metadata.metrics.vllm, None,
-        "frontier bodies have no metrics"
-    );
-}
-
-#[test]
-fn absent_metadata_sections_are_none_without_warning() {
+fn absent_and_null_backend_sections_are_none_without_warning() {
     let bare = serde_json::json!({ "model": "m", "choices": reply_choice() });
     let with_nulls = serde_json::json!({
         "model": "m",
         "choices": reply_choice(),
-        "usage": null,
         "timings": null,
         "metrics": null
     });
@@ -208,69 +182,30 @@ fn absent_metadata_sections_are_none_without_warning() {
     for body in [bare, with_nulls] {
         let (metadata, warnings) = with_warn_count(&body);
         assert_eq!(warnings, 0, "absence is normal, never a warning: {body}");
-        assert_eq!(metadata.model, "m");
-        assert_eq!(metadata.metrics.usage, None);
         assert_eq!(metadata.metrics.llama, None);
         assert_eq!(metadata.metrics.vllm, None);
     }
 }
 
 #[test]
-fn malformed_metadata_degrades_to_none_with_a_warning() {
-    // The deliberate degrade path: every section malformed at once, each
-    // one warning and dropping to None, and the call still succeeds.
+fn a_malformed_backend_section_degrades_with_a_warning_and_leaves_its_sibling() {
     let body = serde_json::json!({
-        "model": 7,
+        "model": "m",
         "choices": reply_choice(),
-        "usage": { "prompt_tokens": "seven" },
         "timings": { "prompt_n": 7 },
-        "metrics": ["not", "an", "object"]
-    });
-
-    let (metadata, warnings) = with_warn_count(&body);
-    assert_eq!(metadata.model, "", "a non-string model records as empty");
-    assert_eq!(
-        metadata.metrics.usage, None,
-        "non-numeric token counts degrade"
-    );
-    assert_eq!(
-        metadata.metrics.llama, None,
-        "timings missing required fields degrade"
-    );
-    assert_eq!(metadata.metrics.vllm, None, "a non-object metrics degrades");
-    assert_eq!(warnings, 4, "each malformed section warns exactly once");
-}
-
-#[test]
-fn metadata_sections_degrade_independently() {
-    let body = serde_json::json!({
-        "model": "qwen3-30b",
-        "choices": reply_choice(),
-        "usage": "broken",
-        "timings": {
-            "prompt_n": 7,
-            "prompt_ms": 12.5,
-            "prompt_per_second": 560.0,
-            "predicted_n": 3,
-            "predicted_ms": 30.5,
-            "predicted_per_second": 98.5
-        }
+        "metrics": { "time_to_first_token_ms": 8.5 }
     });
 
     let (metadata, warnings) = with_warn_count(&body);
     assert_eq!(warnings, 1, "only the broken section warns");
-    assert_eq!(metadata.metrics.usage, None);
     assert!(
-        metadata.metrics.llama.is_some(),
-        "a malformed sibling section must not take timings down with it"
+        metadata.diagnostics[0].starts_with("malformed `timings` in completion response ignored"),
+        "the diagnostic names the section: {:?}",
+        metadata.diagnostics
     );
-}
-
-#[test]
-fn missing_model_records_empty_and_warns() {
-    let body = serde_json::json!({ "choices": reply_choice() });
-
-    let (metadata, warnings) = with_warn_count(&body);
-    assert_eq!(metadata.model, "");
-    assert_eq!(warnings, 1, "an OpenAI-shaped body without a model warns");
+    assert_eq!(metadata.metrics.llama, None);
+    assert!(
+        metadata.metrics.vllm.is_some(),
+        "a malformed sibling section must not take the other down with it"
+    );
 }

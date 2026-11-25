@@ -11,17 +11,16 @@
 
 use std::fmt;
 
+use gateway_client::{GatewayChat, GatewayEndpoint, SecretString, StreamDelta, Tool, fetch_models};
 use runvil::effect::Round;
-use runvil::harness::{Delta, InferenceBroker, PieceSink};
+use runvil::harness::{InferenceBroker, PieceSink};
 use runvil::model::{
     Completion, CompletionOptions, Message, ModelBinding, ModelCatalog, ToolSchema,
 };
 use runvil::{BoxFuture, Error};
 
-use crate::catalog::fetch_model_catalog;
-use crate::config::{GatewayEndpoint, SecretString};
-use crate::transport::GatewayChat;
-use crate::wire::delta::StreamDelta;
+use crate::catalog::catalog_from;
+use crate::convert::{IntoEngine, IntoWire, TryIntoEngine, TryIntoWire};
 
 /// A model broker that sends the Harness's model rounds to the Runvil
 /// Gateway and lists the Gateway's models.
@@ -29,7 +28,7 @@ use crate::wire::delta::StreamDelta;
 /// A Host passes this broker to the Harness as its [`InferenceBroker`].
 /// The broker performs each `Chat` effect from the Engine as one model
 /// round on a [`GatewayChat`]. It lists the Gateway's models through
-/// [`fetch_model_catalog`]. Both kinds of request go to the same API root
+/// [`fetch_models`]. Both kinds of request go to the same API root
 /// and authenticate with the same bearer key.
 ///
 /// Every round uses the client's own request limits: a 120 second wait for
@@ -85,21 +84,24 @@ impl GatewayBroker {
     ) -> BoxFuture<'static, Result<Box<Completion>, Error>> {
         let client = self.client.clone();
         Box::pin(async move {
+            let tools = tools
+                .iter()
+                .map(TryIntoWire::try_into_wire)
+                .collect::<Result<Vec<Tool>, Error>>()?;
             // An empty advertisement sends no `tools` field at all, the
             // plain chat-completions shape.
             let tools = (!tools.is_empty()).then_some(tools.as_slice());
+            let options = (&options).into_wire();
             let on_delta = move |delta: StreamDelta| {
                 if let Some(sink) = on_piece.as_ref() {
-                    sink(match delta {
-                        StreamDelta::Text(text) => Delta::Text(text),
-                        StreamDelta::Reasoning(text) => Delta::Reasoning(text),
-                    });
+                    sink(delta.into_engine());
                 }
             };
-            client
+            let reply = client
                 .complete(&messages, tools, &options, on_delta)
                 .await
-                .map(Box::new)
+                .map_err(IntoEngine::into_engine)?;
+            reply.try_into_engine().map(Box::new)
         })
     }
 }
@@ -108,7 +110,12 @@ impl InferenceBroker for GatewayBroker {
     fn models(&self) -> BoxFuture<'static, Result<ModelCatalog, Error>> {
         let api_root = self.endpoint.url().to_owned();
         let key = self.key.clone();
-        Box::pin(async move { fetch_model_catalog(&api_root, key.expose()).await })
+        Box::pin(async move {
+            let models = fetch_models(&api_root, &key)
+                .await
+                .map_err(IntoEngine::into_engine)?;
+            catalog_from(models)
+        })
     }
 
     fn supports_streaming(&self) -> bool {
@@ -131,3 +138,11 @@ impl InferenceBroker for GatewayBroker {
 #[cfg(test)]
 #[path = "broker-tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "broker-tests-request.rs"]
+mod request_tests;
+
+#[cfg(test)]
+#[path = "broker-tests-errors.rs"]
+mod error_tests;

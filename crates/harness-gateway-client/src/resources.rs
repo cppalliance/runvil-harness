@@ -4,11 +4,10 @@
 //! address and the key of the Gateway, and the Plugin calls the Gateway
 //! itself.
 
+use gateway_client::{GatewayEndpoint, SecretString};
 use runvil::Error;
 use runvil::harness::HostResources;
 use serde_json::{Value, json};
-
-use crate::config::{GatewayEndpoint, SecretString};
 
 /// The name of the Gateway's web search among a Host's resources. A
 /// Plugin may not depend on a Harness crate, so the Plugin that reads the
@@ -79,7 +78,7 @@ fn web_search_entry(endpoint: &GatewayEndpoint, key: &SecretString) -> Value {
     json!({
         "version": 1,
         "url": format!("{}/tools/web_search", endpoint.url()),
-        "api_key": key.expose(),
+        "api_key": key.expose_secret(),
     })
 }
 

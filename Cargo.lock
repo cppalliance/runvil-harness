@@ -605,6 +605,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "gateway-client"
+version = "0.1.0"
+source = "git+https://github.com/cppalliance/gateway-client?rev=91e4685c4bdbd70cc89a10fa791e1a37641f728f#91e4685c4bdbd70cc89a10fa791e1a37641f728f"
+dependencies = [
+ "bytes",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "url",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -659,14 +675,13 @@ name = "harness-gateway-client"
 version = "0.3.0"
 dependencies = [
  "axum",
- "bytes",
+ "gateway-client",
  "reqwest",
  "runvil",
  "runvil-engine",
  "serde",
  "serde_json",
  "tokio",
- "url",
 ]
 
 [[package]]
