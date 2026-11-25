@@ -244,13 +244,69 @@ jobs:
       - name: Build the Engine crates at the floor
         run: cargo build --locked -p runvil-engine -p runvil-runtime -p runvil-lua -p runvil-prompt -p runvil-types -p runvil-vfs -p runvil-model-client
 
+  # The live test that CheapSeek can serve: a Host sends the shipped hello
+  # prompt through a real Gateway and the run ends with text. CheapSeek is
+  # a test server that speaks the OpenAI chat API and computes each reply
+  # from fixed rules, so the job needs neither a model file nor a
+  # provider's key. The Gateway is a release of cppalliance/runvil-gateway,
+  # checked against the SHA-256 that release publishes for the archive.
+  # tools/live-tests.mjs starts the Gateway, runs the test, and stops it,
+  # and names the one live test that a person still runs by hand.
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@4dc1969decfa71b34f25aa7f3dd4656654d9ad1e # nextest
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Download the Gateway release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: gateway-v0.3.1
+          ASSET: gateway-x86_64-unknown-linux-gnu.tar.xz
+          SHA256: 8f8ed91e9678f1fc84d6c9cee8653e90d4d82387f17cdf52435491119fa0f81f
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo cppalliance/runvil-gateway --pattern "$ASSET" --dir "$RUNNER_TEMP"
+          echo "$SHA256  $RUNNER_TEMP/$ASSET" | sha256sum --check
+          mkdir "$RUNNER_TEMP/gateway"
+          tar -xJf "$RUNNER_TEMP/$ASSET" -C "$RUNNER_TEMP/gateway"
+          found=$(find "$RUNNER_TEMP/gateway" -name runvil-gateway -type f)
+          [ -x "$found" ] || { echo "the archive $ASSET must hold one executable named runvil-gateway; found '$found'"; exit 1; }
+          echo "GATEWAY=$found" >> "$GITHUB_ENV"
+
+      # The action sets CHEAPSEEK_BASE_URL for the step after it.
+      - name: Start CheapSeek
+        uses: cppalliance/cheapseek@54d18ebefc024fb2bfe86a3556792303829bcd56 # v1.1.0
+
+      - name: Live test
+        run: node tools/live-tests.mjs "$GATEWAY"
+
+      - name: Clean tree
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "the test dirtied the repository:"
+            git status --porcelain
+            exit 1
+          fi
+
   # Single required status check for branch protection: it fails when any
   # job fails or is cancelled, so a cancelled job cannot read as green.
   # needs: is a static list, so every newly added job must be added to it
   # or that job bypasses this gate.
   ci-green:
     runs-on: ubuntu-latest
-    needs: [fmt, clippy, test, test-windows, docs, wording, supply-chain, api-surface, dylint, msrv]
+    needs: [fmt, clippy, test, test-windows, docs, wording, supply-chain, api-surface, dylint, msrv, live]
     if: always()
     steps:
       - name: Verify every job succeeded
