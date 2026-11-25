@@ -11,14 +11,16 @@
 -- shared trio - `raise(kind, fields)` builds and raises the structured
 -- error table, `fail(result)` raises an envelope's failure value, and
 -- `engine_type(value)` names a value's type as Lua's `type()` does, with
--- an integer named "integer".
+-- an integer named "integer". `weakness(table)` gives the words a refusal
+-- says of a table that a read must not look into, or nil: a weak table, a
+-- view that leads to one, or a table whose metatable is weak.
 --
 -- A Task handle is a plain methodless table `{ task = id }`: every
 -- operation here is a namespace function that accepts the handle or the
 -- bare id string, so a handle stored in `var` survives the serde boundary
 -- unchanged, and a `join` result entry (which includes `task`) is
 -- itself a handle.
-local yield, var_snapshot, helpers = ...
+local yield, var_snapshot, helpers, weakness = ...
 
 local raise, fail, engine_type = helpers.raise, helpers.fail, helpers.engine_type
 local pairs, format = pairs, string.format
@@ -26,17 +28,35 @@ local pairs, format = pairs, string.format
 -- runs none of the author's code inside a function of this chunk.
 local ipairs, select, tostring, type = ipairs, select, tostring, type
 
+-- Refuses a table that `weakness` has words for, with `what` in front of
+-- them. The collector decides what a read of such a table finds, by index
+-- and by key as much as by a walk, so no function here reads one. A
+-- metamethod of the author's can make a table weak, so the test comes
+-- before each read, with none of the author's code between the two.
+local function refuse_weak(value, what)
+  local reason = weakness(value)
+  if reason then raise("lua", { message = what .. " " .. reason }) end
+end
 
 -- Refuses a key of `opts` that `call` does not take, so a misspelled
 -- option fails where it is written. `accepted` holds the keys the call
--- takes, and `listed` names them for the message.
+-- takes, and `listed` names them for the message. A weak `opts` is
+-- refused first, in the name of `call`: a `__pairs` of its own would
+-- keep it from the `pairs` below, which refuses one in its own name.
 local function check_keys(opts, call, accepted, listed)
+  refuse_weak(opts, call .. " opts must not be")
   for key in pairs(opts) do
     if not accepted[key] then
       local shown = type(key) == "string" and format("%q", key) or tostring(key)
       raise("lua", { message = call .. ": unknown key " .. shown .. "; " .. listed })
     end
   end
+end
+
+-- The option `key` of the `opts` of `call`, which are refused when weak.
+local function option(opts, key, call)
+  refuse_weak(opts, call .. " opts must not be")
+  return opts[key]
 end
 
 local SPAWN_KEYS = { args = true, item = true, index = true }
@@ -54,19 +74,21 @@ local WAIT_KEYS = { timeout = true }
 -- library's code, and the driver resolves the target's path from there.
 local function spawn_from(from)
   return function(target, opts)
-    if opts == nil then
-      opts = {}
-    elseif type(opts) ~= "table" then
-      raise("lua", { message = "tasks.spawn opts must be a table, got " .. engine_type(opts) })
-    else
+    local args, item, index
+    if type(opts) == "table" then
       check_keys(opts, "tasks.spawn", SPAWN_KEYS, "accepted keys are args, item, index")
+      args = option(opts, "args", "tasks.spawn")
+      item = option(opts, "item", "tasks.spawn")
+      index = option(opts, "index", "tasks.spawn")
+    elseif opts ~= nil then
+      raise("lua", { message = "tasks.spawn opts must be a table, got " .. engine_type(opts) })
     end
     local ok, result = yield({
       op = "spawn",
       target = target,
-      args = opts.args,
-      item = opts.item,
-      index = opts.index,
+      args = args,
+      item = item,
+      index = index,
       var = var_snapshot(),
       from = from,
     })
@@ -79,23 +101,34 @@ local tasks_spawn = spawn_from(nil)
 
 -- Resolves a tasks.* argument to its bare id: a Task handle (any table
 -- with a string `task` field) or the id string itself. Anything else is
--- the call's argument error.
+-- the call's argument error, a weak handle included.
 local function task_id(value, call)
-  if type(value) == "table" then value = value.task end
+  if type(value) == "table" then
+    refuse_weak(value, call .. " expects a Task handle or task id, got")
+    value = value.task
+  end
   if type(value) ~= "string" then
     raise("lua", { message = call .. " expects a Task handle or task id, got " .. engine_type(value) })
   end
   return value
 end
 
--- Resolves a wait's set argument to a non-empty sequence of bare ids.
+-- Resolves a wait's set argument to a non-empty sequence of bare ids. A
+-- weak set is refused: the loop below writes to the heap between two
+-- reads of it, and the collector can take a handle that only the set
+-- holds, so the wait would be for fewer tasks in one run than in another.
+-- The read of a member can run an `__index` of the author's, so the set
+-- is tested again before the loop reads the next.
 local function task_set(set, call)
   if type(set) ~= "table" then
     raise("lua", { message = call .. " expects a set of tasks, got " .. engine_type(set) })
   end
+  local weak_set = call .. " expects a set of tasks, got"
+  refuse_weak(set, weak_set)
   local ids = {}
   for index, member in ipairs(set) do
     ids[index] = task_id(member, call)
+    refuse_weak(set, weak_set)
   end
   if #ids == 0 then
     raise("lua", { message = call .. " requires at least one task" })
@@ -113,7 +146,7 @@ local function wait_timeout(opts, call)
     raise("lua", { message = call .. " opts must be a table, got " .. engine_type(opts) })
   end
   check_keys(opts, call, WAIT_KEYS, "the accepted key is timeout")
-  local timeout = opts.timeout
+  local timeout = option(opts, "timeout", call)
   if timeout ~= nil and type(timeout) ~= "number" then
     raise("lua", { message = call .. " timeout must be a number, got " .. engine_type(timeout) })
   end
