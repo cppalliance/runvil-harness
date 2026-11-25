@@ -4,10 +4,11 @@
 //! A verb takes one argument: a string with a `/`, a tool id; a string
 //! without one, a Pack id, since Pack ids are one segment and tool ids
 //! two or more; a tool object; a Pack object; or an array mixing them.
-//! An array is its `#t` entries, read through `__index`, with no gap, no
-//! nested table, and no raw key outside `1..#t`. The rendered-list
-//! refusal comes first, and every entry is checked before any is
-//! recorded.
+//! An array is the entries its `__len` gives, read through `__index`, or
+//! without a `__len` the entries the table holds from index 1 to the
+//! first it lacks. It has no gap, no nested table, and no raw key outside
+//! those entries. The rendered-list refusal comes first, and every entry
+//! is checked before any is recorded.
 
 use std::sync::{Arc, Mutex};
 
@@ -20,7 +21,7 @@ use crate::adhoc::AdhocTools;
 use crate::bindings::{RosterEntry, ToolSet, wire_name_of};
 use crate::error::{self, Result};
 use crate::messages::MessageList;
-use crate::order::FirstRefusal;
+use crate::order::{FirstRefusal, listed};
 use crate::packs::{LuaPackHandle, is_adhoc, pack_object};
 use crate::proxy::key_text;
 use crate::scope::{OFFERS_POISONED, OfferMode, OfferTarget, Offers};
@@ -203,26 +204,34 @@ impl Offering {
     }
 }
 
-/// The entries of the array `table`: `#t` of them, honoring `__len`, each
-/// read through `__index`. A `#t` above [`HELD_KEY_LIMIT`] is refused
-/// before any entry is read, since each entry holds a Lua reference until
+/// The entries of the array `table`. With a `__len` the array has the
+/// entries that gives, each read through `__index`. Without one it has
+/// the entries the table itself holds from index 1 to the first it lacks,
+/// which [`listed`] counts. A count above [`HELD_KEY_LIMIT`] is refused
+/// before any entry is kept, since each entry holds a Lua reference until
 /// the offer is recorded.
 ///
 /// The array ends at the first nil the read meets. A table before that
-/// nil is refused, then a raw key outside the array, then a `#t` past its
-/// end: of several entries the first, and of several keys the one that
+/// nil is refused, then a raw key outside the array, then a `__len` past
+/// its end: of several entries the first, and of several keys the one that
 /// comes first in the shared order of keys.
 ///
-/// For a table with a gap `#t` differs from one run to the next, as
-/// [`crate::order::listed`] tells. Such a table is refused for the same
-/// key wherever `#t` puts its end, as long as the read meets a nil at the
-/// first gap. It does not when the table has no `__len` and its `__index`
-/// gives a value there: the read then goes on as far as `#t` allows, so
-/// one run accepts `{ [1] = a, [2] = a, [3] = a, [5] = a }` with an
-/// `__index` of `{ [4] = a }` and another refuses it for the key 5. A
-/// `__len` gives one end in every run.
+/// Not `#table` without a `__len`: for a table with a gap that differs
+/// from one run to the next, as [`listed`] tells, and an `__index` that
+/// gives a value at the gap would let the read go on as far as it allowed.
+/// So one run would accept `{ [1] = a, [2] = a, [3] = a, [5] = a }` with an
+/// `__index` of `{ [4] = a }` and another refuse it for the key 5. Counted
+/// from the table itself, every run refuses it for that key.
 fn array(verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
-    let len = table.len()?;
+    let has_len = match table.metatable() {
+        Some(metatable) => !metatable.raw_get::<Value>("__len")?.is_nil(),
+        None => false,
+    };
+    let len = if has_len {
+        table.len()?
+    } else {
+        i64::try_from(listed(table)?).unwrap_or(i64::MAX)
+    };
     let count = usize::try_from(len).unwrap_or(if len > 0 { usize::MAX } else { 0 });
     if count > HELD_KEY_LIMIT {
         return Err(mlua::Error::external(format!(

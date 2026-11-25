@@ -224,10 +224,21 @@ fn an_array_with_several_keys_outside_it_is_refused_for_the_same_one_in_every_vm
                 "{ 'web', zulu = 1, mike = 1, alpha = 1, oscar = 1 }",
                 "alpha",
             ),
-            // `#t` is 3 in one VM and 5 in another, which read the nil at
-            // index 4 first.
+            // `#t` is 3 in one VM and 5 in another. The array ends at the
+            // first index the table lacks, whatever `#t` is, and an
+            // `__index` that gives a value there does not move the end.
             (
                 "{ [1] = 'web', [2] = 'web', [3] = 'web', [5] = 'web' }",
+                "5",
+            ),
+            (
+                "setmetatable({ [1] = 'web', [2] = 'web', [3] = 'web', [5] = 'web' }, \
+                 { __index = { [4] = 'web' } })",
+                "5",
+            ),
+            (
+                "setmetatable({ [1] = 'web', [2] = 'web', [3] = 'web', [5] = 'web', [7] = 'web' }, \
+                 { __index = { [4] = 'web', [6] = 'web' } })",
                 "5",
             ),
         ] {
