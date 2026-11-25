@@ -374,6 +374,21 @@ fn a_var_write_that_would_mix_list_items_and_named_fields_is_refused() {
 }
 
 #[test]
+fn a_key_that_serde_json_keeps_for_itself_reads_back_from_var_as_a_name() {
+    // `serde_json::Value` reads a map whose first key is this name as the
+    // JSON text under the key, with its `raw_value` feature on.
+    let out = run(
+        "var.t = { ['$serde_json::private::RawValue'] = '[1,2]' }",
+        &json!({}),
+    )
+    .expect("the write passes the guard");
+    assert_eq!(
+        out.var,
+        json!({ "t": { "$serde_json::private::RawValue": "[1,2]" } })
+    );
+}
+
+#[test]
 fn a_var_list_gives_up_its_last_item_alone() {
     // Removing an item that is not the last would leave a gap.
     let (raised, kind, line, var) = var_write("var.list[2] = 'b' var.list[1] = nil");

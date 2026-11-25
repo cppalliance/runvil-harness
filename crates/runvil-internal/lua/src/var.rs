@@ -5,6 +5,7 @@ use serde_json::Value as Json;
 
 use crate::error::{self, Result, author_refusal, make_lua_runtime_error};
 use crate::json::{DEPTH_LIMIT, to_stored_json, too_deep};
+use crate::plain_json::json_of;
 use crate::proxy::{key_path, view_len};
 
 /// The registry key holding the `var` proxy's hidden data table.
@@ -370,6 +371,5 @@ pub(crate) fn var_snapshot_table(lua: &Lua) -> Result<mlua::Table> {
 /// Fails as [`var_snapshot_table`] does, and with a `LuaRuntime` failure if
 /// the data cannot be represented as JSON.
 pub(crate) fn var_to_json(lua: &Lua) -> Result<Json> {
-    lua.from_value(Value::Table(var_snapshot_table(lua)?))
-        .map_err(error::make_lua_error)
+    json_of(lua, Value::Table(var_snapshot_table(lua)?)).map_err(error::make_lua_error)
 }

@@ -9,6 +9,7 @@ use runvil_vfs::VfsOutcome;
 use crate::bindings::ToolOutputKind;
 use crate::compactors::OverflowReason;
 use crate::error::{Error, Result, tool};
+use crate::plain_json::json_of_text;
 
 /// One dispatched `tools.call`'s successful answer: a bound tool's output,
 /// classified by the binding's declared [`ToolOutputKind`] so the envelope
@@ -50,7 +51,7 @@ impl ToolCallOutcome {
     pub fn from_dispatch(kind: ToolOutputKind, alias: &str, text: String) -> Result<Self> {
         match kind {
             ToolOutputKind::Plain => Ok(ToolCallOutcome::Plain(text)),
-            ToolOutputKind::Structured => match serde_json::from_str(&text) {
+            ToolOutputKind::Structured => match json_of_text(text.as_bytes()) {
                 Ok(json) => Ok(ToolCallOutcome::Structured(json)),
                 Err(error) => {
                     let text = format!("structured tool {alias:?} returned invalid JSON: {error}");
