@@ -232,7 +232,8 @@ impl Scheduler {
     }
 
     /// Runs every ready chain to its next suspension point. Cancellation
-    /// is polled before each chain step: the instruction hook covers
+    /// is polled before each chain step, and a step which fails while the
+    /// flag is set ends the run as canceled: the instruction hook covers
     /// running Lua, and a cancel that arrives while every chain is
     /// suspended is observed on the next `step`. When the queue empties,
     /// the queued tasks that now fit are admitted and drained in turn:
@@ -257,7 +258,13 @@ impl Scheduler {
             };
             let step = match self.step_chain(id) {
                 Ok(step) => step,
-                Err(error) => self.finish(id, Err(error)),
+                Err(error) => {
+                    if self.ctx.cancel().is_canceled() {
+                        self.end(Err(Error::canceled()));
+                        return;
+                    }
+                    self.finish(id, Err(error))
+                }
             };
             if let ChainStep::RunEnded(result) = step {
                 self.end(result);

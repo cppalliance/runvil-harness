@@ -374,3 +374,52 @@ fn a_tool_call_made_inside_a_prelude_function_records_a_script_caller() {
         }]
     );
 }
+
+#[test]
+fn a_cancel_during_a_looping_prelude_ends_the_run_canceled() {
+    use std::thread;
+
+    use runvil_types::cancel::CancelHandle;
+    use runvil_types::event::Event;
+
+    // The prelude never returns on its own: only the instruction hook,
+    // under a set cancel flag, stops it. The second thread cancels once
+    // the section has started, which is before its VM installs the
+    // prelude, so the cancel lands while the prelude loads and not at the
+    // step's own poll before the chain runs.
+    let md = declaring(&["spin"], "## Only\n\n```lua\nreturn 'done'\n```\n");
+    let prompt = Prompt::parse(&|_: &str| Ok(md.clone()), "prompt").expect("the prompt parses");
+    let cancel = CancelHandle::new();
+    let params = RunParams::new(
+        crate::test_support::scenario::TEST_SEED,
+        runvil_types::timestamp::Timestamp::UNIX_EPOCH,
+    )
+    .with_preludes(vec![prelude("spin", "while true do end")])
+    .with_cancel(cancel.clone());
+    let mut state = None;
+    let mut run = Run::new_for_test(Arc::new(prompt), "{}", params, |fresh| {
+        state = Some(fresh.clone());
+        fresh
+    });
+    let state = state.expect("the run starts over the state it was handed");
+    let canceller = thread::spawn(move || {
+        let mut read = Vec::new();
+        while !read
+            .iter()
+            .any(|event| matches!(event, Event::SectionStarted { .. }))
+        {
+            read.extend(state.take_events());
+            thread::yield_now();
+        }
+        cancel.cancel();
+    });
+    let step = run.step();
+    canceller.join().expect("the canceling thread finishes");
+    let Step::Done { result, .. } = step else {
+        panic!("the hook aborts the loop and nothing is outstanding, got {step:?}");
+    };
+    assert!(
+        matches!(&result, Err(error) if error.is_canceled()),
+        "a cancel during a prelude must end the run canceled, got {result:?}"
+    );
+}
