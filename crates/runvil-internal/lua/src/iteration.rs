@@ -4,11 +4,12 @@
 //! fresh VMs) can visit the same table differently. [`install_deterministic_iteration`]
 //! replaces the `pairs` and `next` globals with one deterministic walk, in
 //! the order of [`WalkPlace`]: the integer keys from 1 up by value, then
-//! the other keys by the shared [`SortKey`] order (booleans, then numbers,
-//! then strings). A table that holds a key of any other type is refused, as
-//! the end of this text explains. A `__pairs` metamethod on a table's or a
-//! userdata's metatable still wins, as in stock Lua; any other non-table
-//! value, a userdata without `__pairs` included, is refused.
+//! the other keys by the shared [`order::SortKey`] order (booleans, then
+//! numbers, then strings). A table that holds a key of any other type is
+//! refused, as the end of this text explains. A `__pairs` metamethod on a
+//! table's or a userdata's metatable still wins, as in stock Lua; any
+//! other non-table value, a userdata without `__pairs` included, is
+//! refused.
 //!
 //! The place of a key is the key's own. It does not follow `#t`, which for
 //! a table with a gap in its indices is any index before a gap, picked
@@ -64,7 +65,7 @@ use std::sync::LazyLock;
 use mlua::{Function, Lua, MultiValue, Table, Value};
 
 use crate::error::{self, Error, Result};
-use crate::order::{self, FirstRefusal, SortKey};
+use crate::order::{self, FirstRefusal, WalkPlace};
 use crate::program::LuaProgram;
 use crate::proxy::view_data;
 
@@ -97,38 +98,6 @@ pub(crate) fn install_deterministic_iteration(lua: &Lua) -> Result<()> {
     globals
         .raw_set("pairs", pairs_fn)
         .map_err(error::make_lua_error)
-}
-
-/// Where a key sits in the walk order: an integer from 1 up comes before
-/// every other key, by its value, and the other keys follow by
-/// [`SortKey`]. So the items of a list precede a boolean key, though
-/// [`SortKey`] ranks a boolean below a number.
-enum WalkPlace {
-    /// An integer key from 1 up.
-    Index(i64),
-    /// Any other key: never an integer from 1 up.
-    Scalar(SortKey),
-}
-
-impl WalkPlace {
-    /// The place of `key`, or the name of its type when the order has no
-    /// place for it.
-    fn of(key: &Value) -> std::result::Result<Self, &'static str> {
-        Ok(match order::position(key)? {
-            SortKey::Integer(index) if index >= 1 => WalkPlace::Index(index),
-            place => WalkPlace::Scalar(place),
-        })
-    }
-
-    /// Orders two places.
-    fn compare(&self, other: &WalkPlace) -> Ordering {
-        match (self, other) {
-            (WalkPlace::Index(left), WalkPlace::Index(right)) => left.cmp(right),
-            (WalkPlace::Index(_), WalkPlace::Scalar(_)) => Ordering::Less,
-            (WalkPlace::Scalar(_), WalkPlace::Index(_)) => Ordering::Greater,
-            (WalkPlace::Scalar(left), WalkPlace::Scalar(right)) => left.compare(right),
-        }
-    }
 }
 
 /// The refusal of a table that holds a key the walk order has no place for,

@@ -14,7 +14,7 @@
 -- an integer named "integer"),
 -- `collection_members(collection)` enumerates a collection as `(members)`
 -- or `(nil, message)` - the list in order, then every other entry as a
--- `{ key, value }` pair, sorted by key - and `render_item(item)` renders a
+-- `{ key, value }` pair, in `pairs` order - and `render_item(item)` renders a
 -- member as `{{ item }}` would. The last three captures reach the chain's
 -- current model: `get_selection()` returns its handle, or nil when the
 -- caller supplied no model, `set_selection(handle_or_nil)` sets it (nil
@@ -70,7 +70,7 @@ end
 -- so the switch cannot be observed. The first argument is checked before
 -- anything is switched. The
 -- members enumerate (the list in order, then every other entry as a
--- `{ key, value }` pair, sorted by key), an empty collection raises before
+-- `{ key, value }` pair, in `pairs` order), an empty collection raises before
 -- any spawn, and every arm is spawned up front - before any join - so no
 -- arm is ordered after a sibling: arms never see each other's writes,
 -- whatever the scheduler's admission order. Each arm is spawned with the
