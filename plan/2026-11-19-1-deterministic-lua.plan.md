@@ -65,7 +65,7 @@ Stock Lua 5.5 breaks that rule in more places than the issue names:
 - `tostring`, `%s` and `%p` in `string.format`, and the text of an uncaught error print the address of a table, function, userdata, or thread.
 - A walk over keys that are tables, functions, userdata, or threads follows a hash of their addresses.
 
-The work on those and your review found more, most of them on `master` too:
+The work on those and the review found more, most of them on `master` too:
 
 - **`next` never ends.** In a table that holds the float key `0x1p63` and the integer key `math.maxinteger`, `next` returns the float key again and again.
   It found the key it was given by `mlua`'s equality of values, which rounds the integer to a float.
@@ -90,7 +90,7 @@ The work on those and your review found more, most of them on `master` too:
 - **The short form follows views without a count.** A parameter's value behind 10,000 views, used by 1,000 parameters, made one Rust call of 10,000,000 steps, which no cancel interrupts.
 - **A table with a gap walks in two ways.** `pairs`, `next`, and `tasks.fanout` split a table at `#t`, and `tools.offer` measured its array by it.
   For a table with a gap in its indices, `#t` is any index before a gap, and when the indices sit in the hash part Lua picks one with the seed of the state (`hash_search` in `ltable.c`), which `mlua` draws anew for each state.
-  `{ [1] = 1, [2] = 2, [3] = 3, [5] = 5, [false] = false }` gave `#t` 3 or 5, and `pairs` gave `1,2,3,false,5` or `1,2,3,5,false`, over 32 VMs on an earlier build of this change, and on `master` as your review measured.
+  `{ [1] = 1, [2] = 2, [3] = 3, [5] = 5, [false] = false }` gave `#t` 3 or 5, and `pairs` gave `1,2,3,false,5` or `1,2,3,5,false`, over 32 VMs on an earlier build of this change, and on `master` as the review measured.
   `tasks.fanout` over such a table gave three members and two pairs, or a list that read back as three members, and `tools.offer` refused it in two texts.
 
 ## The rule
@@ -168,7 +168,7 @@ The work on those and your review found more, most of them on `master` too:
   That is at most 0.17 microseconds more for each key.
   A loop of `next` over string keys costs less, 2.13 s against 3.34 s for three loops over 2000, and over a list a little more, 0.66 s against 0.62 s for three loops over 2000.
 
-## Settled with you
+## Decided before the build
 
 - Replace the functions with deterministic ones; do not remove them.
 - `pairs` and `next` refuse a reference key, although that breaks the walk over a set of objects.
@@ -176,7 +176,7 @@ The work on those and your review found more, most of them on `master` too:
 - Both of those go in this pull request, not a later one.
 - Comments are written in this pull request wherever they help.
 
-## Decisions I made where you left room
+## Decisions
 
 - **The seed is a separate step.** `SectionVm::new` seeds the generator with a fixed value, and `SectionVm::seed_random` gives it the run's.
   A caller that forgot the second step would give every entry the same draws, which the runtime test `math_random_draws_from_the_runs_seed_and_the_section_entrys_id` guards.
@@ -364,7 +364,7 @@ Of the walks:
 ### The review
 
 This part is later than the rest of this file.
-It records the rounds of your review of the branch and the changes that followed each.
+It records the rounds of the review of the branch and the changes that followed each.
 
 **The first round.** It reproduced five faults in the first build.
 Two of them were in code that issue #22 does not need, and that code is cut.
@@ -484,6 +484,10 @@ Out of scope:
 
 ## Git
 
-- The branch `kb/lua-fixes` starts at `bdcadfbb`: this plan first, then one commit for each change under "Code", then the pages.
+- The branch `kb/lua-fixes` started at `bdcadfbb`: this plan first, then one commit for each change under "Code", then the pages.
 - Each message ends with `Plan: /plan/2026-11-19-1-deterministic-lua.plan.md`.
-- The branch is on your fork and is the head of [pull request #56](https://github.com/cppalliance/runvil-harness/pull/56).
+- The branch was the head of [pull request #56](https://github.com/cppalliance/runvil-harness/pull/56), which is closed: its thirteen commits are on `master` as `22693b33` to `9ba47f6e`, and [issue #22](https://github.com/cppalliance/runvil-harness/issues/22) is closed.
+- The `dylint`, `msrv`, and `test-windows` jobs of the pull request passed on its last commit, and they run the three checks that "Verification" names as not run.
+- `plan/2026-11-23-1-deterministic-lua-follow-up.plan.md` continues this plan.
+  It closes four entries of "Left alone": the conversion of a table with a gap, an offer whose `__index` fills a gap, the size of one refusal of `tools.adhoc`, and a weak table that another Engine function reads.
+  It changes the guide in `runvil-docs`, which is out of scope here.
