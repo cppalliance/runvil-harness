@@ -28,8 +28,10 @@ pub(crate) fn harden(lua: &Lua) -> Result<()> {
     // chunk, the standard-library replacements included, must capture the
     // guard's replacements rather than the base functions.
     crate::globals::install(lua)?;
-    // The iterator of `pairs` captures `rawget`, which is removed below.
+    // The iterator of `pairs` captures `rawget`, which is removed below,
+    // and so does the chunk of the replacements.
     crate::iteration::install_deterministic_iteration(lua)?;
+    crate::stdlib::install(lua)?;
     let globals = lua.globals();
     for name in [
         "load",
@@ -51,7 +53,7 @@ pub(crate) fn harden(lua: &Lua) -> Result<()> {
             .set(name, Value::Nil)
             .map_err(error::make_lua_error)?;
     }
-    crate::stdlib::install(lua)
+    Ok(())
 }
 
 /// A VM's shared cancellation-hook state.

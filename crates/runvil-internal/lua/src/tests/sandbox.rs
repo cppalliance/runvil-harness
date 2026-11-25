@@ -3,6 +3,7 @@
 //! the `untrusted` global.
 
 use super::*;
+use crate::error::author_prose;
 
 #[test]
 fn direct_output_is_absent_in_every_executable_lua_vm() {
@@ -156,7 +157,7 @@ fn table_sort_orders_by_less_than_or_by_the_comparison_function() {
 }
 
 #[test]
-fn table_sort_fails_on_the_callers_line_in_stock_luas_words() {
+fn table_sort_and_table_concat_fail_on_the_callers_line_in_stock_luas_words() {
     for (call, reason) in [
         (
             "table.sort({ 1, 'x' })",
@@ -170,11 +171,30 @@ fn table_sort_fails_on_the_callers_line_in_stock_luas_words() {
             "table.sort({ 2, 1 }, 5)",
             "bad argument #2 to 'sort' (function expected, got number)",
         ),
+        // A refused list is named as stock Lua names it, by the `__name`
+        // of its metatable. A record has no `__len`.
+        (
+            "messages:user('a') table.sort(messages[1])",
+            "bad argument #1 to 'sort' (table expected, got RecordView)",
+        ),
+        // The message list has `__index`, `__newindex`, and `__len`, so it
+        // is a list to the sort, as it is to the stock one. The sort then
+        // fails at what it does with the records.
+        (
+            "messages:user('a') messages:user('b') table.sort(messages)",
+            "attempt to compare two RecordView values",
+        ),
+        (
+            "messages:user('a') messages:user('b') \
+             table.sort(messages, function() return true end)",
+            "messages cannot be assigned to by index; add records with append(record), or \
+             rewrite history with models.compact(compactor, reason)",
+        ),
         // A `__len` that cannot be called fails where the sort takes the
         // list's length.
         (
             "table.sort(setmetatable({}, { __len = false }))",
-            "attempt to call a boolean value (metamethod 'len')",
+            "attempt to call a boolean value",
         ),
         // A failure Lua raises in the sort's own read of the list, which a
         // comparison function does not put under a protected call.
@@ -183,9 +203,25 @@ fn table_sort_fails_on_the_callers_line_in_stock_luas_words() {
              function(a, b) return a < b end)",
             "attempt to index a number value",
         ),
+        (
+            "table.concat(5)",
+            "bad argument #1 to 'concat' (table expected, got number)",
+        ),
+        (
+            "table.concat({}, '', {})",
+            "bad argument #3 to 'concat' (number expected, got table)",
+        ),
+        (
+            "table.concat({ 1, {} })",
+            "invalid value (table) at index 2 in table for 'concat'",
+        ),
+        (
+            "table.concat(setmetatable({}, { __len = function() return 1 end, __index = 5 }))",
+            "attempt to index a number value",
+        ),
     ] {
         let error =
-            run(&format!("local first_line\n{call}"), &json!({})).expect_err("the sort fails");
+            run(&format!("local first_line\n{call}"), &json!({})).expect_err("the call fails");
         assert_eq!(error.prose, refused(reason), "{call}");
         assert_eq!(error.at.map(|at| at.start_line.get()), Some(2), "{call}");
     }
@@ -285,92 +321,357 @@ fn the_replacements_answer_as_stock_lua_does() {
     // case's own chunk in front of a failure: a stock function, which is
     // C, puts none on a failure Lua raises inside it. Any other position
     // stays, so a failure that names the Engine's own chunk is a mismatch.
-    const CASES: &[&str] = &[
-        r#"return (string.format('%5.2f|%-5d|%+d|%05d|%x|%c|%g|%i|%q', 1.5, 3, 4, 6, 255, 65, 1.5, 7, 'a"b'))"#,
-        "return (string.format('%s %s %s %10s|%-6s|%.2s', nil, true, 1.5, 'abc', 'abc', 'abc'))",
-        "return (string.format('%s|%.3s|%s|%d', {}, {}, function() end, 3))",
-        "return (string.format('%s %s', setmetatable({}, { __name = 'Named' }), setmetatable({}, { __name = 5 })))",
-        "return (string.format('100%% %%s %s', setmetatable({}, { __tostring = function() return 'T' end })))",
-        "return (string.format('%s', setmetatable({}, { __tostring = function() return {} end })))",
-        "return (string.format('%s', setmetatable({}, { __tostring = function() error('boom', 0) end })))",
-        // A `__tostring` that changes what a later argument prints as: the
-        // argument's own metatable, then another argument's.
-        "local value = setmetatable({}, { __tostring = function(self) setmetatable(self, nil) return 'first' end }) \
-         return (string.format('%s|%s', value, value))",
-        "local later = {} \
-         local first = setmetatable({}, { __tostring = function() \
-           setmetatable(later, { __tostring = function() return 'later' end }) return 'first' end }) \
-         return (string.format('%s|%s', first, later))",
-        // The stock function refuses an argument before it prints a later one.
-        "local calls = 0 \
-         local counted = setmetatable({}, { __tostring = function() calls = calls + 1 return 'x' end }) \
-         pcall(string.format, '%s %d %s', counted, 'x', counted) return calls",
-        "getmetatable('').__tostring = function(text) return '<' .. text .. '>' end \
-         return (string.format('%s %s %s', 'x', {}, setmetatable({}, { __tostring = function() return 't' end })))",
-        // A `__name` is printed up to its first zero byte, as a C string.
-        "local named = setmetatable({}, { __name = 'a\\0b' }) \
-         return (string.format('%s|', named) .. tostring(named))",
-        // A `__tostring` of the string metatable that returns no string. The
-        // case takes it out again, because the comparison prints strings.
-        "local strings = getmetatable('') \
-         strings.__tostring = function() return {} end \
-         local _, failure = pcall(function() return tostring('x') end) \
-         strings.__tostring = nil \
-         error(failure, 0)",
-        "return (string.format('%s %s', 1))",
-        "return (string.format('%d', 'x'))",
-        "return (string.format('%y', 1))",
-        "return (string.format())",
-        "return (string.format(nil))",
-        "return (string.format(5, {}))",
-        "return (tostring())",
-        "return (tostring(nil) .. tostring(2^63) .. tostring(-0.0) .. tostring(3) .. tostring(true))",
-        "return (tostring({}) .. '|' .. tostring(function() end) .. '|' .. tostring(setmetatable({}, { __name = 'Named' })))",
-        "return (tostring(setmetatable({}, { __tostring = function() return {} end })))",
-        "return (tostring(setmetatable({}, { __tostring = 5 })))",
-        "math.randomseed(42) local t = {} for i = 1, 500 do t[i] = math.random(1, 1000000) end \
-         table.sort(t) return table.concat(t, ' ')",
-        "local t = { 'pear', 'fig', 'apple', 'Apple' } table.sort(t, function(a, b) return a > b end) \
-         return table.concat(t, ' ')",
-        "table.sort({ 1, 'x', 2 })",
-        "table.sort()",
-        "table.sort({ 3, 1, 2 }, 5)",
-        "table.sort({ 1 }, 5)",
-        "table.sort({ 3, 1, 2 }, function() error('boom', 0) end)",
-        "local t = setmetatable({ 3, 1, 2 }, { __len = function() return 3.0 end }) table.sort(t) \
-         return table.concat(t, ' ', 1, 3)",
-        "table.sort(setmetatable({}, { __len = function() return 2.5 end }))",
-        "table.sort(setmetatable({}, { __len = function() return 3 end, __index = 5 }))",
-        "local a, b = math.randomseed(7, 9) return a .. ' ' .. b .. ' ' .. math.random(0)",
-        "math.randomseed('5') return math.random(0)",
-        "math.randomseed(1.5)",
-        "math.randomseed(nil)",
-        "math.randomseed(1, 'x')",
-        "return (table.concat({ 1, 2, 3 }, ', ', 2))",
-        "return (table.concat({}, {}))",
-        "return (table.concat({ 1, {}, 3 }))",
-    ];
-    let outcome = |case: &str, chunk: &str| {
-        format!(
-            "local function body()\n{case}\nend\n\
-             local ok, value = pcall(body)\n\
-             local outcome = (ok and 'returned ' or 'failed ') .. type(value) .. ' ' .. tostring(value)\n\
-             return (outcome:gsub('^(failed string ){chunk}:%d+: ', '%1'))"
-        )
-    };
     for case in CASES {
-        let ours = run(&outcome(case, r#"%[string "line 1"%]"#), &json!({}))
-            .expect("the block runs")
-            .returned;
-        let stock = Lua::new()
-            .load(format!(
-                "local outcome = (function()\n{}\nend)()\nreturn (outcome:gsub('(%a): %w+', '%1'))",
-                outcome(case, "stock")
-            ))
-            .set_name("=stock")
-            .eval::<String>()
-            .expect("the stock Lua runs");
-        assert_eq!(ours.as_deref(), Some(stock.as_str()), "{case}");
+        assert_eq!(
+            in_a_section(case).as_deref(),
+            Some(in_stock_lua(case).as_str()),
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn an_argument_error_cannot_follow_a_tail_call_or_a_call_metamethod() {
+    // The calls that a replacement names otherwise than stock Lua does,
+    // where every other call is a case of the comparison with stock Lua.
+    // A replacement is a Lua function. A tail call of one leaves nothing
+    // of the call to read, so the name is the one of the library's
+    // field, and the guard of `_G` tail-calls a handler that is a
+    // function, as the Engine's `xpcall` tail-calls its handler. And Lua
+    // counts the value whose `__call` is the function among the
+    // arguments, which stock Lua leaves out.
+    for (case, ours, stock) in [
+        (
+            "local order = table.sort return order(5)",
+            "bad argument #1 to 'sort' (table expected, got number)",
+            "bad argument #1 to 'order' (table expected, got number)",
+        ),
+        (
+            "setmetatable(_G, { __index = string.format }) return undefined_name",
+            "bad argument #1 to 'format' (string expected, got table)",
+            "bad argument #1 to 'index' (string expected, got table)",
+        ),
+        (
+            "local _, failure = xpcall(function() error({}) end, string.format) error(failure, 0)",
+            "bad argument #1 to 'format' (string expected, got table)",
+            "bad argument #1 to 'string.format' (string expected, got table)",
+        ),
+        (
+            "local callee = setmetatable({ 2, 1 }, { __call = table.sort }) callee(5)",
+            "bad argument #2 to 'callee' (function expected, got number)",
+            "bad argument #1 to 'callee' (function expected, got number)",
+        ),
+    ] {
+        assert_eq!(
+            in_a_section(case),
+            Some(format!("failed string {ours}")),
+            "{case}"
+        );
+        assert_eq!(
+            in_stock_lua(case),
+            format!("failed string {stock}"),
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn pcall_and_xpcall_refuse_their_arguments_on_the_line_of_the_call() {
+    // The case is the second line of the section's chunk and the third of
+    // the stock Lua's, which has one line more in front.
+    for (call, refusal) in [
+        ("pcall()", "bad argument #1 to 'pcall' (value expected)"),
+        (
+            "xpcall(type, 5)",
+            "bad argument #2 to 'xpcall' (function expected, got number)",
+        ),
+    ] {
+        let case =
+            format!("return (select(2, pcall(function() local taken = {call} return taken end)))");
+        assert_eq!(
+            in_a_section(&case),
+            Some(format!("returned string [string \"line 1\"]:2: {refusal}")),
+            "{call}"
+        );
+        assert_eq!(
+            in_stock_lua(&case),
+            format!("returned string stock:3: {refusal}"),
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn a_replacement_stands_under_no_protected_call_while_the_authors_code_runs() {
+    // The handler of the author's `xpcall` runs where the failure is
+    // raised, so the variable the metamethod holds is still open, as it is
+    // under the stock function. A protected call in the replacement would
+    // close it first and raise the failure again from its own frame.
+    for (event, call) in [
+        ("__tostring", "tostring(value)"),
+        ("__tostring", "string.format('%d %s', 1, value)"),
+        ("__lt", "table.sort({ value, value })"),
+        ("__len", "table.sort(value)"),
+        ("__index", "table.sort(value)"),
+        (
+            "__newindex",
+            "table.sort(value, function() return true end)",
+        ),
+        ("__len", "table.concat(value)"),
+        ("__index", "table.concat(value)"),
+    ] {
+        let case = held_open(event, call);
+        let ours = in_a_section(&case);
+        assert_eq!(
+            ours.as_deref(),
+            Some("returned string open"),
+            "{event} {call}"
+        );
+        assert_eq!(
+            ours.as_deref(),
+            Some(in_stock_lua(&case).as_str()),
+            "{event} {call}"
+        );
+    }
+    // Stock `table.concat` takes no table, so these have no stock answer.
+    // The second fails on the line of the call: the position of the
+    // Engine's own chunk would stay in front of the text.
+    assert_eq!(
+        in_a_section(&held_open("__tostring", "table.concat({ value })")).as_deref(),
+        Some("returned string open")
+    );
+    assert_eq!(
+        in_a_section(
+            "return (table.concat({ setmetatable({}, { __tostring = function() return {} end }) }))"
+        )
+        .as_deref(),
+        Some("failed string '__tostring' must return a string")
+    );
+    // The `__tostring` of an element is read as Lua finds it, so a
+    // `__metatable` field does not cover it.
+    assert_eq!(
+        in_a_section(
+            "return (table.concat({ 'a', setmetatable({}, { \
+               __metatable = 'sealed', __tostring = function() return 'b' end }) }, '-'))"
+        )
+        .as_deref(),
+        Some("returned string a-b")
+    );
+    // A `__tostring` of an element gives the list a metatable, so the
+    // read of the next element is one that Lua can refuse.
+    assert_eq!(
+        in_a_section(
+            "local list = {} \
+             list[1] = setmetatable({}, { __tostring = function() \
+               setmetatable(list, { __index = 5 }) \
+               return 'first' \
+             end }) \
+             return (table.concat(list, ' ', 1, 2))"
+        )
+        .as_deref(),
+        Some("failed string attempt to index a number value")
+    );
+    // The Engine reads the failing line where the failure is raised, so a
+    // value with no position in it is placed on the metamethod's line.
+    for (event, call) in [
+        ("__tostring", "tostring(value)"),
+        ("__tostring", "string.format('%s', value)"),
+        ("__tostring", "table.concat({ value })"),
+        ("__lt", "table.sort({ value, value })"),
+        ("__len", "table.sort(value)"),
+        ("__index", "table.sort(value)"),
+    ] {
+        for (raised, reason) in [
+            ("error('boom', 0)", "boom"),
+            ("error('boom', 2)", "boom"),
+            ("error({})", "error object is a table value"),
+        ] {
+            let block = format!(
+                "local meta = {{ __len = function() return 2 end }}\n\
+                 meta.{event} = function()\n\
+                   {raised}\n\
+                 end\n\
+                 local value = setmetatable({{}}, meta)\n\
+                 return {call}"
+            );
+            let error = run(&block, &json!({})).expect_err("the metamethod fails");
+            assert_eq!(error.prose, refused(reason), "{event} {call} {raised}");
+            assert_eq!(
+                error.at.map(|at| at.start_line.get()),
+                Some(3),
+                "{event} {call} {raised}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_metamethod_waits_where_a_replacement_calls_it_from_lua() {
+    // A call that waits yields the block's coroutine. The replacements
+    // call a `__tostring`, a `__len`, and a `__lt` from Lua, and
+    // `table.concat` and `table.sort` read a list that has a metatable
+    // from Lua, and the sort writes it from Lua, where stock Lua does
+    // each from a C function, which a yield cannot cross.
+    let waited = run(
+        "store.write('text.txt', 'stored')\n\
+         local value = setmetatable({ 'b', 'a' }, {\n\
+           __tostring = function() return store.read('text.txt') end,\n\
+           __len = function() return #store.read('text.txt') - 4 end,\n\
+           __lt = function() return store.read('text.txt') ~= 'stored' end,\n\
+         })\n\
+         local read = setmetatable({}, {\n\
+           __len = function() return 2 end,\n\
+           __index = function() return store.read('text.txt') end,\n\
+         })\n\
+         local texts = { tostring(value), string.format('%s', value), table.concat({ value, value }, ','),\n\
+           table.concat(read, '+') }\n\
+         table.sort(value)\n\
+         table.sort({ value, value })\n\
+         local held = { 'd', 'c' }\n\
+         table.sort(setmetatable({}, {\n\
+           __len = function() return 2 end,\n\
+           __index = function(_, key) return store.read('text.txt') and held[key] end,\n\
+           __newindex = function(_, key, item) held[key] = store.read('text.txt') and item end,\n\
+         }))\n\
+         return table.concat(texts, '|') .. '|' .. table.concat(value) .. '|' .. table.concat(held)",
+        &json!({}),
+    )
+    .expect("the block runs");
+    assert_eq!(
+        waited.returned.as_deref(),
+        Some("stored|stored|stored,stored|stored+stored|ab|cd")
+    );
+}
+
+#[test]
+fn a_replacement_is_one_frame_with_no_position_to_the_authors_code() {
+    // `error(text, level)` counts frames from the code that calls it, and
+    // puts the position of the frame at `level` in front of the text.
+    // Under a stock function, which is C, level 1 is the metamethod,
+    // level 2 the stock function, which has no position, and level 3 the
+    // author's call. Level 4 is the `pcall` around that call, which is C.
+    let expected = [
+        r#"[string "line 1"]:2: boom"#,
+        "boom",
+        r#"[string "line 1"]:5: boom"#,
+        "boom",
+    ];
+    for (event, call, stock_takes_it) in [
+        ("__tostring", "tostring(value)", true),
+        ("__tostring", "string.format('%d %s', 1, value)", true),
+        ("__tostring", "table.concat({ value })", false),
+        ("__len", "table.concat(value)", true),
+        ("__index", "table.concat(value)", true),
+        ("__len", "table.sort(value)", true),
+        ("__index", "table.sort(value)", true),
+        ("__newindex", "table.sort(value)", true),
+        ("__lt", "table.sort({ value, value })", true),
+        ("comparison", "table.sort({ 2, 1 }, meta.comparison)", true),
+    ] {
+        for (level, expected) in (1..).zip(expected) {
+            // The list reads as 2, 1, so the stock sort, which writes
+            // only what it moves, writes it.
+            let block = format!(
+                "local meta = {{ __len = function() return 2 end, __index = function(_, key) return 3 - key end }}\n\
+                 meta.{event} = function() error('boom', {level}) end\n\
+                 local value = setmetatable({{}}, meta)\n\
+                 local _, failure = pcall(function()\n\
+                   local result = {call}\n\
+                   return result\n\
+                 end)\n\
+                 return failure"
+            );
+            let ours = run(&block, &json!({})).expect("the block runs").returned;
+            assert_eq!(ours.as_deref(), Some(expected), "{event} {call} {level}");
+            if stock_takes_it {
+                let stock = Lua::new()
+                    .load(&block)
+                    .set_name("line 1")
+                    .eval::<String>()
+                    .expect("the stock Lua runs");
+                assert_eq!(stock, expected, "stock {event} {call} {level}");
+            }
+        }
+    }
+    // A list that gets its metatable from the comparison function is
+    // written one item at a time too, so level 3 of its `__newindex` is
+    // the author's call: the sort looks at the list again before it
+    // writes.
+    let late = "local list = { 2, 1 }\n\
+                local _, failure = pcall(function()\n\
+                  table.sort(list, function(a, b)\n\
+                    list[1], list[2] = nil, nil\n\
+                    setmetatable(list, { __newindex = function() error('boom', 3) end })\n\
+                    return a < b\n\
+                  end)\n\
+                end)\n\
+                return failure";
+    let ours = run(late, &json!({})).expect("the block runs").returned;
+    let stock = Lua::new()
+        .load(late)
+        .set_name("line 1")
+        .eval::<String>()
+        .expect("the stock Lua runs");
+    assert_eq!(
+        (ours.as_deref(), stock.as_str()),
+        (
+            Some(r#"[string "line 1"]:3: boom"#),
+            r#"[string "line 1"]:3: boom"#
+        )
+    );
+}
+
+#[test]
+fn a_close_handler_reads_a_failure_under_a_replacement_as_lua_raised_it() {
+    // A `__close` handler runs before the `pcall` around it returns, so it
+    // reads a failure before the Engine does. A replacement has no debug
+    // info, so level 2 of an `error` in a metamethod puts nothing in front
+    // of the text there either. A failure that Lua raises in the
+    // replacement starts with `?:?:` there, and nowhere else: under an
+    // `xpcall` the handler reads what the message handler returned, which
+    // got the text without that start.
+    for (meta, call, raised, caught) in [
+        (
+            "__tostring = function() error('boom', 2) end",
+            "tostring(value)",
+            "boom",
+            "boom",
+        ),
+        (
+            "__len = function() return 1 end, __index = 5",
+            "table.concat(value)",
+            "?:?: attempt to index a number value",
+            "attempt to index a number value",
+        ),
+    ] {
+        for (protected, handled, closing) in [
+            ("pcall(function()", "end)", raised),
+            (
+                "xpcall(function()",
+                "end, function(text) return text end)",
+                caught,
+            ),
+        ] {
+            let seen = run(
+                &format!(
+                    "local value = setmetatable({{}}, {{ {meta} }})\n\
+                     local seen\n\
+                     local _, failure = {protected}\n\
+                       local closing <close> = setmetatable({{}}, {{\n\
+                         __close = function(_, raised) seen = raised end }})\n\
+                       return {call}\n\
+                     {handled}\n\
+                     return seen .. '|' .. failure"
+                ),
+                &json!({}),
+            )
+            .expect("the block runs");
+            assert_eq!(
+                seen.returned,
+                Some(format!("{closing}|{caught}")),
+                "{protected} {call}"
+            );
+        }
     }
 }
 
@@ -576,4 +877,454 @@ fn untrusted_global_rejects_a_non_string_argument() {
         error.code == ErrorCode::LuaRuntime,
         "a non-string argument must surface as a Lua error, got {error:?}"
     );
+}
+
+#[test]
+fn a_stack_overflow_has_no_position_of_an_engine_chunk_wherever_lua_meets_it() {
+    // Lua raises a stack overflow in the function that makes the call it
+    // has no room for: the author's `__tostring`, or a function of the
+    // Engine's under it. The locals move the frame the stack runs out in.
+    for pad in 0..PADS {
+        let locals = "local p = 0\n".repeat(pad);
+        let nest = format!(
+            "local t = setmetatable({{}}, {{ __tostring = function(self)\n{locals}\
+             local s = string.format('%d<%s>%d', 1, self, 2) return s end }})\n"
+        );
+        let raised = run(&format!("{nest}return string.format('%s', t)"), &json!({}))
+            .expect_err("the nest overflows");
+        assert_eq!(
+            raised.prose,
+            author_prose("stack overflow", ErrorCode::LuaRuntime),
+            "pad {pad}"
+        );
+        // The caught failure is the string that Lua raised. It starts
+        // with nothing, or with the line of the author's that made the
+        // call.
+        let caught = run(
+            &format!(
+                "{nest}local ok, failure = pcall(string.format, '%s', t)\n\
+                 return type(failure) .. '|' .. tostring(failure)"
+            ),
+            &json!({}),
+        )
+        .expect("the block runs")
+        .returned
+        .expect("the block returns a text");
+        let position = format!("[string \"line 1\"]:{}: ", pad + 2);
+        assert_eq!(
+            caught.replace(&position, ""),
+            "string|stack overflow",
+            "pad {pad}"
+        );
+    }
+}
+
+#[test]
+fn a_failure_that_is_not_the_stock_functions_own_passes_a_replacement_as_it_is() {
+    // The `pcall` of the stock function is the call that meets Lua's
+    // limit of nested C calls, so the failure it catches is Lua's and no
+    // refusal of the stock function. The replacement raises it again
+    // with no position put in front.
+    for call in ["string.format('%d', 1)", "table.concat({ 'a', 'b' })"] {
+        let caught = run(
+            &format!(
+                "local list list = setmetatable({{}}, {{ __len = function()\n\
+                 local text = {call}\n\
+                 return #list end }})\n\
+                 local ok, failure = pcall(function() return #list end)\n\
+                 return type(failure) .. '|' .. tostring(failure)"
+            ),
+            &json!({}),
+        )
+        .expect("the block runs")
+        .returned;
+        assert_eq!(caught.as_deref(), Some("string|C stack overflow"), "{call}");
+    }
+}
+
+#[test]
+fn a_memory_error_under_a_replacement_is_caught_and_the_block_goes_on() {
+    // The loop fills the heap, and each call asks a Rust function of the
+    // replacement about a value: `tostring` about the `__tostring` and
+    // the `__name` of a table, and the sort about the `__lt` of a
+    // string. So the allocation that passes the limit is one that such a
+    // function makes, when it makes any, or one of the block's with such
+    // a function next. The filler moves which one.
+    for pad in 0..MEMORY_PADS {
+        for call in ["tostring(hold)", "pcall(table.sort, { label, 1 })"] {
+            let vm = TestVm::new()
+                .limits(4 * 1024 * 1024, DEFAULT_LUA_LOG_EVENTS)
+                .shims()
+                .build();
+            let block = program(&format!(
+                "local filler = string.rep('x', {pad})\n\
+                 local hold = table.create(80000)\n\
+                 local label = 'row'\n\
+                 local ok, failure = pcall(function()\n\
+                   local i = 0\n\
+                   while true do\n\
+                     i = i + 1\n\
+                     local text = {call}\n\
+                     hold[i] = {{}}\n\
+                   end\n\
+                 end)\n\
+                 hold = nil\n\
+                 store.write('after.txt', 'the block went on')\n\
+                 return tostring(ok) .. ' | ' .. tostring(failure) .. ' | ' .. store.read('after.txt')"
+            ));
+            let went_on = "false | not enough memory | the block went on".to_owned();
+            assert_eq!(
+                vm.drive(&block).map_err(|error| error.message),
+                Ok(LuaBlockResult::Returned(Some(went_on))),
+                "pad {pad}, {call}"
+            );
+        }
+    }
+}
+
+/// How many frame sizes `a_stack_overflow_has_no_position_of_an_engine_chunk_wherever_lua_meets_it`
+/// tries.
+const PADS: usize = 8;
+
+/// How many lengths of filler
+/// `a_memory_error_under_a_replacement_is_caught_and_the_block_goes_on`
+/// tries.
+const MEMORY_PADS: usize = 16;
+
+/// The cases of `the_replacements_answer_as_stock_lua_does`.
+const CASES: &[&str] = &[
+    r#"return (string.format('%5.2f|%-5d|%+d|%05d|%x|%c|%g|%i|%q', 1.5, 3, 4, 6, 255, 65, 1.5, 7, 'a"b'))"#,
+    "return (string.format('%s %s %s %10s|%-6s|%.2s', nil, true, 1.5, 'abc', 'abc', 'abc'))",
+    "return (string.format('%s|%.3s|%s|%d', {}, {}, function() end, 3))",
+    "return (string.format('%s %s', setmetatable({}, { __name = 'Named' }), setmetatable({}, { __name = 5 })))",
+    "return (string.format('100%% %%s %s', setmetatable({}, { __tostring = function() return 'T' end })))",
+    "return (string.format('%s', setmetatable({}, { __tostring = function() return {} end })))",
+    "return (string.format('%s', setmetatable({}, { __tostring = function() error('boom', 0) end })))",
+    // A `__tostring` that changes what a later argument prints as: the
+    // argument's own metatable, then another argument's.
+    "local value = setmetatable({}, { __tostring = function(self) setmetatable(self, nil) return 'first' end }) \
+     return (string.format('%s|%s', value, value))",
+    "local later = {} \
+     local first = setmetatable({}, { __tostring = function() \
+       setmetatable(later, { __tostring = function() return 'later' end }) return 'first' end }) \
+     return (string.format('%s|%s', first, later))",
+    // The stock function refuses an argument before it prints a later one.
+    "local calls = 0 \
+     local counted = setmetatable({}, { __tostring = function() calls = calls + 1 return 'x' end }) \
+     pcall(string.format, '%s %d %s', counted, 'x', counted) return calls",
+    "getmetatable('').__tostring = function(text) return '<' .. text .. '>' end \
+     return (string.format('%s %s %s', 'x', {}, setmetatable({}, { __tostring = function() return 't' end })))",
+    // A `__name` is printed up to its first zero byte, as a C string.
+    "local named = setmetatable({}, { __name = 'a\\0b' }) \
+     return (string.format('%s|', named) .. tostring(named))",
+    // A `__tostring` of the string metatable that returns no string. The
+    // case takes it out again, because the comparison prints strings.
+    "local strings = getmetatable('') \
+     strings.__tostring = function() return {} end \
+     local _, failure = pcall(function() return tostring('x') end) \
+     strings.__tostring = nil \
+     error(failure, 0)",
+    // The parts of a format on the two sides of a `__tostring`: the
+    // conversions keep their flags, and a refused argument its number.
+    "local value = setmetatable({}, { __tostring = function() return 'v' end }) \
+     return (string.format('%d|%5s|%-5s|%.1s|%%|%s|%x', 7, value, value, value, value, 255))",
+    "local value = setmetatable({}, { __tostring = function() return 'v' end }) \
+     return (string.format('%s %s %d', value, value, 'x'))",
+    "local value = setmetatable({}, { __tostring = function() return 'v' end }) \
+     return (string.format('%s %d', value))",
+    "return (string.format('%s %5s', 1, setmetatable({}, { __tostring = function() return 'a\\0b' end })))",
+    "return (string.format('%d %s', 1, setmetatable({}, { __tostring = function() return {} end })))",
+    "return (string.format('%s|%5s', setmetatable({}, { __tostring = function() return 1.0 end }), \
+       setmetatable({}, { __tostring = function() return 7 end })))",
+    // What the stock function refuses before it asks the argument for
+    // its text, and what it refuses after: a conversion too long by one
+    // byte, the longest one it reads, a flag `%s` does not take, and a
+    // `%` that is no conversion.
+    "local calls = 0 \
+     local counted = setmetatable({}, { __tostring = function() calls = calls + 1 return 'x' end }) \
+     local _, failure = pcall(string.format, '%s %000000000000000000000s', counted, counted) \
+     return calls .. ' ' .. failure",
+    "local calls = 0 \
+     local counted = setmetatable({}, { __tostring = function() calls = calls + 1 return 'x' end }) \
+     local _, failure = pcall(string.format, '%s %00000000000000000000s', counted, counted) \
+     return calls .. ' ' .. failure",
+    "local calls = 0 \
+     local counted = setmetatable({}, { __tostring = function() calls = calls + 1 return 'x' end }) \
+     local _, failure = pcall(string.format, '%s %#s %s', counted, counted, counted) \
+     return calls .. ' ' .. failure",
+    "local calls = 0 \
+     local counted = setmetatable({}, { __tostring = function() calls = calls + 1 return 'x' end }) \
+     local _, failure = pcall(string.format, '%s %5% %s', counted, counted, counted) \
+     return calls .. ' ' .. failure",
+    // A `__tostring` that is no function: Lua calls it through
+    // `__call`, at most 15 deep, or refuses it by the type of the first
+    // value it cannot call.
+    "local callee = setmetatable({}, { __call = function(_, value) return type(value) end }) \
+     local value = setmetatable({}, { __tostring = callee }) \
+     return (tostring(value) .. string.format('%s', value))",
+    "return (tostring(setmetatable({}, { __tostring = setmetatable({}, { __call = function() return {} end }) })))",
+    "return (string.format('%s', setmetatable({}, { __tostring = setmetatable({}, { __name = 'Named', __call = 5 }) })))",
+    "local callee = function() return 'called' end \
+     for _ = 1, 15 do callee = setmetatable({}, { __call = callee }) end \
+     return (tostring(setmetatable({}, { __tostring = callee })))",
+    "local callee = function() return 'called' end \
+     for _ = 1, 16 do callee = setmetatable({}, { __call = callee }) end \
+     return (tostring(setmetatable({}, { __tostring = callee })))",
+    "return (tostring(setmetatable({}, { __tostring = function() return 2^53 end })))",
+    "return (string.format('%s %s', 1))",
+    "return (string.format('%d', 'x'))",
+    "return (string.format('%y', 1))",
+    "return (string.format())",
+    "return (string.format(nil))",
+    "return (string.format(5, {}))",
+    "return (tostring())",
+    "return (tostring(nil) .. tostring(2^63) .. tostring(-0.0) .. tostring(3) .. tostring(true))",
+    "return (tostring({}) .. '|' .. tostring(function() end) .. '|' .. tostring(setmetatable({}, { __name = 'Named' })))",
+    "return (tostring(setmetatable({}, { __tostring = function() return {} end })))",
+    "return (tostring(setmetatable({}, { __tostring = 5 })))",
+    "math.randomseed(42) local t = {} for i = 1, 500 do t[i] = math.random(1, 1000000) end \
+     table.sort(t) return table.concat(t, ' ')",
+    "local t = { 'pear', 'fig', 'apple', 'Apple' } table.sort(t, function(a, b) return a > b end) \
+     return table.concat(t, ' ')",
+    "table.sort({ 1, 'x', 2 })",
+    // The default order of values that are no two numbers and no two
+    // strings: by `__lt`, of the left value first, or refused by the
+    // names of the two types.
+    "local meta = { __lt = function(a, b) return a.key < b.key end } \
+     local list = {} \
+     for i, key in ipairs({ 3, 1, 2 }) do list[i] = setmetatable({ key = key }, meta) end \
+     table.sort(list) \
+     return list[1].key .. list[2].key .. list[3].key",
+    "local strings = getmetatable('') \
+     strings.__lt = function(a, b) return tonumber(a) < tonumber(b) end \
+     local list = { 3, '1', 2 } \
+     local ok, failure = pcall(table.sort, list) \
+     strings.__lt = nil \
+     return tostring(failure) .. list[1] .. list[2] .. list[3]",
+    "table.sort({ {}, 1 })",
+    "table.sort({ setmetatable({}, { __name = 'Named' }), setmetatable({}, { __name = 'Named' }) })",
+    // A `__len` that cannot be called is named by its `__name`.
+    "table.sort(setmetatable({}, { __len = setmetatable({}, { __name = 'Named' }) }))",
+    "table.sort({ setmetatable({}, { __lt = false }), 1 })",
+    "table.sort({ 1, setmetatable({}, { __lt = setmetatable({}, { __call = function() error('called', 0) end }) }) })",
+    "table.sort(setmetatable({}, { __len = false }))",
+    "table.sort(setmetatable({ 2, 1 }, { __len = setmetatable({}, { __call = function() return 2 end }) }))",
+    // A `__len` behind 15 `__call` metamethods is called, and a `__lt`
+    // behind 16 is refused for their number before the last is asked for
+    // its own.
+    "local callee = function() return 0 end \
+     for _ = 1, 15 do callee = setmetatable({}, { __call = callee }) end \
+     table.sort(setmetatable({}, { __len = callee }))",
+    "local callee = {} \
+     for _ = 1, 16 do callee = setmetatable({}, { __call = callee }) end \
+     local value = setmetatable({}, { __lt = callee }) \
+     table.sort({ value, value })",
+    "table.sort(setmetatable({}, { __len = function() return 0x7fffffff end }))",
+    "table.sort()",
+    "table.sort({ 3, 1, 2 }, 5)",
+    "table.sort({ 1 }, 5)",
+    "table.sort({ 3, 1, 2 }, function() error('boom', 0) end)",
+    "local t = setmetatable({ 3, 1, 2 }, { __len = function() return 3.0 end }) table.sort(t) \
+     return table.concat(t, ' ', 1, 3)",
+    "table.sort(setmetatable({}, { __len = function() return 2.5 end }))",
+    "table.sort(setmetatable({}, { __len = function() return 3 end, __index = 5 }))",
+    // The write of an element follows a chain of `__newindex` tables, to
+    // a table that takes it, to a value that cannot, or past the count
+    // Lua follows. The list reads as 2, 1, so the stock sort writes it.
+    "local taken = {} \
+     table.sort(setmetatable({}, { __len = function() return 2 end, \
+       __index = function(_, key) return 3 - key end, \
+       __newindex = setmetatable({}, { __newindex = taken }) })) \
+     return taken[1] .. taken[2]",
+    "table.sort(setmetatable({}, { __len = function() return 2 end, \
+       __index = function(_, key) return 3 - key end, __newindex = 5 }))",
+    "local list = setmetatable({}, { __len = function() return 2 end, \
+       __index = function(_, key) return 3 - key end }) \
+     getmetatable(list).__newindex = list \
+     table.sort(list)",
+    "local a, b = math.randomseed(7, 9) return a .. ' ' .. b .. ' ' .. math.random(0)",
+    "math.randomseed('5') return math.random(0)",
+    "math.randomseed(1.5)",
+    "math.randomseed(nil)",
+    "math.randomseed(1, 'x')",
+    "return (table.concat({ 1, 2, 3 }, ', ', 2))",
+    "return (table.concat({}, {}))",
+    "return (table.concat({ 1, {}, 3 }))",
+    "return (table.concat({ 1, 2 }, '', 2, 1) .. table.concat({}, 'x') .. table.concat({ 1, nil, 3 }, '', 3, 3))",
+    "return (table.concat({ 1, 2, 3 }, 5, '2', 3.0))",
+    "return (table.concat({ 1, 2, true }))",
+    "return (table.concat({ 1, 2 }, ', ', 1, 3))",
+    "return (table.concat())",
+    "return (table.concat(nil))",
+    "return (table.concat('abc'))",
+    "return (table.concat({ 1, 2 }, ', ', 'x'))",
+    "return (table.concat({ 1, 2 }, ', ', 1.5))",
+    "return (table.concat({ 1, 2 }, ', ', 1, {}))",
+    "return (table.concat(setmetatable({}, { __len = false })))",
+    "return (table.concat(setmetatable({}, { __len = function() return 'x' end })))",
+    "return (table.concat(setmetatable({}, { __len = function() return 2 end, __index = 5 })))",
+    "return (table.concat(setmetatable({}, { __len = function() return 2 end, \
+       __index = function(_, key) return key end }), '-'))",
+    // The read of an element follows a chain of `__index` tables, to
+    // a value, to no value, or past the count Lua follows.
+    "local last = { 'a', 'b' } \
+     local list = setmetatable({}, { __len = function() return 2 end, \
+       __index = setmetatable({}, { __index = setmetatable({}, { __index = last }) }) }) \
+     return (table.concat(list, '-'))",
+    "return (table.concat(setmetatable({}, { __len = function() return 1 end, __index = 'text' })))",
+    "local list = setmetatable({}, { __len = function() return 1 end }) \
+     getmetatable(list).__index = list \
+     return (table.concat(list))",
+    // The stock function takes the length, then refuses a separator or
+    // a bound, and only then reads an element.
+    "local seen = {} \
+     local list = setmetatable({}, { \
+       __len = function() seen[#seen + 1] = 'length' return 1 end, \
+       __index = function() seen[#seen + 1] = 'read' return 'x' end }) \
+     pcall(table.concat, list, {}) \
+     pcall(table.concat, list, '', 'x') \
+     pcall(table.concat, list, '', 1, 1) \
+     return table.concat(seen, ' ')",
+    // A refused list is named by the `__name` of its metatable.
+    "getmetatable('').__name = 'Text' return (table.concat('abc'))",
+    "getmetatable('').__name = 'Text' table.sort('abc')",
+    "table.sort({ 2, 1 }, setmetatable({}, { __name = 'Comparator' }))",
+    "table.sort({ 2, 1 }, setmetatable({}, { __call = function(_, a, b) return a < b end }))",
+    "local strings = getmetatable('') \
+     strings.__newindex = function() end \
+     strings.__len = function() return 5 end \
+     table.sort('ba')",
+    // Lua takes the length of a string with no look at its `__len`.
+    "local strings = getmetatable('') \
+     strings.__len = false \
+     strings.__index = function(text, at) \
+       return type(at) == 'number' and string.sub(text, at, at) or string[at] \
+     end \
+     return (table.concat('abc', '-'))",
+    // Lua finds the `__tostring` of a string by a raw read of the string
+    // metatable, so an `__index` of a metatable of that metatable gives
+    // none.
+    "setmetatable(getmetatable(''), { __index = function(_, key) \
+       if key == '__tostring' then return function() return 'indexed' end end \
+     end }) \
+     local shown = tostring('abc') .. '|' .. string.format('%s|%5s', 'abc', 'abc') \
+     setmetatable(getmetatable(''), nil) \
+     return shown",
+    // Every other value between two renderings goes to the stock
+    // function in one part.
+    "local value = setmetatable({}, { __tostring = function() return 'v' end }) \
+     local arguments = {} \
+     for at = 1, 240 do arguments[at] = at % 80 == 0 and value or at end \
+     return (string.format(string.rep('%s', 240, ' '), table.unpack(arguments)))",
+    // The Engine's `pcall` and `xpcall` refuse their own arguments as the
+    // stock ones do, and a handler that is missing as no value.
+    "pcall()",
+    "xpcall()",
+    "xpcall(function() end)",
+    "xpcall(function() end, nil)",
+    "xpcall(function() end, 5)",
+    "xpcall(function() end, setmetatable({}, { __name = 'Handler', __call = function() end }))",
+    "xpcall(function() end, setmetatable({}, { __name = 'Hidden', __metatable = false }))",
+    "return (select(2, pcall(pcall)))",
+    // An argument error names the function as the call is written: by a
+    // variable or a field, by its place in the library under a caller
+    // that is no Lua code, and with the value left out of the count for a
+    // call written `value:name(...)`.
+    "local order = table.sort order(5)",
+    "local library = { join = table.concat } library.join({}, {})",
+    "local guarded = xpcall guarded(type, 5)",
+    "return (select(2, pcall(table.sort, 5)))",
+    "return (select(2, pcall(table.concat, {}, {})))",
+    "return (select(2, pcall(string.format, '%d', 'x')))",
+    "return (select(2, pcall(math.randomseed, 'x')))",
+    "return (select(2, pcall(tostring)))",
+    "return (select(2, pcall(xpcall, type, 5)))",
+    "return (('%d'):format('x'))",
+    "local value = setmetatable({}, { __tostring = function() return 'v' end }) \
+     return (('%s %d'):format(value, 'x'))",
+    "local text = setmetatable({}, { __index = string }) return (text:format())",
+    "for _ in table.sort, 5 do end",
+    // A light userdata has a type name of its own in an argument error.
+    "xpcall(type, json.null)",
+    "local set = setmetatable set({}, 5)",
+    "local read = getmetatable read()",
+    // A handler of `_G` that Lua cannot index fails in Lua's words, with
+    // no variable of the Engine's chunk after them.
+    "setmetatable(_G, { __index = 5 }) return undefined_name",
+    "setmetatable(_G, { __newindex = true }) undefined_name = 1",
+    // A stock function that a handler table of `_G` hands the write to is
+    // named by the event, under the guard's `__newindex` as under no guard.
+    "setmetatable(_G, { __newindex = setmetatable({}, { __newindex = string.format }) }) \
+     undefined_name = 1",
+    // A metamethod that calls the replacement again reaches Lua's limit
+    // of nested C calls. Lua raises that failure, a string, and no Rust
+    // function of the replacement does.
+    "local list list = setmetatable({}, { __len = function() table.sort(list) return 0 end }) \
+     table.sort(list)",
+    "local low low = setmetatable({}, { __lt = function() table.sort({ low, low }) end }) \
+     table.sort({ low, low })",
+    "local list list = setmetatable({}, { __len = function() table.concat(list) return 0 end }) \
+     table.concat(list)",
+    // A replacement that is the metamethod another replacement runs is
+    // named as under a C function, by its name in the library. One that
+    // the guard of `_G` runs for a handler that is a table is named by
+    // the event, as the author's read is.
+    "return table.concat(setmetatable({}, { __index = string.format, __len = function() return 1 end }))",
+    "local low = { __lt = string.format } \
+     table.sort({ setmetatable({}, low), setmetatable({}, low) })",
+    "setmetatable(_G, { __index = setmetatable({}, { __index = string.format }) }) \
+     return undefined_name",
+];
+
+/// A case of the comparison with stock Lua, as one chunk: the case's
+/// result or failure as a text, without the position of the case's own
+/// chunk, which is named `chunk` in a Lua pattern.
+fn outcome_chunk(case: &str, chunk: &str) -> String {
+    format!(
+        "local function body()\n{case}\nend\n\
+         local ok, value = pcall(body)\n\
+         local outcome = (ok and 'returned ' or 'failed ') .. type(value) .. ' ' .. tostring(value)\n\
+         return (outcome:gsub('^(failed string ){chunk}:%d+: ', '%1'))"
+    )
+}
+
+/// What `case` gives as a block of a section VM.
+fn in_a_section(case: &str) -> Option<String> {
+    run(&outcome_chunk(case, r#"%[string "line 1"%]"#), &json!({}))
+        .expect("the block runs")
+        .returned
+}
+
+/// What `case` gives in a stock Lua, without the address that stock Lua
+/// prints after the name of a table or a function. The stock Lua has a
+/// `json.null` that is a light userdata, as the Engine's is.
+fn in_stock_lua(case: &str) -> String {
+    let lua = Lua::new();
+    let json = lua.create_table().expect("the table is made");
+    json.set("null", Value::NULL).expect("the field is set");
+    lua.globals().set("json", json).expect("the global is set");
+    lua.load(format!(
+        "local outcome = (function()\n{}\nend)()\nreturn (outcome:gsub('(%a): %w+', '%1'))",
+        outcome_chunk(case, "stock")
+    ))
+    .set_name("=stock")
+    .eval::<String>()
+    .expect("the stock Lua runs")
+}
+
+/// A case in which the metamethod `event` of `value` holds a variable to
+/// close and fails, and the handler of an `xpcall` around `call` reports
+/// whether the variable is still open.
+fn held_open(event: &str, call: &str) -> String {
+    format!(
+        "local closed = false \
+         local meta = {{ __len = function() return 2 end }} \
+         meta.{event} = function() \
+           local held <close> = setmetatable({{}}, {{ __close = function() closed = true end }}) \
+           error('boom', 0) \
+         end \
+         local value = setmetatable({{}}, meta) \
+         local _, seen = xpcall(function() return {call} end, function() return closed and 'closed' or 'open' end) \
+         return seen"
+    )
 }

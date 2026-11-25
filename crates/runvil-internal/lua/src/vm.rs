@@ -38,6 +38,14 @@ pub use state::{current_catalog_packs, current_dynamic_set, current_static_set};
 /// [`apply_lua_limits`](SectionVm::apply_lua_limits) sets the run's.
 pub(crate) const DEFAULT_LUA_LOG_EVENTS: u32 = 1024;
 
+/// How many Lua values a new VM holds at once and then lets go of. That
+/// takes the stack `mlua` keeps such values in from 17 slots to 68. The
+/// build of a VM holds 32 at once, and one more for each table inside
+/// `args` and `var`. A Pack prelude holds more: one for each table it
+/// makes a global, one for its environment while that lives, and what
+/// its code holds while it loads.
+const HELD_AT_ONCE: usize = 64;
+
 /// Returns the cumulative `log()` byte ceiling derived from the event budget.
 ///
 /// Bounds total log volume (bytes) even when each event is under the per-event
@@ -168,6 +176,12 @@ impl SectionVm<Uninjected> {
         lua.set_memory_limit(DEFAULT_LUA_MEMORY_BYTES)
             .map_err(error::make_lua_error)?;
         lua.set_app_data(HeapCeiling(DEFAULT_LUA_MEMORY_BYTES));
+        // `mlua` 0.12.0 keeps each Lua value that Rust holds in a slot of a
+        // stack of its own, and panics when the memory limit refuses the
+        // growth of that stack: https://github.com/mlua-rs/mlua/issues/733.
+        // The stack keeps the size it grew to, so it grows here, while the
+        // VM is far below its limit.
+        drop((0..HELD_AT_ONCE).map(|_| lua.globals()).collect::<Vec<_>>());
         let mut vm = Self {
             lua,
             tool_set: Arc::new(ToolSet::default()),

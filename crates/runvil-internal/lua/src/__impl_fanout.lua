@@ -37,7 +37,7 @@ local setmetatable, type, select = setmetatable, type, select
 -- seal has three parts: the fields live in a hidden `__index` table the
 -- author cannot reach, `__newindex` refuses every assignment, and
 -- `__metatable` hands `getmetatable` a decoy (containing only `__tostring`,
--- so the hardened `table.concat` still recognizes the result as
+-- so a reader of the metatable still sees that the result is
 -- renderable) and makes `setmetatable` refuse to replace the guard. The
 -- one remaining bypass would be `rawset`, which the VM's hardening pass
 -- removes from the globals before any author code runs.

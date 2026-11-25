@@ -51,9 +51,10 @@ const GLOBALS_SOURCE: &str = include_str!("__impl_globals.lua");
 /// `prose`, `messages`, and `author`.
 const STATE_REGISTRY: &str = "runvil.globals.state";
 
-/// The guard program.
+/// The guard program, with no debug info, so a failure Lua raises in the
+/// guard names no variable of the chunk.
 static GLOBALS_PROGRAM: LazyLock<Result<LuaProgram>> =
-    LazyLock::new(|| LuaProgram::compile_internal(GLOBALS_SOURCE, GLOBALS_CHUNK_NAME));
+    LazyLock::new(|| LuaProgram::compile_internal_stripped(GLOBALS_SOURCE, GLOBALS_CHUNK_NAME));
 
 /// Installs the `_G` guard and the `setmetatable` and `getmetatable`
 /// replacements on a fresh VM.
@@ -71,6 +72,7 @@ pub(crate) fn install(lua: &Lua) -> Result<()> {
     let refuse_args = refusal(lua, crate::args::ASSIGNMENT_REFUSAL)?;
     let refuse_prose = refusal(lua, crate::prose::ASSIGNMENT_REFUSAL)?;
     let refuse_messages = refusal(lua, crate::messages::ASSIGNMENT_REFUSAL)?;
+    let argument_error = crate::stdlib::argument_error(lua).map_err(error::make_lua_error)?;
     let (guard, replace_metatable, read_metatable): (Table, Function, Function) = GLOBALS_PROGRAM
         .as_ref()
         .map_err(Error::clone)?
@@ -81,6 +83,7 @@ pub(crate) fn install(lua: &Lua) -> Result<()> {
             refuse_args,
             refuse_prose,
             refuse_messages,
+            argument_error,
         ))
         .map_err(error::make_lua_error)?;
     lua.set_named_registry_value(STATE_REGISTRY, state)
@@ -94,6 +97,22 @@ pub(crate) fn install(lua: &Lua) -> Result<()> {
     globals
         .set_metatable(Some(guard))
         .map_err(error::make_lua_error)
+}
+
+/// Whether `function` is the guard's `__index` or its `__newindex`.
+///
+/// # Errors
+/// Returns the `mlua` error of a read of the guard that fails.
+pub(crate) fn is_guard(lua: &Lua, function: &Function) -> mlua::Result<bool> {
+    let Some(guard) = lua.globals().metatable() else {
+        return Ok(false);
+    };
+    for event in ["__index", "__newindex"] {
+        if guard.raw_get::<Value>(event)? == Value::Function(function.clone()) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Puts `value`, the read-only table of the chain's arguments, in the

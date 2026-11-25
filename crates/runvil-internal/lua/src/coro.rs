@@ -210,9 +210,13 @@ impl StashedFailure {
 /// it, and the hook's abort always reaches the block guard. Next,
 /// `is_model_handle` reports whether a value is a model handle, so the
 /// `infer` and `loop` entries read a leading handle before any yield, and
-/// the last
+/// the next
 /// two, `loop_begin` and `compact_begin`, start each loop and compaction
-/// call for the trampoline.
+/// call for the trampoline. The last two,
+/// [`mistyped`](crate::stdlib::mistyped) and
+/// [`argument_error`](crate::stdlib::argument_error), name the type of an
+/// argument that `xpcall` refuses and give the text that `pcall` and
+/// `xpcall` refuse an argument with.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure if the coroutine library, the shim chunk, or any
@@ -255,6 +259,8 @@ pub(crate) fn install_shims(
         cancel_hook,
     )?;
     let compact_begin = crate::models_loop::compact_begin(lua, loop_running, cancel_hook)?;
+    let mistyped = crate::stdlib::mistyped(lua).map_err(map_lua)?;
+    let argument_error = crate::stdlib::argument_error(lua).map_err(map_lua)?;
     let program = SHIM_PROGRAM.as_ref().map_err(Clone::clone)?;
     let shims: Table = program
         .load(lua)?
@@ -272,6 +278,8 @@ pub(crate) fn install_shims(
             is_model_handle.clone(),
             loop_begin,
             compact_begin,
+            mistyped,
+            argument_error,
         ))
         .map_err(map_lua)?;
     let guard: Function = shims.raw_get("guard").map_err(map_lua)?;
