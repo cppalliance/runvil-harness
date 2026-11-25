@@ -93,7 +93,7 @@ The form exists only in the Lua of `tasks.fanout`: every form of the call yields
 
 ## 4. Admission and limits
 
-### One limit of 8 bounds the tasks that run at once in the whole run
+### A default limit of 8 bounds the tasks that run at once in the whole run
 
 `RunLimits::max_concurrency` is the most tasks the scheduler admits at once. The default is 8, and the Host sets it. A running task counts against the limit of its owner and of every ancestor chain, and each such count is a slot. A fanout inside an arm therefore runs within that arm's share.
 
@@ -169,7 +169,7 @@ The Host's `RunControl` sends only to the main chain: a sub-agent is a task in t
 
 A task can therefore return a result and remain open for follow-ups with its conversation intact, up to the cap on idle tasks in the next entry. `tasks.fanout` cancels each arm after it takes the arm's result, so an arm that replied ends as `canceled`. It cancels the arm whether the arm is live or has ended, since a cancel of an ended task is free and silent.
 
-### A run has at most 8 idle tasks, and one more reply closes the one idle longest
+### A run has at most 8 idle tasks by default, and one more reply closes the one idle longest
 
 `RunLimits::max_idle_tasks` is 8 by default. A reply that would put the run past that cap closes another idle task: the one idle longest among those whose own tasks have all ended, or the one idle longest of all. The closed task ends as `done` with its latest reply as its result.
 

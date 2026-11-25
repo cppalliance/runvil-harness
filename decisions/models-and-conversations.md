@@ -238,7 +238,7 @@ The swap happens inside the run because a separate run for each pick would cost 
 
 `runvil-model-client` defines `Message`, `ToolSchema`, `Completion`, `ModelBinding`, and the model error phrases. `harness-gateway-client` contains the HTTP and the wire parsing: the chat client, the standard broker, the fetch of the model list, and public wire functions such as the one that builds the request body. The Engine's projection also writes wire format: it writes each tool call of an assistant record in the OpenAI function-call shape. The wire functions are public so that another broker can reuse them.
 
-The client is a crate of its own because the Host supplies inference and the Harness excludes tokio, so the Harness leaves HTTP to the Host, and every Host still needs a standard Gateway client.
+The client is a crate of its own because the Host supplies inference and the Harness excludes tokio, so the Harness leaves HTTP to the Host, and a Host that uses the Gateway still needs a standard Gateway client.
 
 ### The client sends tools in the OpenAI function-calling format
 

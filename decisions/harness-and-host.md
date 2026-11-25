@@ -32,7 +32,7 @@ The owner's goal: "I want the outside world to only see one runvil crate, not ru
 
 `harness-gateway-client` contains what a Host needs to use the Gateway: `GatewayBroker`, which implements `InferenceBroker`; `GatewayChat`, the HTTP client it uses; `fetch_model_catalog`; and `provide_gateway_resources`, which offers the Gateway to the Plugins of the C contract (see Inference, the clock, and what a Host hands its Plugins). It also has `TokioTimer`, the stock timer of a Host that runs on tokio (see the same section). An outside crate may depend on `runvil` and `harness-gateway-client`. The Harness's other crates are private to the Harness.
 
-The client is a crate of its own because the Host supplies inference and `runvil` excludes tokio, so `runvil` leaves HTTP to the Host, and every Host still needs a standard Gateway client.
+The client is a crate of its own because the Host supplies inference and `runvil` excludes tokio, so `runvil` leaves HTTP to the Host, and a Host that uses the Gateway still needs a standard Gateway client.
 
 ### The Harness's async code uses `futures-util`, and any executor can poll a run
 
