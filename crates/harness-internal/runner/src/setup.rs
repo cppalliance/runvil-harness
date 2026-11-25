@@ -261,8 +261,9 @@ impl RunSetup {
     ///   returns. The Host's own task then stops the round or cancels the
     ///   run, from outside `sink`.
     ///
-    /// A Host that writes to a terminal does so inside `sink`, since the
-    /// write returns at once:
+    /// A Host that writes to a terminal does so inside `sink`, since a
+    /// write to a terminal returns at once. A write to a pipe whose reader
+    /// has stopped blocks, and a blocked `sink` stalls the run:
     ///
     /// ```text
     /// let setup = RunSetup::new(recorder, broker, timer).streaming(|_round, piece| {
@@ -275,20 +276,23 @@ impl RunSetup {
     /// A Host that buffers owns its queue. This `sink` hands each piece to
     /// a bounded channel with `try_send`, and stops pushing for a round
     /// once the channel is full, so the Host keeps a prefix of that
-    /// round's reply. The Host's reading task, which runs outside the
-    /// run's future, is the code that calls `RunControl::cancel` when the
-    /// Host decides to end the run:
+    /// round's reply. The pieces of rounds that run side by side arrive
+    /// interleaved, so the `sink` keeps the set of rounds it gave up on.
+    /// The Host's reading task, which runs outside the run's future, is
+    /// the code that calls `RunControl::cancel` when the Host decides to
+    /// end the run:
     ///
     /// ```text
     /// let (tx, mut rx) = tokio::sync::mpsc::channel(256);
-    /// let gave_up = AtomicU64::new(u64::MAX); // the round the Host stopped pushing for
+    /// let gave_up = Mutex::new(HashSet::new()); // the rounds the Host stopped pushing for
     /// let setup = RunSetup::new(recorder, broker, timer).streaming(move |round, piece| {
     ///     let id = round.id.get();
-    ///     if gave_up.load(Ordering::Relaxed) == id {
+    ///     let mut gave_up = gave_up.lock().unwrap();
+    ///     if gave_up.contains(&id) {
     ///         return;
     ///     }
     ///     if tx.try_send((round, piece)).is_err() {
-    ///         gave_up.store(id, Ordering::Relaxed); // the channel is full or closed
+    ///         gave_up.insert(id); // the channel is full or closed
     ///     }
     /// });
     /// ```
