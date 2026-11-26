@@ -62,10 +62,10 @@ impl PackId {
         Ok(PackId(name))
     }
 
-    /// Builds an identity from the first segment of a validated tool id.
+    /// Builds an identity from one segment of an already validated name.
     ///
-    /// The source tool id was validated at parse, so its first segment is
-    /// already a valid Pack id.
+    /// The segment came from a name that passed validation, so it is already
+    /// a valid Pack id.
     pub(crate) fn from_segment(segment: &str) -> PackId {
         PackId(GlobalName::from_validated_segment(segment))
     }

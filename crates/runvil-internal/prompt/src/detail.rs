@@ -16,7 +16,8 @@ pub const TEXT_FIELD: &str = crate::contract::TEXT_FIELD;
 
 /// Reads `text`, the arguments a caller passes a run of `prompt`, against
 /// the prompt's `args` declaration, and returns the object the run holds:
-/// the caller's fields, with the declared default of each field left out.
+/// the caller's fields, plus the declared default of each field the caller
+/// left out.
 ///
 /// # Errors
 /// Returns an `ArgsInvalid` failure with no location when `text` is not
@@ -30,8 +31,8 @@ pub fn accept_args(prompt: &Prompt, text: &str) -> Result<serde_json::Value, Err
 
 /// Checks `args`, the arguments a chain passes when it executes `prompt`,
 /// against the prompt's `args` declaration, and returns the object the
-/// executed chain holds: the given fields, with the declared default of
-/// each field left out.
+/// executed chain holds: the given fields, plus the declared default of
+/// each field they leave out.
 ///
 /// # Errors
 /// Returns an `ArgsInvalid` failure with no location when `args` is no
