@@ -54,7 +54,7 @@ impl Mismatch {
         }
     }
 
-    /// The failure of a run whose arguments hold this mismatch.
+    /// The failure of a caller or a chain whose arguments hold this mismatch.
     fn into_error(self) -> Error {
         make_args_error(
             self.reason,
@@ -106,7 +106,8 @@ pub(crate) fn accept_value(schema: &ArgsSchema, mut args: Json) -> Result<Json, 
 /// value's own object does not declare.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Checked {
-    /// A run's arguments, whose own object is the root of the declaration.
+    /// A caller's or a chain's arguments, whose own object is the root of
+    /// the declaration.
     Arguments,
     /// A declared default, whose own object is the node that declares it.
     Default,
@@ -240,7 +241,8 @@ fn check_fields(
 
 /// Names the fields the object named `name` declares, for the refusal of
 /// an undeclared one. The object with the empty name is the root of the
-/// declaration for a run's arguments, and the declaring node for a
+/// declaration for a caller's or a chain's arguments, and the declaring
+/// node for a default.
 /// default.
 fn declared(object: &ObjectNode, name: &str, checked: Checked) -> String {
     let names: Vec<String> = object
@@ -312,7 +314,8 @@ fn json_kind(value: &Json) -> &'static str {
     }
 }
 
-/// Builds the failure of a run's arguments: `message` under `ArgsInvalid`,
+/// Builds the failure of a caller or a chain whose arguments do not match:
+/// `message` under `ArgsInvalid`,
 /// with the `Reason` fact `reason` and, for one argument, its path as the
 /// `Name` fact. The prose is the message and then the code's default.
 fn make_args_error(reason: &str, name: Option<&str>, message: impl Into<String>) -> Error {
