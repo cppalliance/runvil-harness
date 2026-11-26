@@ -398,6 +398,54 @@ fn a_var_list_gives_up_its_last_item_alone() {
 }
 
 #[test]
+fn a_var_write_past_the_depth_limit_is_refused_at_the_assigning_line() {
+    // Each write is an empty table one level deeper than the last, so every
+    // write passes the depth check of the value written and only the levels
+    // above it grow. Without a check that counts those levels the whole
+    // chain is stored, and the read-back recurses once per level until the
+    // thread stack runs out.
+    let (raised, kind, line) = var_nest(200);
+    assert!(raised, "a write past the depth limit must raise");
+    assert_eq!(kind, "lua", "the refusal is the author's to catch");
+    assert!(
+        line.ends_with("is nested more than 127 levels deep"),
+        "the refusal names the depth limit, got `{line}`"
+    );
+}
+
+#[test]
+fn a_var_write_at_the_depth_limit_is_stored() {
+    // The root `var` is level 1 and `var.t` is level 2, so 125 nested
+    // tables reach level 127 and pass.
+    let (raised, _kind, line) = var_nest(125);
+    assert!(!raised, "a write at the depth limit must pass, got {line}");
+}
+
+/// Runs `depth` nested `var.t.n = {}` writes on a fresh VM under `pcall`
+/// and returns whether a write raised, the error's kind, and its refusal
+/// line.
+///
+/// The writes run one `pcall` each, so the answer names the first depth
+/// that was refused rather than the last. Nothing encodes `var` afterwards:
+/// `json.encode` has its own 127-level limit, and its refusal would hide
+/// whether the guard refused the write.
+fn var_nest(depth: usize) -> (bool, String, String) {
+    let vm = TestVm::new().shims().build();
+    let (raised, kind, message): (bool, String, String) = vm.eval(&format!(
+        "var.t = {{}}\n\
+         local t = var.t\n\
+         for i = 1, {depth} do\n\
+             local ok, err = pcall(function() t.n = {{}} end)\n\
+             if not ok then return true, tostring(err.kind), tostring(err) end\n\
+             t = t.n\n\
+         end\n\
+         return false, '', ''"
+    ));
+    let line = refusal_line(&message).unwrap_or(&message).to_owned();
+    (raised, kind, line)
+}
+
+#[test]
 fn a_var_write_of_a_value_with_no_json_form_names_the_failing_part() {
     for (write, refusal) in [
         (

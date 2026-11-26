@@ -4,7 +4,7 @@ use mlua::{Lua, LuaSerdeExt, Value};
 use serde_json::Value as Json;
 
 use crate::error::{self, Result, author_refusal, make_lua_runtime_error};
-use crate::json::to_stored_json;
+use crate::json::{DEPTH_LIMIT, to_stored_json, too_deep};
 use crate::proxy::{key_path, view_len};
 
 /// The registry key holding the `var` proxy's hidden data table.
@@ -117,10 +117,22 @@ fn write_refusal(
     (index > len.saturating_add(1))
         .then(|| format!("{path}[{index}] is past the end of the list, whose length is {len}"))
 }
+/// How many tables deep `value` nests, counting `value` itself as one level
+/// when it is a table. This is the count the JSON encoder makes when it
+/// refuses a table past [`DEPTH_LIMIT`].
+fn json_depth(value: &Json) -> usize {
+    match value {
+        Json::Array(items) => 1 + items.iter().map(json_depth).max().unwrap_or(0),
+        Json::Object(fields) => 1 + fields.values().map(json_depth).max().unwrap_or(0),
+        Json::Null | Json::Bool(_) | Json::Number(_) | Json::String(_) => 0,
+    }
+}
+
 fn guarded_json_value(
     lua: &Lua,
     value: &Json,
     path: &str,
+    level: usize,
     guarded_data: &mlua::Table,
 ) -> mlua::Result<Value> {
     match value {
@@ -134,21 +146,28 @@ fn guarded_json_value(
                         lua,
                         value,
                         &format!("{path}[{}]", index + 1),
+                        level + 1,
                         guarded_data,
                     )?,
                 )?;
             }
-            guarded_table(lua, data, path, guarded_data).map(Value::Table)
+            guarded_table(lua, data, path, level, guarded_data).map(Value::Table)
         }
         Json::Object(values) => {
             let data = lua.create_table_with_capacity(0, values.len())?;
             for (key, value) in values {
                 data.raw_set(
                     key.as_str(),
-                    guarded_json_value(lua, value, &format!("{path}.{key}"), guarded_data)?,
+                    guarded_json_value(
+                        lua,
+                        value,
+                        &format!("{path}.{key}"),
+                        level + 1,
+                        guarded_data,
+                    )?,
                 )?;
             }
-            guarded_table(lua, data, path, guarded_data).map(Value::Table)
+            guarded_table(lua, data, path, level, guarded_data).map(Value::Table)
         }
         _ => lua.to_value(value),
     }
@@ -158,6 +177,7 @@ fn guarded_table(
     lua: &Lua,
     data: mlua::Table,
     path: &str,
+    level: usize,
     guarded_data: &mlua::Table,
 ) -> mlua::Result<mlua::Table> {
     let proxy = lua.create_table()?;
@@ -188,7 +208,14 @@ fn guarded_table(
             // failing part, and spends the budget of the VM, so a value
             // that would outgrow the heap is refused before it converts.
             let json = to_stored_json(lua, &target, &value)?;
-            let rebuilt = guarded_json_value(lua, &json, &target, &nested_data)?;
+            // The stored value starts one level below this table, so a
+            // chain grown one write at a time meets the limit here rather
+            // than at a read-back that would recurse past the stack.
+            let deepest = level + json_depth(&json);
+            if deepest > DEPTH_LIMIT {
+                return Err(author_refusal(format!("{target} {}", too_deep())));
+            }
+            let rebuilt = guarded_json_value(lua, &json, &target, level + 1, &nested_data)?;
             write_data.raw_set(key, rebuilt)
         },
     )?;
@@ -265,8 +292,8 @@ pub(crate) fn guarded_var(lua: &Lua, initial: Option<&Json>) -> Result<mlua::Tab
         None => Json::Object(serde_json::Map::new()),
     };
     let guarded_data = lua.create_table().map_err(error::make_lua_error)?;
-    let Value::Table(proxy) =
-        guarded_json_value(lua, &initial, "var", &guarded_data).map_err(error::make_lua_error)?
+    let Value::Table(proxy) = guarded_json_value(lua, &initial, "var", 1, &guarded_data)
+        .map_err(error::make_lua_error)?
     else {
         return Err(error::make_internal_error(
             "guarded var root was not a table",

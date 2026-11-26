@@ -125,6 +125,81 @@ fn a_prelude_that_calls_the_store_while_loading_fails_the_run_as_lua_before_its_
 }
 
 #[test]
+fn a_cancel_that_lands_while_a_step_fails_ends_the_run_as_canceled() {
+    use runvil_types::cancel::CancelHandle;
+    use runvil_types::event::Event;
+
+    use crate::test_support::scenario::{MAIN_PROMPT, TEST_SEED};
+
+    // A Pack prelude logs once and then loops, and a second thread sets the
+    // run's cancel flag while it loops. The instruction hook aborts the
+    // prelude because of that flag, and `install_preludes` turns the abort
+    // into the prelude's load failure without reading the flag, so the step
+    // fails as `lua_runtime`. The step polls the flag once before the chain
+    // runs, so the cancel lands after that poll and only the failed-step arm
+    // can still honor it.
+    //
+    // The setter waits for the section's start in the run's buffer, which the
+    // frame construction reports immediately before it installs the
+    // preludes, so the cancel lands while the prelude runs without a fixed
+    // time, as the instruction-hook cancel test in `run/tests.rs` does.
+    let md = declaring(&["eager"], "## Only\n\n```lua\nreturn 'done'\n```\n");
+    let handle = CancelHandle::new();
+    let cancel = handle.clone();
+    let mut state = None;
+    let mut run = Run::new_for_test(
+        Arc::new(
+            Prompt::parse(&|_: &str| Ok(md.clone()), MAIN_PROMPT)
+                .expect("the prelude cancel prompt parses"),
+        ),
+        "{}",
+        RunParams::new(TEST_SEED, runvil_types::timestamp::Timestamp::UNIX_EPOCH)
+            .with_cancel(handle)
+            .with_preludes(vec![prelude("eager", "while true do end")]),
+        |fresh| {
+            state = Some(fresh.clone());
+            fresh
+        },
+    );
+    let state = state.expect("the run starts over the state it was handed");
+    let setter = std::thread::spawn(move || {
+        let mut read = Vec::new();
+        while !read
+            .iter()
+            .any(|event| matches!(event, Event::SectionStarted { .. }))
+        {
+            read.extend(state.take_events());
+            std::thread::yield_now();
+        }
+        cancel.cancel();
+    });
+    let step = run.step();
+    setter.join().expect("the cancelling thread does not panic");
+    let Step::Done { result, .. } = step else {
+        panic!("the hook aborts the prelude and nothing is outstanding, got {step:?}");
+    };
+    let error = result.expect_err("the aborted prelude fails the run");
+    assert!(
+        error.is_canceled(),
+        "a cancel that lands while a step fails must end the run canceled, got {error:?}"
+    );
+}
+
+#[test]
+fn a_failing_step_without_a_cancel_keeps_its_own_code() {
+    // The same failing prelude without a cancel: the fix must not swallow a
+    // genuine failure that lands while no cancel is set.
+    let md = declaring(&["eager"], "## Only\n\n```lua\nreturn 'done'\n```\n");
+    let trace = prelude_run(&md, vec![prelude("eager", "error('the prelude gives up')")]);
+    assert_eq!(
+        trace.error().code,
+        ErrorCode::LuaRuntime,
+        "{:?}",
+        trace.result()
+    );
+}
+
+#[test]
 fn a_prelude_that_catches_its_store_call_installs_and_leaves_the_store_untouched() {
     let md = declaring(
         &["seeder"],
