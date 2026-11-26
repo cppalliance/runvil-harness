@@ -347,3 +347,56 @@ fn an_offered_adhoc_tool_counts_from_zero_and_an_unoffered_one_from_its_first_ca
     let called: i64 = vm.eval("return tools.stats.tools['adhoc/other']");
     assert_eq!(called, 1, "a call gives an unoffered adhoc tool its count");
 }
+
+#[test]
+fn a_view_passed_as_parameters_defines_the_schema_it_stands_for() {
+    // A view is an empty proxy with its data behind `__index`, and the raw
+    // `type` read and the raw `pairs` walk both see nothing, so a schema
+    // that came from `args` or `var` would define a tool with no
+    // parameters and no error.
+    let args = json!({
+        "schema": {
+            "type": "object",
+            "properties": { "q": { "type": "string" } },
+            "required": ["q"],
+        }
+    });
+    let vm = TestVm::new().tools(offer_set()).args(&args).build();
+    vm.exec(
+        "var.short = { query = 'string' }\n\
+         tools.adhoc({ name = 'full', description = 'A full schema', parameters = args.schema }, \
+           function() end)\n\
+         tools.adhoc({ name = 'short', description = 'A short form', parameters = var.short }, \
+           function() end)",
+    );
+    assert_eq!(
+        adhoc_schema(&vm, "full"),
+        args["schema"],
+        "a schema read from `args` reaches the tool unchanged"
+    );
+    assert_eq!(
+        adhoc_schema(&vm, "short")["required"],
+        json!(["query"]),
+        "a short form read from `var` names its parameter"
+    );
+}
+
+#[test]
+fn a_view_passed_as_the_attributes_defines_the_tool_it_stands_for() {
+    // The attributes walk and its reads are raw too, so a tool defined from
+    // a view would report a missing `name` for a table Lua reads fine.
+    let vm = TestVm::new().tools(offer_set()).build();
+    vm.exec(
+        "var.tool = { name = 'fromview', description = 'Defined from a view', \
+           parameters = { query = 'string' } }\n\
+         tools.adhoc(var.tool, function() end)",
+    );
+    let schema = adhoc_schema(&vm, "fromview");
+    assert_eq!(
+        schema["required"],
+        json!(["query"]),
+        "the view's parameters reach the tool"
+    );
+    let description: String = vm.eval("tools.get('adhoc/fromview').description");
+    assert_eq!(description, "Defined from a view");
+}
