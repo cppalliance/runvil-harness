@@ -10,7 +10,7 @@ use crate::packs::PackId;
 ///
 /// A tool id is a [`GlobalName`] of two or more segments, such as
 /// `web/fetch`. The first segment is a Pack's id, or `adhoc` or `dynamic` for
-/// a tool the Engine holds, which are the [`RESERVED_PACK_IDS`] no Pack may
+/// a tool the Engine holds, which are the reserved Pack ids no Pack may
 /// take. The last segment is the tool's own name. For example, `web/fetch`
 /// comes from `web`.
 ///
@@ -18,8 +18,6 @@ use crate::packs::PackId;
 /// uses for it. A model calls a tool by its wire name, which the Pack or a
 /// render sets and which otherwise comes from the id, and a call under any
 /// wire name reaches the tool this id names.
-///
-/// [`RESERVED_PACK_IDS`]: crate::packs::RESERVED_PACK_IDS
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub struct ToolId(GlobalName);
