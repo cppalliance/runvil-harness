@@ -128,7 +128,15 @@ pub trait VfsAccess: Send {
 
     /// Returns stored paths matching `pattern`, sorted.
     ///
-    /// The root is not a stored path, so no pattern matches it.
+    /// Every result is an absolute canonical virtual path. The root is not a
+    /// stored path, so no pattern matches it.
+    ///
+    /// The grammar is one that a hostile pattern cannot be used to exhaust:
+    /// the pattern is at most 1024 bytes, backslashes and control characters
+    /// are refused, and the wildcards are `*`, which matches within one path
+    /// segment, and `**`, which must occupy a whole segment (`**`, `**/...`,
+    /// `.../**`, or `.../**/...`). Each refusal names the rule the pattern
+    /// broke.
     ///
     /// # Errors
     ///

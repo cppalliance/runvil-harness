@@ -40,8 +40,12 @@ pub fn phrase(code: ErrorCode) -> &'static str {
 }
 
 /// Builds the failure of a model round or a catalog fetch, with `message` as
-/// both its message and its prose. `code` is one of the model codes, and
-/// `message` is its phrase, extended as the module page says.
+/// both its message and its prose.
+///
+/// `code` is one of the model codes. The prose a model reads is the code's own
+/// phrase from [`ErrorCode::prose`], extended with `message` when the failure
+/// carries a specific fact, such as the provider's text or the field that was
+/// refused.
 #[must_use]
 pub fn make_completion_error(code: ErrorCode, message: impl Into<String>) -> Error {
     let message = message.into();

@@ -164,9 +164,9 @@ pub(crate) fn render_envelope(
         // return, so the call's value is nil and never the empty string,
         // which a chain can return on purpose.
         Answer::Call(None) | Answer::Note | Answer::Cancel => vec![Value::Nil],
-        // The one serde-boundary conversion: the parsed JSON output
-        // becomes the resumed Lua value, so the shim hands the script a
-        // table with no codec in author reach.
+        // The parsed JSON output resumes through `lua.to_value`, the same
+        // conversion `json.decode` uses, so a structured result and a
+        // decoded text have the same shape.
         Answer::ToolCallResult(ToolCallOutcome::Structured(json)) => {
             vec![lua.to_value(&json)?]
         }
