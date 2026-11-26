@@ -616,12 +616,9 @@ impl Scheduler {
         // spawner's prompt.
         let prompt = self.prompt_of(id);
         let resolved = self.with_chain(id, |ops| ops.resolve_chain_target(target, from))?;
-        let worker = resolved
-            .pos
-            .section(&prompt)
-            .ok_or(error::make_internal_error(
-                "a resolved worker is absent from its slice",
-            ))?;
+        let worker = resolved.pos.section(&prompt).ok_or_else(|| {
+            error::make_internal_error("a resolved worker is absent from its slice")
+        })?;
         // The access spawns before the chain exists: a refused fork here
         // is the last fallible step that can leave nothing behind, so it
         // runs ahead of the id allocation and the arena push rather than

@@ -464,9 +464,9 @@ impl Chain {
     /// `join_task` returns without a join, and `end_tool_call` ends the
     /// call's identity with no owner to merge it into.
     pub(super) fn access(&self) -> Result<&Arc<Access>> {
-        self.access.as_ref().ok_or(error::make_internal_error(
-            "a live chain holds its access capability",
-        ))
+        self.access
+            .as_ref()
+            .ok_or_else(|| error::make_internal_error("a live chain holds its access capability"))
     }
 
     /// Hands out the chain's next child id, under [`Counters::next_child`].
@@ -476,9 +476,9 @@ impl Chain {
     /// children, which no reachable run does.
     pub(super) fn next_child_id(&mut self) -> Result<ChainId> {
         let index = self.counters.next_child;
-        self.counters.next_child = index.checked_add(1).ok_or(error::make_internal_error(
-            "a chain's child count cannot exceed u32",
-        ))?;
+        self.counters.next_child = index
+            .checked_add(1)
+            .ok_or_else(|| error::make_internal_error("a chain's child count cannot exceed u32"))?;
         Ok(self.lineage.child(index))
     }
 
@@ -490,9 +490,9 @@ impl Chain {
     /// sections, which no reachable run does.
     pub(super) fn next_entry_id(&mut self) -> Result<String> {
         let index = self.counters.next_entry;
-        self.counters.next_entry = index.checked_add(1).ok_or(error::make_internal_error(
-            "a chain's entry count cannot exceed u32",
-        ))?;
+        self.counters.next_entry = index
+            .checked_add(1)
+            .ok_or_else(|| error::make_internal_error("a chain's entry count cannot exceed u32"))?;
         Ok(self.lineage.entry(index))
     }
 
@@ -606,7 +606,7 @@ impl Chain {
         self.entered
             .as_ref()
             .map(|entered| &entered.frame)
-            .ok_or(error::make_internal_error("a live chain holds its frame"))
+            .ok_or_else(|| error::make_internal_error("a live chain holds its frame"))
     }
 
     /// The frame of the section the chain is running, mutably.
@@ -618,7 +618,7 @@ impl Chain {
         self.entered
             .as_mut()
             .map(|entered| &mut entered.frame)
-            .ok_or(error::make_internal_error("a live chain holds its frame"))
+            .ok_or_else(|| error::make_internal_error("a live chain holds its frame"))
     }
 
     /// The chain's current block sequence: the current section's blocks,

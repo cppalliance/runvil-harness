@@ -282,9 +282,11 @@ impl Scheduler {
         let child_ctx = self.chains[id]
             .ctx
             .with_prompt(name, accepted, lineage.clone())
-            .ok_or(error::make_internal_error(
-                "the run holds the prompt whose arguments it just checked",
-            ))?;
+            .ok_or_else(|| {
+                error::make_internal_error(
+                    "the run holds the prompt whose arguments it just checked",
+                )
+            })?;
         // Nothing of the caller's walk crosses: the chain starts on the
         // executed prompt's own `default` model and an empty `var`.
         let model = child_ctx.default_binding();

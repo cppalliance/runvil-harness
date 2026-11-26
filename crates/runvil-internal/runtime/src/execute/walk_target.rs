@@ -59,9 +59,8 @@ pub(super) fn read_section(
 /// Returns an `Internal` failure when `pos` names no section, which a
 /// position a lookup returned never does.
 fn found_section<'p>(prompt: &'p Prompt, pos: &SectionPos) -> Result<&'p Section> {
-    pos.section(prompt).ok_or(error::make_internal_error(
-        "a resolved section path names no section",
-    ))
+    pos.section(prompt)
+        .ok_or_else(|| error::make_internal_error("a resolved section path names no section"))
 }
 
 /// Where a jump, a `call`, or a spawn lands: the target's position, and
@@ -130,9 +129,9 @@ pub(super) fn library_position(key: &LibraryKey) -> Result<SectionPos> {
         .map_err(|cause| {
             error::make_internal_with_cause_error("a library key names no section position", &cause)
         })?;
-    let index = indices.pop().ok_or(error::make_internal_error(
-        "a library key names no section position",
-    ))?;
+    let index = indices
+        .pop()
+        .ok_or_else(|| error::make_internal_error("a library key names no section position"))?;
     let slice = indices
         .into_iter()
         .fold(SlicePath::root(), |path, ancestor| {

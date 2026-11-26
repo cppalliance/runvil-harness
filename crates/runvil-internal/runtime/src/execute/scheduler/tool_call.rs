@@ -223,12 +223,9 @@ impl ChainOps<'_> {
         let chain = &mut *self.chain;
         let emitter = Arc::clone(chain.ctx.emitter());
         let section = chain.section_name().to_owned();
-        let call = chain
-            .frame_mut()?
-            .pop_adhoc_call()
-            .ok_or(error::make_internal_error(
-                "an adhoc tool's completion closes the call that opened it",
-            ))?;
+        let call = chain.frame_mut()?.pop_adhoc_call().ok_or_else(|| {
+            error::make_internal_error("an adhoc tool's completion closes the call that opened it")
+        })?;
         let answer = match outcome {
             AdhocToolOutcome::Returned(text) => {
                 emitter.report(&section, event_lifecycle::TOOL_CALL_SUCCEEDED);
@@ -397,9 +394,11 @@ impl ChainOps<'_> {
             Some(Parked::Batch(batch)) => batch.get_mut(slot).filter(|open| open.is_none()),
             _ => None,
         }
-        .ok_or(error::make_internal_error(
-            "a batched call's answer fills an open slot of its chain's batch",
-        ))?;
+        .ok_or_else(|| {
+            error::make_internal_error(
+                "a batched call's answer fills an open slot of its chain's batch",
+            )
+        })?;
         *open = Some(landed);
         self.answer_full_batch()
     }
