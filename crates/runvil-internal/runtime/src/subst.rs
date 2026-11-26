@@ -115,8 +115,8 @@ pub(crate) struct Sources<'a> {
 ///
 /// # Errors
 /// Returns a `Substitution` failure whose `Reason` fact is one of the
-/// reasons `failure` lists, which is the complete list of what a
-/// placeholder can fail with. Its message names the reason and the byte
+/// reasons `make_failure_error` accepts, which is the complete list of what
+/// a placeholder can fail with. Its message names the reason and the byte
 /// offset of the offending placeholder after a detail with its bounded,
 /// control-escaped path preview, and a `serialize` message then holds the
 /// lookup failure. It is placed in the sources' file on the offending

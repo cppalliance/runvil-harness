@@ -76,7 +76,7 @@ fn vfs_observations(op: &VfsOp) -> Option<(Lifecycle, Lifecycle)> {
 }
 
 /// Classifies one store operation's failure for the answer channel. A
-/// claims-model conflict becomes the fatal make_determinism_error violation: the
+/// claims-model conflict becomes the fatal determinism violation: the
 /// driver intercepts it at the answer boundary and ends the run on the
 /// spot rather than resuming it into Lua, so no author `pcall` can catch
 /// it. Every other failure returns as the call's answer as a store

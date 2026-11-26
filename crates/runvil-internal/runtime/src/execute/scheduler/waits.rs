@@ -6,7 +6,7 @@
 //! end or reply delivers it. Delivery takes the member's waiting outcome
 //! (each result is taken by exactly one wait; a wait on a task whose
 //! latest result was taken, and that has ended or idles with no message
-//! since, raises `make_task_consumed_error`), and it joins the task:
+//! since, raises the `task_consumed` code), and it joins the task:
 //! everything the task did happens before the owner's next step, so its
 //! store writes are visible from the very next operation. A `Canceled`
 //! entry delivers `ok = false` with the `canceled` error value and stays

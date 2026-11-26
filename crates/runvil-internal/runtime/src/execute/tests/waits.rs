@@ -4,7 +4,7 @@
 //! finished task; `tasks.ready`, `tasks.pending`, `tasks.note`, and
 //! `tasks.cancel` round-trip; ownership is enforced (`make_task_not_owned_error`,
 //! with the self exception for `status` and `note`); a delivered task's
-//! second wait raises `make_task_consumed_error`; cancel is idempotent and reports
+//! second wait raises the `task_consumed` code; cancel is idempotent and reports
 //! `TaskCanceled` exactly once.
 
 use runvil_types::event::Event;
@@ -67,7 +67,7 @@ fn join_fills_every_position_of_a_member_named_twice() {
     // A set naming one task twice: the task is waited on once and its
     // outcome lands at both positions, so the result sequence has no hole
     // and `#results` is the input's length; the second wait would have
-    // raised `make_task_consumed_error` had the shim waited twice.
+    // raised the `task_consumed` code had the shim waited twice.
     let md = tasks_prompt(
         "local a = tasks.spawn('../Alpha')\n\
          local b = tasks.spawn('../Beta')\n\
@@ -324,7 +324,7 @@ fn cancel_ends_a_parked_task_idempotently_and_reports_task_canceled_once() {
     // The child spawns a task of its own and parks on a store write, and
     // the grandchild parks on one too; the owner cancels the child twice
     // (the second is a no-op), reads the terminal state, and ends with no
-    // live task - so no `make_tasks_live_error`. A wait on the canceled entry
+    // live task - so no the `tasks_live` code. A wait on the canceled entry
     // delivers `ok = false` with a `canceled` error value. The cancel
     // takes the grandchild with the child: the grandchild started, so it
     // reports one terminal, which names the abort of its owner and comes
