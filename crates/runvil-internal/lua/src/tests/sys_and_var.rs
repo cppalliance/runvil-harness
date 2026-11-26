@@ -1,7 +1,10 @@
 //! What a block returns, the read-only `sys` table, and the guarded `var`
 //! table.
 
+use std::cell::Cell;
+
 use super::*;
+use crate::var::PATHS_BUILT;
 
 #[test]
 fn returns_an_args_field_verbatim() {
@@ -252,7 +255,17 @@ fn reassigning_the_var_global_fails_read_back() {
     // `var = 5` drops the guarded proxy from reach; read-back must reject it
     // rather than silently roll the pre-reassignment data forward. Another
     // table in its place is not the proxy either.
-    for source in ["var = 5", "var = {}"] {
+    // An `__index` of the block's on the globals does not answer for a
+    // `var` that the block took out of them.
+    let hidden = "local kept = var\n\
+                  var = nil\n\
+                  setmetatable(_G, { __index = function(_, name)\n\
+                    if name == 'var' then return kept end\n\
+                  end })";
+    // The table in its place is the proxy or it is not: an `__eq` of the
+    // block's that calls the two equal does not run.
+    let equal = "var = setmetatable({}, { __eq = function() return true end })";
+    for source in ["var = 5", "var = {}", hidden, equal] {
         let error =
             run(source, &json!({})).expect_err("reassigning the var global must fail at read-back");
         assert!(
@@ -291,6 +304,8 @@ fn a_var_write_under_a_key_with_no_json_form_is_refused_at_the_assigning_line() 
         ("var[{}] = 1", "a key of var must be a string, got table"),
         // The root holds named fields alone.
         ("var[1] = 'x'", "a key of var must be a string, got integer"),
+        ("var['\\xff'] = 1", "var.\u{fffd} is not valid UTF-8"),
+        ("var.t['\\xff'] = 1", "var.t.\u{fffd} is not valid UTF-8"),
         (
             "var.t[true] = 1",
             "a key of var.t must be a string or a list index, got boolean",
@@ -364,6 +379,68 @@ fn a_var_write_that_would_mix_list_items_and_named_fields_is_refused() {
         assert_eq!(line, refusal, "{write}");
         assert_eq!(var, held, "{write}");
     }
+}
+
+#[test]
+fn a_var_path_shows_64_bytes_of_a_key_wherever_the_key_was_written() {
+    // The key is the key of the write, and then a key inside the value
+    // written.
+    let long = "k".repeat(100);
+    let shown = format!("{}... (100 bytes)", "k".repeat(64));
+    for write in [
+        format!("var.t['{long}'] = {{ 'a' }} var.t['{long}'].name = 'x'"),
+        format!("var.t = {{ ['{long}'] = {{ 'a' }} }} var.t['{long}'].name = 'x'"),
+    ] {
+        let (raised, _kind, line, _var) = var_write(&write);
+        assert!(raised, "{write} must raise");
+        assert_eq!(
+            line,
+            format!("var.t.{shown}.name is a named field, and var.t.{shown} is a list"),
+            "{write}"
+        );
+    }
+}
+
+#[test]
+fn var_nests_as_deep_as_data_may_whether_written_whole_or_one_table_at_a_time() {
+    // `var` itself is level 1, so 126 tables under it make 127 levels.
+    let one_at_a_time =
+        |tables: usize| format!("local t = var for _ = 1, {tables} do t.n = {{}} t = t.n end");
+    let whole = |tables: usize| {
+        format!("local v = {{}} for _ = 2, {tables} do v = {{ n = v }} end var.n = v")
+    };
+    for write in [one_at_a_time(126), whole(126)] {
+        let (raised, line, stored) = nested_var_write(&write);
+        assert_eq!((raised, line.as_str()), (false, ""), "{write}");
+        let read_back = serde_json::from_str::<Json>(&stored)
+            .expect("the text of the whole of `var` at the limit reads back");
+        assert_eq!(tables_under_n(&read_back), 127, "{write}");
+    }
+    let deepest = format!("var{}", ".n".repeat(127));
+    for write in [one_at_a_time(127), whole(127)] {
+        let (raised, line, _stored) = nested_var_write(&write);
+        assert!(raised, "{write} must raise");
+        assert_eq!(
+            line,
+            format!("{deepest} is nested more than 127 levels deep"),
+            "{write}"
+        );
+    }
+}
+
+#[test]
+fn a_key_that_serde_json_keeps_for_itself_reads_back_from_var_as_a_name() {
+    // `serde_json::Value` reads a map whose first key is this name as the
+    // JSON text under the key, with its `raw_value` feature on.
+    let out = run(
+        "var.t = { ['$serde_json::private::RawValue'] = '[1,2]' }",
+        &json!({}),
+    )
+    .expect("the write passes the guard");
+    assert_eq!(
+        out.var,
+        json!({ "t": { "$serde_json::private::RawValue": "[1,2]" } })
+    );
 }
 
 #[test]
@@ -469,6 +546,25 @@ fn a_var_write_of_a_value_with_no_json_form_names_the_failing_part() {
             "var.list[2] mixes list items and named keys",
         ),
         ("var.n = 0/0", "var.n is not a finite number"),
+        // A weak table, a view that leads to one, and a table under a
+        // weak metatable.
+        (
+            "var.t = setmetatable({ a = 1 }, { __mode = 'k' })",
+            "var.t is a weak table, one whose metatable sets __mode: the entries the collector \
+             leaves in it are not the same in two runs",
+        ),
+        (
+            "var.t = { inner = setmetatable({}, { __metatable = false, \
+             __index = setmetatable({ a = 1 }, { __mode = 'v' }) }) }",
+            "var.t.inner is a weak table, one whose metatable sets __mode: the entries the \
+             collector leaves in it are not the same in two runs",
+        ),
+        (
+            "var.t = setmetatable({}, setmetatable({ __metatable = false, __index = { a = 1 } }, \
+             { __mode = 'v' }))",
+            "var.t is a table whose metatable is a weak table: the fields the collector leaves \
+             in that metatable are not the same in two runs",
+        ),
     ] {
         let (raised, kind, line, var) = var_write(write);
         assert!(raised, "{write} must raise");
@@ -489,6 +585,23 @@ fn a_float_with_no_fraction_stays_a_float_in_var() {
     );
     assert_eq!(kinds, "float integer float");
 }
+
+#[test]
+fn a_var_write_writes_the_path_of_its_target_only_to_refuse() {
+    // The path of a target under many tables is long, and a write that
+    // is taken does not pay for it.
+    let vm = TestVm::new().shims().build();
+    let before = PATHS_BUILT.with(Cell::get);
+    vm.exec(
+        "var.a = { b = { list = {} } }\n\
+         for i = 1, 3 do var.a.b.list[i] = { n = i } end\n\
+         var.a.b.list[3] = nil",
+    );
+    assert_eq!(PATHS_BUILT.with(Cell::get) - before, 0);
+    let taken = vm.eval::<bool>("return (pcall(function() var.a.b.list[9] = 1 end))");
+    assert_eq!((taken, PATHS_BUILT.with(Cell::get) - before), (false, 1));
+}
+
 /// A VM whose Lua heap is 4 MiB, so a write may read at most 524,288 values
 /// and 4 MiB of text.
 fn small_heap_vm() -> BuiltVm {
@@ -567,4 +680,29 @@ fn a_var_write_of_a_table_that_contains_itself_is_refused_as_a_cycle() {
         Some("var.x.a contains itself"),
         "a cycle is not oversized"
     );
+}
+
+/// Runs `write` on a fresh VM under `pcall`, and returns whether it
+/// raised, its refusal line, and the read-back of `var` as JSON text
+/// after it when it did not raise.
+fn nested_var_write(write: &str) -> (bool, String, String) {
+    let vm = TestVm::new().shims().build();
+    let (raised, message) = vm.eval::<(bool, String)>(&format!(
+        "local ok, err = pcall(function() {write} end)\n\
+         return not ok, ok and '' or tostring(err)"
+    ));
+    let line = refusal_line(&message).unwrap_or(&message).to_owned();
+    let stored = if raised {
+        String::new()
+    } else {
+        let var = vm.var().expect("`var` reads back");
+        serde_json::to_string(&var).expect("`var` is JSON data")
+    };
+    (raised, line, stored)
+}
+
+/// The count of tables from `value` down its chain of `n` fields, `value`
+/// included.
+fn tables_under_n(value: &Json) -> usize {
+    std::iter::successors(Some(value), |table| table.get("n")).count()
 }

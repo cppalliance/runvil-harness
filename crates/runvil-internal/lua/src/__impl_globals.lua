@@ -9,16 +9,26 @@
 -- read-only table of the chain's arguments,
 -- `prose` once a block installs its render,
 -- `messages` once injection installs the section's list, and `author` for
--- the metatable author code set on `_G`), and `refuse_args()`,
+-- the metatable author code set on `_G`), `refuse_args()`,
 -- `refuse_prose()`, and `refuse_messages()` raise the Engine's assignment
--- refusals. The chunk returns the guard and the two replacements for the
--- Engine to install.
-local globals, state, refuse_args, refuse_prose, refuse_messages = ...
+-- refusals, and `argument_error(level, function, argument, reason)`
+-- returns the text stock Lua refuses an argument with, with the name that
+-- the author's call of the function at `level` is written with. The
+-- chunk returns the guard and the two replacements for the Engine to
+-- install.
+--
+-- The Engine compiles this chunk with no debug info. Lua names the
+-- variable that holds a value it cannot index, and with no debug info a
+-- handler of the author's that it cannot index fails in Lua's words
+-- alone, `attempt to index a number value`, with no variable of this
+-- chunk after them.
+local globals, state, refuse_args, refuse_prose, refuse_messages, argument_error = ...
 
 local base_setmetatable, base_getmetatable = setmetatable, getmetatable
 local rawequal, rawget, rawset = rawequal, rawget, rawset
 local error, next, pcall, select, type = error, next, pcall, select, type
-local gsub = string.gsub
+local tointeger = math.tointeger
+local match = string.match
 
 -- The guard is `_G`'s only metatable, and nothing hands it out: the base
 -- `setmetatable` refuses to replace it, and the replacements below answer
@@ -87,9 +97,13 @@ local function forward(author)
 end
 
 -- A base function called through `pcall` cannot see the name it was
--- called by, so its argument error names it '?'; restore the name.
+-- called by, so its argument error names it '?'. The error is made again
+-- for the replacement `name`, with the name the author's call of it is
+-- written with. Call it from the replacement itself.
 local function named(message, name)
-  return (gsub(message, "^bad argument #(%d+) to '%?'", "bad argument #%1 to '" .. name .. "'", 1))
+  local number, reason = match(message, "^bad argument #(%d+) to '%?' %((.*)%)$")
+  if number == nil then return message end
+  return argument_error(2, name, tointeger(number), reason)
 end
 
 -- Re-raising at level 2 puts the caller's position on the message, where

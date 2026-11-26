@@ -23,15 +23,21 @@
 -- any yield, `loop_begin(...)` starts one `models.loop` call in Rust over
 -- the run's round cap, the section's `compactors` table, and the section's
 -- `messages` list, returning the
--- call's step function and its first action, and `compact_begin(...)`
--- starts one `models.compact` call over the same list the same way. The
+-- call's step function and its first action, `compact_begin(...)`
+-- starts one `models.compact` call over the same list the same way, and
+-- `mistyped(value, expected)` gives the name stock Lua has for the type of
+-- an argument it refuses, or nil for a value of the type `expected`, and
+-- `argument_error(level, function, argument, reason)` gives the text
+-- stock Lua refuses an argument with, with the name that the author's
+-- call of the function at `level` is written with. The
 -- `tasks` namespace and
 -- the `fanout` shim live in their own chunks (`__impl_tasks.lua`,
 -- `__impl_fanout.lua`), installed by the Engine right after this one over
 -- the failure helpers this chunk returns.
 local yield, var_snapshot, models, tools, error_value, stash_failure,
   normalize_failure, enter_adhoc_handler, leave_adhoc_handler,
-  cancel_requested, is_model_handle, loop_begin, compact_begin = ...
+  cancel_requested, is_model_handle, loop_begin, compact_begin, mistyped,
+  argument_error = ...
 
 -- The base library's pcall and xpcall, captured before the replacements
 -- below are installed over the globals: the block guard needs the raw
@@ -40,6 +46,11 @@ local raw_pcall, raw_xpcall = pcall, xpcall
 
 -- error, captured so author code that rebinds `error` cannot move a raise.
 local error = error
+
+-- Captured for the same reason: a global of these names that a block
+-- replaces runs none of the author's code inside a function of this chunk,
+-- or inside a `tasks` function that calls one of its helpers.
+local select, tostring, type = select, tostring, type
 
 -- math.type, captured at install for the same reason: the shim's type
 -- names must not move when author code rebinds `math`.
@@ -87,28 +98,38 @@ local function pcall_outcome(ok, ...)
   return false, normalize_failure((...))
 end
 
-local function protected_call(f, ...)
-  return pcall_outcome(raw_pcall(f, ...))
+-- The two refuse their arguments as the stock functions do, in stock Lua's
+-- words, under the name the author's call is written with, and on the
+-- line of that call. The raw function would put the refusal on a line of
+-- this chunk, and would name itself by the variable of this chunk that it
+-- is called through.
+local function protected_call(...)
+  local f = ...
+  if f == nil and select("#", ...) == 0 then
+    error(argument_error(1, "pcall", 1, "value expected"), 2)
+  end
+  return pcall_outcome(raw_pcall(...))
 end
 
--- The message handler sees the normalized failure; a non-function handler
--- is left to the raw xpcall so its own argument error is unchanged. Under
--- cancellation the author's handler never runs and the raw failure is
--- raised again: the hook's abort calls the message handler while hooks
--- are off, so a looping handler could not be aborted.
+-- The message handler sees the normalized failure. Under cancellation the
+-- author's handler never runs and the raw failure is raised again: the
+-- hook's abort calls the message handler while hooks are off, so a looping
+-- handler could not be aborted.
 local function xpcall_outcome(ok, ...)
   if not ok and cancel_requested() then error((...), 0) end
   return ok, ...
 end
 
-local function protected_xcall(f, handler, ...)
+local function protected_xcall(...)
+  local f, handler = ...
   if type(handler) ~= "function" then
-    return xpcall_outcome(raw_xpcall(f, handler, ...))
+    local got = select("#", ...) < 2 and "no value" or mistyped(handler, "function")
+    error(argument_error(1, "xpcall", 2, "function expected, got " .. got), 2)
   end
   return xpcall_outcome(raw_xpcall(f, function(failure)
     if cancel_requested() then return failure end
     return handler(normalize_failure(failure))
-  end, ...))
+  end, select(3, ...)))
 end
 
 -- One infer round: on the handle's frozen binding when there is one, and

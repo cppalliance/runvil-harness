@@ -20,12 +20,10 @@ use serde_json::{Map, Number, Value as Json};
 
 use super::keys::{Entries, Shape, entries, shape};
 use crate::error::author_refusal;
+use crate::meta_names::MetaNames;
 use crate::proxy::{Unsealed, key_path, key_text, unseal};
-use crate::walk_budget::{HELD_KEY_LIMIT, TooLarge, WalkBudget};
-
-/// The most tables deep a value may nest, the top-level table being level
-/// 1: the depth `json.decode` accepts.
-pub(crate) const DEPTH_LIMIT: usize = 127;
+use crate::walk_budget::{DEPTH_LIMIT, HELD_KEY_LIMIT, TooLarge, WalkBudget};
+use crate::weak::{WEAK_METATABLE, WEAK_TABLE, is_weak};
 
 /// `json.encode(value [, options])`: `value` as one line of compact JSON.
 pub(super) fn encode(lua: &Lua, (value, options): (Value, Value)) -> mlua::Result<LuaString> {
@@ -54,14 +52,23 @@ pub(crate) fn to_json(
 /// part stays a float, so a stored number reads back as the kind it was
 /// written as. Every refusal names the failing path from `target` and
 /// then the reason, and a value too large to walk is too large to store.
-pub(crate) fn to_stored_json(lua: &Lua, target: &str, value: &Value) -> mlua::Result<Json> {
+/// `target` writes the path of the target, and is asked only for a
+/// refusal, so a write that passes pays nothing for the length of its
+/// path. `level` is the level that the tables above the target give
+/// `value`, 1 for a value with none above it, so the depth limit counts
+/// them.
+pub(crate) fn to_stored_json(
+    lua: &Lua,
+    target: &dyn Fn() -> String,
+    level: usize,
+    value: &Value,
+) -> mlua::Result<Json> {
     let mut encoder = Encoder {
-        root: target.to_owned(),
-        too_large: format!("{target} is too large to store"),
+        target: Some(target),
         keeps_floats: true,
         ..Encoder::new(lua, "", false)
     };
-    encoder.value(value, 1)
+    encoder.value(value, level)
 }
 
 /// `json.encode_lines(list [, options])`: each item of `list` encoded by
@@ -87,7 +94,10 @@ pub(super) fn encode_lines(lua: &Lua, (list, options): (Value, Value)) -> mlua::
 
 /// Reads the options argument, nil or a table whose only key is `debug`, a
 /// boolean, and returns whether debug mode is on. Keys are checked in
-/// visiting order, so the first offending key is the one reported.
+/// visiting order, so the first offending key is the one reported. A weak
+/// table is refused before its keys are read: the collector takes its
+/// entries, so the first offending key left would differ from one run to
+/// the next.
 fn debug_option(options: &Value, function: &str) -> mlua::Result<bool> {
     let table = match options {
         Value::Nil => return Ok(false),
@@ -99,6 +109,11 @@ fn debug_option(options: &Value, function: &str) -> mlua::Result<bool> {
             )));
         }
     };
+    if is_weak(table)? {
+        return Err(author_refusal(format!(
+            "{function}: options must not be {WEAK_TABLE}"
+        )));
+    }
     let Some(options) = entries(table, HELD_KEY_LIMIT)? else {
         return Err(too_large(function));
     };
@@ -128,9 +143,18 @@ fn too_large(prefix: &str) -> mlua::Error {
     author_refusal(format!("{prefix}: value is too large to encode"))
 }
 
+/// [`too_large`] for a walk that serves `prefix`, or the refusal that
+/// names the path `target` gives when the walk is of a value to store.
+fn too_large_for(prefix: &str, target: Option<&dyn Fn() -> String>) -> mlua::Error {
+    match target {
+        Some(target) => author_refusal(format!("{} is too large to store", target())),
+        None => too_large(prefix),
+    }
+}
+
 /// Why a string or a key that is not UTF-8 cannot be encoded, the text
 /// after the path.
-const NOT_UTF8: &str = "is not valid UTF-8";
+pub(crate) const NOT_UTF8: &str = "is not valid UTF-8";
 
 /// Why NaN or an infinity cannot be encoded.
 const NOT_FINITE: &str = "is not a finite number";
@@ -154,6 +178,14 @@ fn unreadable(label: Option<&str>) -> String {
     }
 }
 
+/// Why a weak table, or a table whose metatable is one, cannot be
+/// encoded, where `weakness` says which: the walk holds a table's keys
+/// while it reads the values, and the collector can take an entry of a
+/// weak table between two reads.
+fn weak(weakness: &str) -> String {
+    format!("is {weakness}")
+}
+
 /// Why a table nested past the depth limit cannot be encoded.
 pub(crate) fn too_deep() -> String {
     format!("is nested more than {DEPTH_LIMIT} levels deep")
@@ -163,15 +195,19 @@ pub(crate) fn too_deep() -> String {
 /// for error messages, the tables on that path for cycle detection, what
 /// is left of the budget for values and text, and how many keys the tables
 /// on the path hold as Lua references.
-struct Encoder {
+struct Encoder<'a> {
     prefix: &'static str,
-    /// What a refusal calls the walked value, before the path inside it.
-    root: String,
-    /// The refusal of a value too large to walk.
-    too_large: String,
+    /// The path of the target of a write, for a value that is stored, and
+    /// `None` for a value that is encoded. A refusal calls the walked value
+    /// by that path, or `<prefix>: value`, before the path inside it. The
+    /// path is written only for a refusal.
+    target: Option<&'a dyn Fn() -> String>,
     /// Whether a float with no fractional part stays a float.
     keeps_floats: bool,
     debug: bool,
+    lua: &'a Lua,
+    /// The names the walk reads metatables by.
+    names: MetaNames,
     marker: Table,
     path: Vec<Value>,
     tables: Vec<*const c_void>,
@@ -179,14 +215,15 @@ struct Encoder {
     held: usize,
 }
 
-impl Encoder {
-    fn new(lua: &Lua, prefix: &'static str, debug: bool) -> Self {
+impl<'a> Encoder<'a> {
+    fn new(lua: &'a Lua, prefix: &'static str, debug: bool) -> Self {
         Self {
             prefix,
-            root: format!("{prefix}: value"),
-            too_large: format!("{prefix}: value is too large to encode"),
+            target: None,
             keeps_floats: false,
             debug,
+            lua,
+            names: MetaNames::default(),
             marker: lua.array_metatable(),
             path: Vec::new(),
             tables: Vec::new(),
@@ -196,10 +233,10 @@ impl Encoder {
     }
 
     /// The refusal for a walk past its budget or the held-key limit. It has
-    /// no path, and it never becomes a placeholder: one placeholder per
-    /// remaining value would not bound the work.
+    /// no path inside the value, and it never becomes a placeholder: one
+    /// placeholder per remaining value would not bound the work.
     fn too_large(&self) -> mlua::Error {
-        author_refusal(self.too_large.clone())
+        too_large_for(self.prefix, self.target)
     }
 
     /// Spends one value of the budget.
@@ -219,10 +256,14 @@ impl Encoder {
     /// The refusal of the value at the current path, which `failure` says
     /// why.
     fn error(&self, failure: &str) -> mlua::Error {
+        let root = match self.target {
+            Some(target) => target(),
+            None => format!("{}: value", self.prefix),
+        };
         let shown = self
             .path
             .iter()
-            .fold(self.root.clone(), |shown, key| key_path(&shown, key));
+            .fold(root, |shown, key| key_path(&shown, key));
         author_refusal(format!("{shown} {failure}"))
     }
 
@@ -304,6 +345,14 @@ impl Encoder {
                 return self.fail(&unreadable(label.as_deref()), placeholder);
             }
             Unsealed::Loop => return self.fail(CYCLE, "[cycle]".to_owned()),
+            Unsealed::Weak(weakness) => {
+                let placeholder = if weakness == WEAK_METATABLE {
+                    "[weak metatable]"
+                } else {
+                    "[weak table]"
+                };
+                return self.fail(&weak(weakness), placeholder.to_owned());
+            }
         };
         let pointer = data.to_pointer();
         if self.tables.contains(&pointer) {
@@ -417,6 +466,7 @@ impl Encoder {
                 return Err(self.error(&unreadable(label.as_deref())));
             }
             Unsealed::Loop => return Err(self.error(CYCLE)),
+            Unsealed::Weak(weakness) => return Err(self.error(&weak(weakness))),
         };
         // Only integer keys reach the list below, and they hold no
         // reference, so `held` has nothing to add for this table.
@@ -440,11 +490,17 @@ impl Encoder {
     }
 }
 
-impl Encoder {
+impl Encoder<'_> {
     /// Reads `table` through sealed views (see [`unseal`]). Each hop to
-    /// another view spends one value of the budget.
+    /// another view spends one value of the budget, and each `__mode` the
+    /// read scans spends its bytes.
     fn resolve(&mut self, table: &Table) -> mlua::Result<Unsealed> {
-        unseal(table, || self.charge_node())
+        let (prefix, target, budget) = (self.prefix, self.target, &mut self.budget);
+        unseal(self.lua, &self.names, table, |cost| {
+            budget
+                .charge_read(cost)
+                .map_err(|TooLarge| too_large_for(prefix, target))
+        })
     }
 }
 

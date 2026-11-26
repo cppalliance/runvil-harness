@@ -236,8 +236,10 @@ fn adhoc_params_schema_refuses_parameters_past_the_budget_of_the_vm() {
     // first table shares one description of 16 KiB among eight parameters,
     // so its schema would hold 128 KiB that the Lua heap holds once. The
     // second reaches each of 100 types through the same 20 views, which
-    // cost six values each. Both are too large in every state, with an
-    // entry to refuse beside them or without.
+    // cost six values each. The third has eight parameters share a value
+    // whose metatable has a `__mode` of 16 KiB, which the read scans for
+    // each to tell that the value is not weak. All are too large in every
+    // state, with an entry to refuse beside them or without.
     for params in [
         "local spec = { 'string', string.rep('x', 16 * 1024) } \
          local params = {} \
@@ -249,6 +251,10 @@ fn adhoc_params_schema_refuses_parameters_past_the_budget_of_the_vm() {
          end \
          local params = {} \
          for i = 1, 100 do params['p' .. i] = spec end \
+         return params",
+        "local spec = setmetatable({ 'string' }, { __mode = string.rep('x', 16 * 1024) }) \
+         local params = {} \
+         for i = 1, 8 do params['p' .. i] = spec end \
          return params",
     ] {
         for state in 0..8 {

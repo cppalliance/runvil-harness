@@ -4,10 +4,11 @@
 //! A verb takes one argument: a string with a `/`, a tool id; a string
 //! without one, a Pack id, since Pack ids are one segment and tool ids
 //! two or more; a tool object; a Pack object; or an array mixing them.
-//! An array is its `#t` entries, read through `__index`, with no gap, no
-//! nested table, and no raw key outside `1..#t`. The rendered-list
-//! refusal comes first, and every entry is checked before any is
-//! recorded.
+//! An array is the entries its `__len` gives, read through `__index`, or
+//! without a `__len` the entries the table holds from index 1 to the
+//! first it lacks. It has no gap, no nested table, and no raw key outside
+//! those entries. The rendered-list refusal comes first, and every entry
+//! is checked before any is recorded.
 
 use std::sync::{Arc, Mutex};
 
@@ -20,11 +21,13 @@ use crate::adhoc::AdhocTools;
 use crate::bindings::{RosterEntry, ToolSet, wire_name_of};
 use crate::error::{self, Result};
 use crate::messages::MessageList;
-use crate::order::FirstRefusal;
+use crate::meta_names::MetaNames;
+use crate::order::{FirstRefusal, listed};
 use crate::packs::{LuaPackHandle, is_adhoc, pack_object};
 use crate::proxy::key_text;
 use crate::scope::{OFFERS_POISONED, OfferMode, OfferTarget, Offers};
 use crate::walk_budget::HELD_KEY_LIMIT;
+use crate::weak::{ModeBudget, Spent, fallback_weakness, weakness_of};
 
 /// The refusal of an offer verb once the section's sets are frozen,
 /// after the verb's name.
@@ -106,7 +109,7 @@ impl Offering {
             )));
         }
         match target {
-            Value::Table(table) => array(verb, &table)?
+            Value::Table(table) => array(lua, verb, &table)?
                 .iter()
                 .enumerate()
                 .map(|(index, entry)| self.target(lua, verb, entry, Some(index + 1)))
@@ -203,26 +206,52 @@ impl Offering {
     }
 }
 
-/// The entries of the array `table`: `#t` of them, honoring `__len`, each
-/// read through `__index`. A `#t` above [`HELD_KEY_LIMIT`] is refused
-/// before any entry is read, since each entry holds a Lua reference until
+/// The entries of the array `table`. With a `__len` the array has the
+/// entries that gives, each read through `__index`. Without one it has
+/// the entries the table itself holds from index 1 to the first it lacks,
+/// which [`listed`] counts. A count above [`HELD_KEY_LIMIT`] is refused
+/// before any entry is kept, since each entry holds a Lua reference until
 /// the offer is recorded.
 ///
 /// The array ends at the first nil the read meets. A table before that
-/// nil is refused, then a raw key outside the array, then a `#t` past its
-/// end: of several entries the first, and of several keys the one that
+/// nil is refused, then a raw key outside the array, then a `__len` past
+/// its end: of several entries the first, and of several keys the one that
 /// comes first in the shared order of keys.
 ///
-/// For a table with a gap `#t` differs from one run to the next, as
-/// [`crate::order::listed`] tells. Such a table is refused for the same
-/// key wherever `#t` puts its end, as long as the read meets a nil at the
-/// first gap. It does not when the table has no `__len` and its `__index`
-/// gives a value there: the read then goes on as far as `#t` allows, so
-/// one run accepts `{ [1] = a, [2] = a, [3] = a, [5] = a }` with an
-/// `__index` of `{ [4] = a }` and another refuses it for the key 5. A
-/// `__len` gives one end in every run.
-fn array(verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
-    let len = table.len()?;
+/// Not `#table` without a `__len`: for a table with a gap that differs
+/// from one run to the next, as [`listed`] tells, and an `__index` that
+/// gives a value at the gap would let the read go on as far as it allowed.
+/// So one run would accept `{ [1] = a, [2] = a, [3] = a, [5] = a }` with an
+/// `__index` of `{ [4] = a }` and another refuse it for the key 5. Counted
+/// from the table itself, every run refuses it for that key.
+///
+/// A weak table is refused, and so is a table whose metatable is weak,
+/// which has a `__len` or not as the collector leaves that metatable. A
+/// `__len` and an `__index` are code of the author, and either can make
+/// the table weak while it runs, so [`refuse_weak`] makes the check
+/// before the first read and again after each call of one: every read
+/// here is of a table that is not weak. An entry that the table lacks is
+/// read through its `__index`, which can be a table and lead to more of
+/// them, so that read is refused for a weak table on its way, as
+/// [`fallback_weakness`] tells one. The read of each such entry follows
+/// that way anew, since the code of the author that ran for the entry
+/// before can have changed it, so the tables followed are counted
+/// against one budget for the array, which is refused past it.
+fn array(lua: &Lua, verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
+    let names = &MetaNames::default();
+    let budget = &mut ModeBudget::new(lua);
+    refuse_weak(lua, names, budget, verb, table)?;
+    let has_len = match table.metatable() {
+        Some(metatable) => !metatable.raw_get::<Value>("__len")?.is_nil(),
+        None => false,
+    };
+    let len = if has_len {
+        let len = table.len()?;
+        refuse_weak(lua, names, budget, verb, table)?;
+        len
+    } else {
+        i64::try_from(listed(table)?).unwrap_or(i64::MAX)
+    };
     let count = usize::try_from(len).unwrap_or(if len > 0 { usize::MAX } else { 0 });
     if count > HELD_KEY_LIMIT {
         return Err(mlua::Error::external(format!(
@@ -230,8 +259,17 @@ fn array(verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
         )));
     }
     let mut entries = Vec::with_capacity(count);
-    for index in 1..=count {
-        let entry: Value = table.get(index)?;
+    for (index, key) in (1..=count).zip(1_i64..) {
+        let mut entry = table.raw_get::<Value>(key)?;
+        if entry.is_nil() {
+            // Only an `__index` gives an entry that the table lacks.
+            let weakness = fallback_weakness(lua, names, table, 0, &Value::Integer(key), budget)?;
+            if let Some(reason) = weakness {
+                return Err(make_not_an_array_error(verb, &reason));
+            }
+            entry = table.get(key)?;
+            refuse_weak(lua, names, budget, verb, table)?;
+        }
         match entry {
             Value::Nil => break,
             Value::Table(_) => return Err(make_wrong_type_error(verb, &entry, Some(index))),
@@ -261,6 +299,41 @@ fn array(verb: &str, table: &Table) -> mlua::Result<Vec<Value>> {
         return Err(make_wrong_type_error(verb, &Value::Nil, Some(end + 1)));
     }
     Ok(entries)
+}
+
+/// Refuses, for the offer verb `verb`, an array `table` that is weak or
+/// whose metatable is, as [`weakness_of`] tells them.
+///
+/// One read of an array makes the check again after each call of a
+/// `__len` or an `__index`, which is once for each entry that the table
+/// itself lacks, and each check scans the `__mode` again, since the code
+/// of the author that ran between two can have set another. So the bytes
+/// scanned are counted against `budget`, and an array past it is refused
+/// in the words `budget` gives.
+fn refuse_weak(
+    lua: &Lua,
+    names: &MetaNames,
+    budget: &mut ModeBudget<'_>,
+    verb: &str,
+    table: &Table,
+) -> mlua::Result<()> {
+    let Some(metatable) = table.metatable() else {
+        return Ok(());
+    };
+    let weakness = weakness_of(lua, names, &metatable, |bytes| {
+        budget
+            .spend(Spent::Mode(bytes))
+            .map_err(|reason| make_not_an_array_error(verb, &reason))
+    })?;
+    weakness.map_or(Ok(()), |weakness| {
+        Err(make_not_an_array_error(verb, weakness))
+    })
+}
+
+/// The refusal, for the offer verb `verb`, of a table that is no array
+/// for the reason `reason`, which says what the table is.
+fn make_not_an_array_error(verb: &str, reason: &str) -> mlua::Error {
+    mlua::Error::external(format!("{verb} takes an array, got {reason}"))
 }
 
 /// The refusal of `entry`, at `index` of an array or alone, as a value

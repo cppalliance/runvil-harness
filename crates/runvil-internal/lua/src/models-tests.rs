@@ -4,6 +4,7 @@ use runvil_model_client::model::{ModelBinding, ModelId, ModelInvocation, ModelSe
 
 use crate::error::root_text;
 use crate::test_vm::{BuiltVm, TestVm};
+use crate::weak::WEAK_TABLE;
 
 /// The role-name list every label rejection ends with.
 const ROLE_LIST: &str = "expected default, strong, small, fast or creative";
@@ -238,6 +239,20 @@ fn models_use_rejects_invalid_options_without_selecting() {
             "{chunk}: a rejected call must not select"
         );
     }
+}
+
+#[test]
+fn models_use_refuses_weak_options_without_selecting() {
+    let vm = models_vm();
+    let error =
+        vm.eval_err("models.use('strong', setmetatable({ temperature = 1 }, { __mode = 'k' }))");
+    assert_eq!(
+        (root_text(&error), current_label(&vm).as_deref()),
+        (
+            format!("models.use options must not be {WEAK_TABLE}"),
+            Some("default")
+        )
+    );
 }
 
 #[test]

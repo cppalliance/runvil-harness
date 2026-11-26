@@ -1,6 +1,9 @@
 //! Execution budgets: no instruction ceiling, the configured log budget,
 //! and the memory ceiling.
 
+use std::collections::BTreeSet;
+use std::convert::Infallible;
+
 use super::*;
 
 #[test]
@@ -82,4 +85,84 @@ fn the_memory_budget_error_stays_reachable() {
         "the memory ceiling must surface its refusal: {error:?}"
     );
     vm.teardown();
+}
+
+#[test]
+fn a_vm_that_does_not_fit_its_memory_limit_fails_to_build_with_the_memory_error() {
+    // `mlua` panics when the stack of the Lua values that Rust holds must
+    // grow and the memory limit refuses the growth, and Lua ends the
+    // process when a push that `mlua` makes with no protected call cannot
+    // allocate. A build that meets either under one of these limits does
+    // not return, and the test fails there.
+    for tables in TABLES_IN_ARGS {
+        let injected = injected_under(DEFAULT_LUA_MEMORY_BYTES, tables)
+            .expect("the Engine values inject under the default limit")
+            .lua()
+            .used_memory();
+        let built = built_under(DEFAULT_LUA_MEMORY_BYTES, tables)
+            .expect("a VM builds under the default limit")
+            .lua()
+            .used_memory();
+        let outcomes = (injected - SHORT_OF_INJECTION..=built)
+            .step_by(LIMIT_STEP)
+            .map(|limit| {
+                built_under(limit, tables)
+                    .map(drop)
+                    .map_err(|error| error.message)
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            outcomes,
+            BTreeSet::from([Ok(()), Err("memory error: not enough memory".to_owned())]),
+            "with {tables} tables inside `args`"
+        );
+    }
+}
+
+/// How far below the memory in use after Engine injection the limits of
+/// the build test start, in bytes: Lua collects before it refuses an
+/// allocation, so the injection passes under less than it leaves in use.
+const SHORT_OF_INJECTION: usize = 8192;
+
+/// The distance between two limits of the build test, in bytes. As many
+/// limits refuse one allocation as it has bytes, and the smallest that
+/// the test is for is the empty string that `Lua::type_metatable` pushes,
+/// 25 bytes, so a limit falls among those that refuse it.
+const LIMIT_STEP: usize = 16;
+
+/// How many tables the `args` of the build test hold, one count for each
+/// pass over the limits. Each table inside `args` keeps one of the Lua
+/// values that Rust holds for the life of the VM. With the first count,
+/// the install of the coroutine shims grows the stack of those values
+/// unless `SectionVm::new` grew it before. The second count is the most
+/// that this build, which has no Pack prelude, takes with the stack at
+/// the size `SectionVm::new` gives it.
+const TABLES_IN_ARGS: [usize; 2] = [8, 36];
+
+/// A section VM through Engine injection under a limit of `memory_bytes`,
+/// with `tables` tables inside its `args`.
+fn injected_under(memory_bytes: usize, tables: usize) -> Result<SectionVm> {
+    let emitter = null_emitter();
+    let fresh = SectionVm::new(&test_nonce(), &emitter, TEST_SECTION)?;
+    fresh.apply_lua_limits(memory_bytes, DEFAULT_LUA_LOG_EVENTS)?;
+    let args = (0..tables)
+        .map(|at| (format!("k{at}"), json!({ "at": at })))
+        .collect::<serde_json::Map<_, _>>();
+    fresh
+        .inject_test_values(&Json::Object(args), &json!({}))
+        .map_err(|failure| failure.teardown(&emitter, TEST_SECTION))
+}
+
+/// A section VM with every setup step done under a limit of
+/// `memory_bytes`, with `tables` tables inside its `args`.
+fn built_under(memory_bytes: usize, tables: usize) -> Result<SectionVm> {
+    let mut vm = injected_under(memory_bytes, tables)?;
+    vm.install_engine_globals(&null_emitter(), TEST_SECTION)?;
+    vm.install_control_globals(|path: String, _| {
+        Ok::<SectionRead, Infallible>(SectionRead::Missing(crate::make_lua_runtime_error(
+            format!("section `{path}` not found"),
+        )))
+    })?;
+    vm.install_coro_shims(1)?;
+    Ok(vm)
 }

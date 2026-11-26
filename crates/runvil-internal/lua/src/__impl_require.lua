@@ -25,14 +25,20 @@
 local resolve, begin_load, end_load, swap_prose, restore_prose, error_value, ran_off = ...
 
 -- Captured at install, so author code that rebinds a global cannot move
--- them.
-local error, setmetatable, concat = error, setmetatable, table.concat
+-- them. The install comes after the Pack preludes. A prelude can set a
+-- field of each library table it shares with the VM, `string`, `table`,
+-- `math`, `utf8`, `tools`, `store`, and `json`, and no global of these
+-- names, so the chunk takes no function of a library.
+local error, setmetatable = error, setmetatable
 
 -- Each library's saved value under its identity, or `LOADING` while its
 -- blocks run. Keyed by identity, never by the path's text, so a library
--- loads once however its path is spaced.
+-- loads once however its path is spaced. The mark is a function, which
+-- `==` compares by identity with no metamethod, whatever the saved value
+-- is: a table as the mark would run the `__eq` of a table that a library
+-- returned.
 local cache = {}
-local LOADING = {}
+local function LOADING() end
 
 -- The loads under way, outermost first, for the cycle message.
 local loading = {}
@@ -44,15 +50,14 @@ end
 -- The cycle a require of `identity` closes, from that library's own load
 -- through the innermost: `require cycle: /a -> /b -> /a`.
 local function cycle(identity, path)
-  local chain = {}
+  local chain = ""
   local inside = false
   for index = 1, #loading do
     local entry = loading[index]
     if entry.identity == identity then inside = true end
-    if inside then chain[#chain + 1] = entry.path end
+    if inside then chain = chain .. entry.path .. " -> " end
   end
-  chain[#chain + 1] = path
-  return "require cycle: " .. concat(chain, " -> ")
+  return "require cycle: " .. chain .. path
 end
 
 -- Ends one load on every exit, errors and cancellation included. A load

@@ -42,10 +42,11 @@ use runvil_types::ids::RoundId;
 use serde_json::{Map, Value as Json};
 
 use crate::bindings::ToolBinding;
+use crate::data::data_of;
 use crate::error::{self, Error, Result, author_refusal, make_lua_runtime_error};
-use crate::protocol::{MessageRecord, RecordRole, parse_record};
-use crate::proxy::plain;
+use crate::protocol::{JsonSize, MessageRecord, RecordRole, parse_record};
 use crate::scope::{OfferMode, RenderedTools};
+use crate::walk_budget::WalkBudget;
 
 /// The refusal of an assignment of the `messages` global.
 pub(crate) const ASSIGNMENT_REFUSAL: &str = "messages is the section's conversation and cannot \
@@ -78,6 +79,14 @@ pub(crate) fn make_late_system_error(index: usize) -> Error {
         "messages[{index}] is a system message after a non-system message; system messages \
          lead the list, and only a compactor can change the leading block"
     ))
+}
+
+/// The size of the JSON form of the record `data` is a view of, or `None`
+/// when `data` is no such view. A view converts to data as that form, and
+/// the conversion never fails.
+pub(crate) fn viewed_size(data: &AnyUserData) -> Option<JsonSize> {
+    let view = data.borrow::<RecordView>().ok()?;
+    Some(view.0.json_size())
 }
 
 /// What a list holds.
@@ -326,12 +335,10 @@ fn handle(this: &AnyUserData) -> mlua::Result<MessageList> {
 /// One Lua value in its JSON form, or why it has none. A view inside the
 /// value is read as the table it stands for.
 fn json(lua: &Lua, value: Value) -> std::result::Result<Json, String> {
-    plain(lua, value)
-        .and_then(|value| lua.from_value(value))
-        .map_err(|error| match error {
-            mlua::Error::DeserializeError(reason) => reason,
-            other => other.to_string(),
-        })
+    data_of(lua, value).map_err(|error| match error {
+        mlua::Error::DeserializeError(reason) => reason,
+        other => other.to_string(),
+    })
 }
 
 /// A whole record given to `append` or `replace`, in its JSON form, for
@@ -346,9 +353,17 @@ fn record_json(lua: &Lua, index: usize, value: Value) -> mlua::Result<Json> {
 
 /// Validates `entry` as the record at `index`, the end of `list`, and
 /// appends it.
-fn add(list: &MessageList, index: usize, entry: &Json) -> mlua::Result<()> {
-    let record = parse_record(index, entry).map_err(author_refusal)?;
-    list.push(record).map_err(mlua::Error::external)
+fn add(lua: &Lua, list: &MessageList, index: usize, entry: &Json) -> mlua::Result<()> {
+    list.push(parsed(lua, index, entry)?)
+        .map_err(mlua::Error::external)
+}
+
+/// The record `entry` is at `index`, as [`parse_record`] reads it. The
+/// record holds at most the values and the bytes of text one conversion on
+/// `lua` may spend, so a view of it converts.
+fn parsed(lua: &Lua, index: usize, entry: &Json) -> mlua::Result<MessageRecord> {
+    let budget = WalkBudget::for_vm(lua);
+    parse_record(index, entry, budget.values(), budget.bytes()).map_err(author_refusal)
 }
 
 /// Appends the record a builder makes from `role` and `fields`, leaving
@@ -373,7 +388,7 @@ fn build<const N: usize>(
             entry.insert(name.to_owned(), value);
         }
     }
-    add(&list, index, &Json::Object(entry))?;
+    add(lua, &list, index, &Json::Object(entry))?;
     Ok(this)
 }
 
@@ -522,7 +537,7 @@ impl UserData for MessageList {
         methods.add_function("append", |lua, (this, record): (AnyUserData, Value)| {
             let list = handle(&this)?;
             let index = list.len() + 1;
-            add(&list, index, &record_json(lua, index, record)?)?;
+            add(lua, &list, index, &record_json(lua, index, record)?)?;
             Ok(this)
         });
         methods.add_function(
@@ -552,8 +567,7 @@ impl UserData for MessageList {
                     .enumerate()
                     .map(|(offset, value)| {
                         let index = first + offset;
-                        parse_record(index, &record_json(lua, index, value)?)
-                            .map_err(author_refusal)
+                        parsed(lua, index, &record_json(lua, index, value)?)
                     })
                     .collect::<mlua::Result<Vec<_>>>()?;
                 target

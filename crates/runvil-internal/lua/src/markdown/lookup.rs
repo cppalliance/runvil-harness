@@ -53,7 +53,7 @@ struct Search<'a> {
 /// # Errors
 /// Returns the refusal of a list or a block that cannot be read.
 pub(super) fn sections(
-    walk: &mut Walk,
+    walk: &mut Walk<'_>,
     root: &Value,
     path: &Path,
 ) -> mlua::Result<Result<Vec<Match>, usize>> {
@@ -87,7 +87,7 @@ pub(super) fn sections(
 /// a starting list, and `root` whether it is the list the lookup was
 /// given.
 fn search_list(
-    walk: &mut Walk,
+    walk: &mut Walk<'_>,
     list: &Value,
     inside: bool,
     root: bool,
@@ -157,7 +157,7 @@ fn selects(selector: &Selector, entry: &Entry) -> mlua::Result<(bool, bool)> {
 /// # Errors
 /// Returns the refusal of a list or a block that cannot be read.
 pub(super) fn members(
-    walk: &mut Walk,
+    walk: &mut Walk<'_>,
     blocks: &Value,
     selector: &Selector,
 ) -> mlua::Result<Vec<Match>> {
@@ -188,7 +188,7 @@ pub(super) fn members(
 /// # Errors
 /// Returns the refusal of a list or a block that cannot be read.
 pub(super) fn every(
-    walk: &mut Walk,
+    walk: &mut Walk<'_>,
     list: &Value,
     selector: &Selector,
     kept: &mut Vec<Table>,

@@ -21,16 +21,17 @@
 //! `sys` is, and each is raw-set into `_G`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use mlua::chunk::ChunkMode;
 use mlua::{Lua, Table, Value};
 use runvil_types::packs::{PackId, Prelude};
 
-use crate::error::{
-    self, Error, Result, TRACEBACK_HEADING, make_lua_runtime_error, without_address,
-};
-use crate::order::{FirstRefusal, is_weak};
-use crate::proxy::{key_path, key_text, read_only_proxy};
+use crate::error::{self, Error, Result, TRACEBACK_HEADING, make_lua_runtime_error, raised_text};
+use crate::order::FirstRefusal;
+use crate::proxy::{key_step, key_text, read_only_proxy};
+use crate::var::Place;
+use crate::weak::is_weak;
 
 /// The `_G` names a prelude's environment reads, as bound when it installs.
 const VISIBLE_GLOBALS: [&str; 21] = [
@@ -125,7 +126,7 @@ fn environment(lua: &Lua, globals: &Table) -> Result<Table> {
         .raw_get::<Value>("var")
         .map_err(error::make_lua_error)?
     {
-        let view = read_only_var(lua, var, "var".to_owned()).map_err(error::make_lua_error)?;
+        let view = read_only_var(lua, var, Place::root()).map_err(error::make_lua_error)?;
         lookup.raw_set("var", view).map_err(error::make_lua_error)?;
     }
     let metatable = lua.create_table().map_err(error::make_lua_error)?;
@@ -138,15 +139,17 @@ fn environment(lua: &Lua, globals: &Table) -> Result<Table> {
     Ok(env)
 }
 
-/// Builds a read-only view of a guarded `var` table at `path`: a read-only
-/// proxy whose `__index` reads `target` and hands back each table it finds
-/// as a view of its own, so no depth of `var` is writable through it.
-fn read_only_var(lua: &Lua, target: Table, path: String) -> mlua::Result<Table> {
-    let refusal = format!("{path} is read-only inside a Pack prelude; cannot set");
+/// Builds a read-only view of a guarded `var` table at `place`: a
+/// read-only proxy whose `__index` reads `target` and hands back each
+/// table it finds as a view of its own, so no depth of `var` is writable
+/// through it. A view keeps the step to its table and shares the places
+/// above it, and its path is written only for a refusal.
+fn read_only_var(lua: &Lua, target: Table, place: Arc<Place>) -> mlua::Result<Table> {
+    let above = Arc::clone(&place);
     let index = lua.create_function(move |lua, (_view, key): (Value, Value)| {
         match target.get::<Value>(key.clone())? {
             Value::Table(nested) => {
-                read_only_var(lua, nested, key_path(&path, &key)).map(Value::Table)
+                read_only_var(lua, nested, above.under(key_step(&key))).map(Value::Table)
             }
             other => Ok(other),
         }
@@ -154,7 +157,13 @@ fn read_only_var(lua: &Lua, target: Table, path: String) -> mlua::Result<Table> 
     read_only_proxy(
         lua,
         Value::Function(index),
-        move |key| format!("{refusal} '{}'", key_text(key)),
+        move |key| {
+            format!(
+                "{} is read-only inside a Pack prelude; cannot set '{}'",
+                place.path(),
+                key_text(key)
+            )
+        },
         "var is read-only",
     )
 }
@@ -255,7 +264,7 @@ fn seal(lua: &Lua, pack: &PackId, name: &str, hidden: Table) -> Result<Table> {
 /// keeping the Lua traceback after it.
 fn make_load_failure_error(pack: &PackId, error: &mlua::Error) -> Error {
     let rendered = match error {
-        mlua::Error::RuntimeError(message) => without_address(message).into_owned(),
+        mlua::Error::RuntimeError(message) => raised_text(message).into_owned(),
         other => error::lua_text(other),
     };
     let (head, traceback) = match rendered.split_once(TRACEBACK_HEADING) {

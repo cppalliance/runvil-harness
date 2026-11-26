@@ -82,6 +82,25 @@ fn call_without_args_yields_none() {
 }
 
 #[test]
+fn a_var_snapshot_holds_the_key_that_serde_json_keeps_for_itself_as_a_name() {
+    // `serde_json::Value` reads a map with this key alone as the JSON text
+    // under it, in a build with its `raw_value` feature on, as this one is.
+    let lua = Lua::new();
+    let table = lua_table(
+        &lua,
+        "{ op = 'call', target = '../Child', \
+           var = { t = { ['$serde_json::private::RawValue'] = '[1,2]' } } }",
+    );
+    match expect_request(Request::from_yield(&lua, &Value::Table(table))) {
+        Request::Call { var, .. } => assert_eq!(
+            var,
+            json!({ "t": { "$serde_json::private::RawValue": "[1,2]" } })
+        ),
+        other => panic!("expected a call request, got {other:?}"),
+    }
+}
+
+#[test]
 fn execute_parses_its_name_and_args_and_reads_no_var_and_no_from() {
     let lua = Lua::new();
     // A `var` and a `from` no shim sets are not read, so no shape of them

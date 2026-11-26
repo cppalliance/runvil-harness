@@ -29,8 +29,10 @@ use runvil_model_client::model::ModelBinding;
 use crate::error::{self, Error, Result, TRACEBACK_HEADING, make_lua_error as map_lua};
 use crate::error_value::{install_error_value, normalized, raised_from, retained_error};
 use crate::hardening::CancelHook;
+use crate::meta_names::MetaNames;
 use crate::models::{LuaModelHandle, selection_poisoned};
 use crate::program::LuaProgram;
+use crate::proxy::{field_weakness, view_data};
 use crate::var::var_snapshot_table;
 
 /// The shim chunk's name.
@@ -210,9 +212,13 @@ impl StashedFailure {
 /// it, and the hook's abort always reaches the block guard. Next,
 /// `is_model_handle` reports whether a value is a model handle, so the
 /// `infer` and `loop` entries read a leading handle before any yield, and
-/// the last
+/// the next
 /// two, `loop_begin` and `compact_begin`, start each loop and compaction
-/// call for the trampoline.
+/// call for the trampoline. The last two,
+/// [`mistyped`](crate::stdlib::mistyped) and
+/// [`argument_error`](crate::stdlib::argument_error), name the type of an
+/// argument that `xpcall` refuses and give the text that `pcall` and
+/// `xpcall` refuse an argument with.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure if the coroutine library, the shim chunk, or any
@@ -255,6 +261,8 @@ pub(crate) fn install_shims(
         cancel_hook,
     )?;
     let compact_begin = crate::models_loop::compact_begin(lua, loop_running, cancel_hook)?;
+    let mistyped = crate::stdlib::mistyped(lua).map_err(map_lua)?;
+    let argument_error = crate::stdlib::argument_error(lua).map_err(map_lua)?;
     let program = SHIM_PROGRAM.as_ref().map_err(Clone::clone)?;
     let shims: Table = program
         .load(lua)?
@@ -272,6 +280,8 @@ pub(crate) fn install_shims(
             is_model_handle.clone(),
             loop_begin,
             compact_begin,
+            mistyped,
+            argument_error,
         ))
         .map_err(map_lua)?;
     let guard: Function = shims.raw_get("guard").map_err(map_lua)?;
@@ -286,12 +296,7 @@ pub(crate) fn install_shims(
         globals.raw_set(name, shim).map_err(map_lua)?;
     }
     let helpers: Table = shims.raw_get("helpers").map_err(map_lua)?;
-    let (tasks, spawn_from): (Table, Function) = TASKS_PROGRAM
-        .as_ref()
-        .map_err(Clone::clone)?
-        .load(lua)?
-        .call((yield_fn.clone(), var_snapshot.clone(), helpers.clone()))
-        .map_err(map_lua)?;
+    let (tasks, spawn_from) = tasks_shim(lua, &yield_fn, &var_snapshot, &helpers)?;
     globals.raw_set("tasks", &tasks).map_err(map_lua)?;
     let (fanout, fanout_from) = fanout_shim(
         lua,
@@ -332,6 +337,45 @@ fn recording_yield(lua: &Lua, raw_yield: Function) -> Result<Function> {
     lua.load(YIELD_SOURCE)
         .set_name(YIELD_CHUNK_NAME)
         .call((record, raw_yield))
+        .map_err(map_lua)
+}
+
+/// Runs the `tasks` chunk over the shim chunk's `yield` and `var_snapshot`
+/// captures and failure `helpers`, plus the `weakness` capture, and returns
+/// the `tasks` table and the function that makes a library's `tasks.spawn`.
+///
+/// `weakness(table)` gives the words a refusal says of a table that a read
+/// must not look into, as [`view_data`] tells them, or nil: a weak table,
+/// a view that leads to one, or a table whose metatable is weak.
+/// `weakness(table, key)` asks that of every table that the read of
+/// `table[key]` looks into, as [`field_weakness`] tells them. The chunk
+/// reads a set of tasks, a Task handle, and a table of options in Lua, by
+/// index and by key, and asks this of each first.
+fn tasks_shim(
+    lua: &Lua,
+    yield_fn: &Function,
+    var_snapshot: &Function,
+    helpers: &Table,
+) -> Result<(Table, Function)> {
+    let names = MetaNames::default();
+    let weakness = lua
+        .create_function(move |lua, (table, key): (Table, Value)| {
+            if key.is_nil() {
+                return Ok(view_data(lua, &names, &table)?.err());
+            }
+            field_weakness(lua, &names, &table, &key)
+        })
+        .map_err(map_lua)?;
+    TASKS_PROGRAM
+        .as_ref()
+        .map_err(Clone::clone)?
+        .load(lua)?
+        .call((
+            yield_fn.clone(),
+            var_snapshot.clone(),
+            helpers.clone(),
+            weakness,
+        ))
         .map_err(map_lua)
 }
 
@@ -513,7 +557,7 @@ pub(crate) fn take_failure(lua: &Lua) -> Result<StashedFailure> {
     lua.set_named_registry_value(FAILURE_TRACEBACK_REGISTRY, Value::Nil)
         .map_err(map_lua)?;
     let traceback = match traceback {
-        Value::String(text) => Some(text.to_str().map_err(map_lua)?.to_owned()),
+        Value::String(text) => Some(text.to_string_lossy()),
         _ => None,
     };
     let raised = match retained_error(lua, &failure).map_err(map_lua)? {
@@ -544,11 +588,12 @@ mod tests {
 
     use super::{
         FANOUT_CHUNK_NAME, FANOUT_SOURCE, SHIM_CHUNK_NAME, SHIM_SOURCE, TASKS_CHUNK_NAME,
-        TASKS_SOURCE, selection_captures,
+        TASKS_SOURCE, YIELD_CHUNK_NAME, selection_captures,
     };
     use crate::models::LuaModelHandle;
     use crate::test_vm::TestVm;
-    use crate::tests::assert_chunk_name_resolves;
+    use crate::tests::{assert_chunk_name_resolves, assert_engine_chunk_name};
+    use crate::weak::{WEAK_METATABLE, WEAK_TABLE};
 
     #[test]
     fn the_shim_chunk_name_resolves_to_the_shim_file() {
@@ -566,6 +611,11 @@ mod tests {
     }
 
     #[test]
+    fn the_yield_chunk_name_is_that_of_an_engine_chunk() {
+        assert_engine_chunk_name("YIELD_CHUNK_NAME", YIELD_CHUNK_NAME);
+    }
+
+    #[test]
     fn the_yield_shim_install_puts_models_loop_and_models_compact_on_models() {
         let vm = TestVm::new().shims().build();
         let (looped, compacted): (String, String) =
@@ -575,6 +625,228 @@ mod tests {
             ("function", "function"),
             "the coroutine shim install alone leaves both shims on `models`"
         );
+    }
+
+    #[test]
+    fn the_tasks_functions_refuse_a_weak_set_a_weak_handle_and_weak_options() {
+        // Each call fails before its first yield, so a `pcall` outside a
+        // block catches it. Weak options are refused in the name of the
+        // call, where the `pairs` of the key check would refuse them in
+        // its own name.
+        let vm = TestVm::new().shims().build();
+        let weak = "a weak table, one whose metatable sets __mode: the entries the collector \
+                    leaves in it are not the same in two runs";
+        let under_weak = "a table whose metatable is a weak table: the fields the collector \
+                          leaves in that metatable are not the same in two runs";
+        // A `__pairs` that makes the options weak, after the key check has
+        // passed them. The read of the first option is refused: it would
+        // run the `__index`, which takes the weakness off again.
+        let made_weak = "__pairs = function(opts) \
+                         local index = function(read) setmetatable(read, nil) end \
+                         setmetatable(opts, { __mode = 'k', __index = index }) \
+                         return function() end end";
+        // Options that the read of one option makes weak, with an
+        // `__index` that takes the weakness off again: the read of the
+        // next option is refused.
+        let weak_at = |read: usize| {
+            format!(
+                "(function() local reads = 0 \
+                 local undo = function(opts) setmetatable(opts, nil) end \
+                 return tasks.spawn('a', setmetatable({{}}, {{ __index = function(opts) \
+                 reads = reads + 1 \
+                 if reads == {read} then setmetatable(opts, {{ __mode = 'k', __index = undo }}) end \
+                 end }})) end)()"
+            )
+        };
+        // 65 views that share one `__mode` of 1 MiB, which makes none of
+        // them weak: one more scan than the 64 MiB of the heap allow.
+        let long_mode = "(function() local mode = string.rep('x', 2^20) \
+                         local set = { 't1' } \
+                         for _ = 1, 65 do \
+                         set = setmetatable({}, { __index = set, __metatable = false, __mode = mode }) \
+                         end \
+                         return tasks.join(set) end)()";
+        for (call, refusal) in [
+            // An empty set is refused as a weak table, before the read of
+            // its first member finds none.
+            (
+                "tasks.join(setmetatable({}, { __mode = 'v' }))".to_owned(),
+                format!("tasks.join expects a set of tasks, got {weak}"),
+            ),
+            (
+                "tasks.join_any(setmetatable({ 't1' }, { __mode = 'k' }))".to_owned(),
+                format!("tasks.join_any expects a set of tasks, got {weak}"),
+            ),
+            (
+                "tasks.join(setmetatable({ 't1' }, setmetatable({}, { __mode = 'k' })))".to_owned(),
+                format!("tasks.join expects a set of tasks, got {under_weak}"),
+            ),
+            (
+                "tasks.join({ setmetatable({ task = 't1' }, { __mode = 'v' }) })".to_owned(),
+                format!("tasks.join expects a Task handle or task id, got {weak}"),
+            ),
+            (
+                "tasks.cancel(setmetatable({ task = 't1' }, { __mode = 'v' }))".to_owned(),
+                format!("tasks.cancel expects a Task handle or task id, got {weak}"),
+            ),
+            (
+                "tasks.spawn('a', setmetatable({}, { __mode = 'v' }))".to_owned(),
+                format!("tasks.spawn opts must not be {weak}"),
+            ),
+            (
+                format!("tasks.spawn('a', setmetatable({{}}, {{ {made_weak} }}))"),
+                format!("tasks.spawn opts must not be {weak}"),
+            ),
+            (
+                format!("tasks.join({{ 't1' }}, setmetatable({{}}, {{ {made_weak} }}))"),
+                format!("tasks.join opts must not be {weak}"),
+            ),
+            // The read of the first member, of the first option, and of
+            // the second option, makes the table weak before the read of
+            // the next.
+            (
+                "(function() local set = {} \
+                 set[1] = setmetatable({}, { __index = function() \
+                 setmetatable(set, { __mode = 'v' }) return 't1' end }) \
+                 set[2] = 't2' return tasks.join(set) end)()"
+                    .to_owned(),
+                format!("tasks.join expects a set of tasks, got {weak}"),
+            ),
+            (weak_at(1), format!("tasks.spawn opts must not be {weak}")),
+            (weak_at(2), format!("tasks.spawn opts must not be {weak}")),
+            (
+                long_mode.to_owned(),
+                "tasks.join expects a set of tasks, got a table with 68157440 bytes of __mode to \
+                 scan: one call scans at most 67108864 bytes"
+                    .to_owned(),
+            ),
+        ] {
+            let message = vm.eval::<String>(&format!(
+                "local _, failure = pcall(function() return {call} end) return tostring(failure)"
+            ));
+            assert_eq!(message, refusal, "{call}");
+        }
+    }
+
+    #[test]
+    fn the_tasks_functions_refuse_a_read_that_looks_into_a_weak_table() {
+        // A table that lacks a field hands the read of it to the `__index`
+        // of its metatable, so the read looks into the table that gives.
+        // Options, a handle, and a set that are not weak, and that Lua
+        // reads from a weak table: the collector would decide what the
+        // call takes.
+        let vm = TestVm::new().shims().build();
+        let behind = |weakness: &str| format!("a table whose __index leads to {weakness}");
+        let weak = behind(WEAK_TABLE);
+        let chain_too_long = "'__index' chain too long; possible loop".to_owned();
+        for (call, refusal) in [
+            (
+                format!("tasks.spawn('a', {})", inherits("item = {}", "v")),
+                format!("tasks.spawn opts must not be {weak}"),
+            ),
+            (
+                format!("tasks.cancel({})", inherits("task = 't1'", "k")),
+                format!("tasks.cancel expects a Task handle or task id, got {weak}"),
+            ),
+            (
+                format!("tasks.join({})", inherits("'t1'", "v")),
+                format!("tasks.join expects a set of tasks, got {weak}"),
+            ),
+            // The weak table is two tables on, and it is the metatable of
+            // the table that would give the field.
+            (
+                "tasks.join({ 't1' }, setmetatable({}, { __index = setmetatable({}, { \
+                 __index = setmetatable({ timeout = 1 }, setmetatable({}, { __mode = 'k' })) \
+                 }) }))"
+                    .to_owned(),
+                format!("tasks.join opts must not be {}", behind(WEAK_METATABLE)),
+            ),
+            (
+                through_a_string(
+                    "strings.__index = setmetatable({}, { __mode = 'v' })",
+                    "strings.__index = kept",
+                ),
+                format!("tasks.spawn opts must not be {weak}"),
+            ),
+            (
+                through_a_string(
+                    "setmetatable(strings, { __mode = 'v' })",
+                    "setmetatable(strings, nil)",
+                ),
+                "tasks.spawn opts must not be a table whose __index leads to a string, whose \
+                 metatable is a weak table: the fields the collector leaves in that metatable \
+                 are not the same in two runs"
+                    .to_owned(),
+            ),
+            // A table that holds the field ends the read, so the weak
+            // table past it is not looked into.
+            (
+                "tasks.cancel(setmetatable({}, { __index = setmetatable({ task = 5 }, { \
+                 __index = setmetatable({}, { __mode = 'v' }) }) }))"
+                    .to_owned(),
+                "tasks.cancel expects a Task handle or task id, got integer".to_owned(),
+            ),
+            // The read is followed as far as Lua follows it: to a weak
+            // table 2000 values on, and not to one that Lua refuses the
+            // read before. A view on the way is one of those values.
+            (far(0, 2000), format!("tasks.spawn opts must not be {weak}")),
+            (far(0, 2001), chain_too_long.clone()),
+            (far(3, 1997), format!("tasks.spawn opts must not be {weak}")),
+            (far(3, 1998), chain_too_long.clone()),
+            (
+                "(function() local handle = {} \
+                 return tasks.cancel(setmetatable(handle, { __index = handle })) end)()"
+                    .to_owned(),
+                chain_too_long,
+            ),
+            // The scans of the tables that a read looks into count as
+            // those of the views do: 65 tables that share one `__mode` of
+            // 1 MiB, which makes none of them weak, are one more scan
+            // than the 64 MiB of the heap allow.
+            (
+                "(function() local mode = string.rep('x', 2^20) \
+                 local opts = {} \
+                 for _ = 1, 65 do \
+                 opts = setmetatable({}, { __index = opts, __mode = mode }) \
+                 end \
+                 return tasks.spawn('a', opts) end)()"
+                    .to_owned(),
+                "tasks.spawn opts must not be a table with 68157440 bytes of __mode to scan: \
+                 one call scans at most 67108864 bytes"
+                    .to_owned(),
+            ),
+        ] {
+            let message = vm.eval::<String>(&format!(
+                "local _, failure = pcall(function() return {call} end) return tostring(failure)"
+            ));
+            assert_eq!(message, refusal, "{call}");
+        }
+    }
+
+    #[test]
+    fn the_tasks_functions_call_no_global_that_a_block_replaced() {
+        // Each call fails before its first yield, and some name the type of
+        // a value through a helper of the chunk that holds `pcall`. A
+        // replaced global that a function of either chunk called would run
+        // the author's code between the check of a table and the read of it.
+        let vm = TestVm::new().shims().build();
+        let called = vm.eval::<String>(
+            "local called = {}
+             for _, name in ipairs({ 'error', 'ipairs', 'pairs', 'select', 'tostring', 'type' }) do
+               local real = _G[name]
+               _G[name] = function(...) called[#called + 1] = name return real(...) end
+             end
+             pcall(tasks.join, { 't1' }, { timeout = 'soon' })
+             pcall(tasks.spawn, 'a', { [5] = 1 })
+             pcall(tasks.cancel, 5)
+             pcall(tasks.pending, 1)
+             pcall(tasks.receive, 1)
+             pcall(tasks.note, 5)
+             pcall(tasks.send, 't1', 5)
+             pcall(tasks.concurrency, 'x')
+             return table.concat(called, ' ')",
+        );
+        assert_eq!(called, "");
     }
 
     /// A binding labelled `label`, over the model `model`.
@@ -658,5 +930,43 @@ mod tests {
             "the refusal names the Lua type: {error}"
         );
         assert_eq!(label(), None, "a refused write leaves the selection alone");
+    }
+
+    /// A Lua table with no field of its own, whose `__index` is a weak
+    /// table of the mode `mode` that holds `fields`.
+    fn inherits(fields: &str, mode: &str) -> String {
+        format!(
+            "setmetatable({{}}, {{ __index = \
+             setmetatable({{ {fields} }}, {{ __mode = '{mode}' }}) }})"
+        )
+    }
+
+    /// A `tasks.spawn` with options whose `__index` is a string, which
+    /// hands the read of a field to the `__index` of the metatable of
+    /// strings. `change` makes that read look into a weak table, and
+    /// `undo` puts the metatable back before the failure is raised again.
+    fn through_a_string(change: &str, undo: &str) -> String {
+        format!(
+            "(function() local strings = getmetatable('') \
+             local kept = strings.__index \
+             {change} \
+             local _, failure = \
+             pcall(tasks.spawn, 'a', setmetatable({{}}, {{ __index = 'text' }})) \
+             {undo} \
+             error(failure, 0) end)()"
+        )
+    }
+
+    /// A `tasks.spawn` with options that are `views` views of a table
+    /// whose field comes from a weak table `hops` tables on.
+    fn far(views: usize, hops: usize) -> String {
+        format!(
+            "(function() local opts = setmetatable({{ item = 1 }}, {{ __mode = 'v' }}) \
+             for _ = 1, {hops} do opts = setmetatable({{}}, {{ __index = opts }}) end \
+             for _ = 1, {views} do \
+             opts = setmetatable({{}}, {{ __index = opts, __metatable = false }}) \
+             end \
+             return tasks.spawn('a', opts) end)()"
+        )
     }
 }

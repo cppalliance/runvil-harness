@@ -169,7 +169,7 @@ fn section(
     };
     let path = Path::parse(&given).map_err(|message| walk.refuse(message))?;
     let selection = Selection::read(function, &selector, &n)?;
-    let miss = |walk: &Walk, message: String| {
+    let miss = |walk: &Walk<'_>, message: String| {
         if strict {
             Err(walk.refuse(message))
         } else {

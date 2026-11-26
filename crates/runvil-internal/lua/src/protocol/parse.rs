@@ -12,7 +12,7 @@ mod store;
 mod tasks;
 mod tools;
 
-use mlua::{Lua, LuaSerdeExt, Value};
+use mlua::{Lua, Value};
 use runvil_model_client::model::ModelBinding;
 
 use chat::parse_chat;
@@ -26,6 +26,7 @@ use tools::{parse_adhoc_tool_done, parse_tool_call, parse_tool_calls};
 use crate::error::{self, Error, make_lua_runtime_error};
 use crate::json::to_json;
 use crate::models::LuaModelHandle;
+use crate::plain_json::json_of;
 use crate::section::{LibraryKey, resolve_section_target};
 
 use super::request::Request;
@@ -156,7 +157,7 @@ fn shim_var(
     table: &mlua::Table,
 ) -> std::result::Result<serde_json::Value, FieldFailure> {
     match table.raw_get::<Value>("var") {
-        Ok(value @ Value::Table(_)) => lua.from_value(value).map_err(|_| FieldFailure::Malformed),
+        Ok(value @ Value::Table(_)) => json_of(lua, value).map_err(|_| FieldFailure::Malformed),
         Ok(_) | Err(_) => Err(FieldFailure::Malformed),
     }
 }

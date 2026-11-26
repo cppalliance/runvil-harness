@@ -8,7 +8,9 @@ use serde_json::{Value as Json, json};
 
 use super::super::objects::TOOL_OBJECTS_REGISTRY;
 use super::parameters::search_set;
+use crate::error::root_text;
 use crate::test_vm::{TestVm, lua_over, offer_set, raised, scoped};
+use crate::weak::{WEAK_METATABLE, WEAK_TABLE};
 
 /// The `grab` definition of the listing, held in a local.
 const GRAB: &str = "local grab = tools.adhoc({\n\
@@ -140,6 +142,29 @@ fn each_refusal_raises_on_the_defining_line() {
         let error = raised(&vm, call);
         assert!(error.contains(expected), "{call}: {error}");
     }
+    for (call, expected) in [
+        (
+            "tools.adhoc(setmetatable({ name = 'x', description = 'y' }, { __mode = 'v' }), \
+               function() end)",
+            format!("the attributes are {WEAK_TABLE}"),
+        ),
+        (
+            "tools.adhoc({ name = 'x', description = 'y', \
+               parameters = setmetatable({ p = 'string' }, { __mode = 'k' }) }, function() end)",
+            format!("parameters are {WEAK_TABLE}"),
+        ),
+        // Of several unknown keys the refusal names the one that comes
+        // first in the shared order of keys, a boolean before a number. By
+        // the order of their texts it would name `1`.
+        (
+            "tools.adhoc({ name = 'x', description = 'y', zz = 1, [1] = 1, [true] = 1 }, \
+               function() end)",
+            "unknown key \"boolean\"; accepted keys are name, description, parameters".to_owned(),
+        ),
+    ] {
+        let refusal = root_text(&vm.eval_err(call));
+        assert_eq!(refusal, format!("tools.adhoc: {expected}"), "{call}");
+    }
     let ids: Vec<String> = vm
         .adhoc_tools()
         .bindings()
@@ -148,6 +173,78 @@ fn each_refusal_raises_on_the_defining_line() {
         .map(|binding| binding.id().to_string())
         .collect();
     assert_eq!(ids, ["adhoc/grab"], "no refused definition registers");
+}
+
+#[test]
+fn a_weak_parameter_array_is_refused_whatever_it_holds() {
+    // The collector can take a description that is a table, and the array
+    // would then read as a type alone. An empty weak table in the shape of
+    // a view of an array is refused too, and not read as that array.
+    let vm = lua_over(offer_set());
+    for spec in [
+        "setmetatable({ 'string', {} }, { __mode = 'v' })",
+        "setmetatable({ 'string', 'text' }, { __mode = 'v' })",
+        "setmetatable({}, { __mode = 'k', __metatable = false, __index = { 'string' } })",
+    ] {
+        let call = format!(
+            "tools.adhoc({{ name = 'x', description = 'y', parameters = {{ p = {spec} }} }}, \
+               function() end)"
+        );
+        assert_eq!(
+            root_text(&vm.eval_err(&call)),
+            "tools.adhoc: param \"p\" is a weak table, one whose metatable sets __mode: the \
+             entries the collector leaves in it are not the same in two runs",
+            "{spec}"
+        );
+    }
+}
+
+#[test]
+fn a_refusal_quotes_the_start_of_a_long_text_and_its_length() {
+    let vm = lua_over(offer_set());
+    let start = "a".repeat(64);
+    for (call, expected) in [
+        (
+            "tools.adhoc({ name = string.rep('a', 1000), description = 'y' }, function() end)",
+            format!(
+                "tools.adhoc: invalid name \"{start}... (1000 bytes)\": expected \
+                 [A-Za-z][A-Za-z0-9_-]{{0,63}}"
+            ),
+        ),
+        // A cut steps back over the three bytes at most that continue a
+        // character: text with four such bytes there is not UTF-8 and is
+        // cut at 64 bytes, and its length is that of the author's bytes.
+        (
+            "tools.adhoc({ name = string.rep('a', 60) .. string.rep('\\x80', 40), \
+               description = 'y' }, function() end)",
+            format!(
+                "tools.adhoc: invalid name \"{}{}... (100 bytes)\": expected \
+                 [A-Za-z][A-Za-z0-9_-]{{0,63}}",
+                "a".repeat(60),
+                "\u{fffd}".repeat(4)
+            ),
+        ),
+        (
+            "tools.adhoc({ name = 'x', description = 'y', [string.rep('a', 1000)] = 1 }, \
+               function() end)",
+            format!(
+                "tools.adhoc: unknown key \"{start}... (1000 bytes)\"; accepted keys are name, \
+                 description, parameters"
+            ),
+        ),
+        (
+            "tools.adhoc({ name = 'x', description = 'y', \
+               parameters = { [string.rep('a', 1000)] = string.rep('a', 1048576) } }, \
+               function() end)",
+            format!(
+                "tools.adhoc: param \"{start}... (1000 bytes)\" has unsupported type \
+                 \"{start}... (1048576 bytes)\": expected \"string\", \"integer\", \"number\", or \
+                 \"boolean\""
+            ),
+        ),
+    ] {
+        assert_eq!(root_text(&vm.eval_err(call)), expected, "{call}");
+    }
 }
 
 #[test]
@@ -399,4 +496,27 @@ fn a_view_passed_as_the_attributes_defines_the_tool_it_stands_for() {
     );
     let description: String = vm.eval("tools.get('adhoc/fromview').description");
     assert_eq!(description, "Defined from a view");
+}
+
+#[test]
+fn a_view_that_the_collector_can_change_is_refused_as_the_attributes_and_as_parameters() {
+    // A view is read as the table it stands for, so the read refuses a
+    // weak view, and a table whose metatable the collector can empty.
+    let vm = lua_over(offer_set());
+    for (call, expected) in [
+        (
+            "tools.adhoc(setmetatable({}, { __mode = 'k', __metatable = false, \
+               __index = { name = 'x', description = 'y' } }), function() end)",
+            format!("the attributes are {WEAK_TABLE}"),
+        ),
+        (
+            "tools.adhoc({ name = 'x', description = 'y', parameters = setmetatable({}, \
+               setmetatable({ __metatable = false, __index = { p = 'string' } }, \
+               { __mode = 'v' })) }, function() end)",
+            format!("parameters are {WEAK_METATABLE}"),
+        ),
+    ] {
+        let refusal = root_text(&vm.eval_err(call));
+        assert_eq!(refusal, format!("tools.adhoc: {expected}"), "{call}");
+    }
 }

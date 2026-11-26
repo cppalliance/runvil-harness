@@ -24,6 +24,9 @@ test-support = []
 
 [dev-dependencies]
 criterion.workspace = true
+# `raw_value` makes `serde_json::Value` read one key of a map as raw JSON
+# text. Any crate of a build can turn it on, so the tests run with it on.
+serde_json = { workspace = true, features = ["raw_value"] }
 
 # The bench runs chunks through `SectionVm::run_chunk`, a test-support
 # helper.

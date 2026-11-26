@@ -30,7 +30,9 @@ use crate::error::{self, Result, authored, make_lua_runtime_error};
 use crate::error_value::{ErrorKind, error_table, message_table, normalized};
 use crate::hardening::CancelHook;
 use crate::messages::MessageList;
+use crate::meta_names::MetaNames;
 use crate::protocol::ChatResult;
+use crate::proxy::field_weakness;
 
 mod machine;
 
@@ -70,7 +72,8 @@ const COMPACT_RUNNING: &str =
 /// makes either function fail.
 ///
 /// `max_tool_iterations` is the round cap, `compactors` the table that
-/// `compactors.fail` is read from at each call, `loop_running` the VM's
+/// `compactors.fail` is read from at each call with no compactor, as Lua
+/// reads a field, `loop_running` the VM's
 /// flag that is set while one of its loops runs, and `hook` the VM's
 /// cancellation hook, whose cancel flag the step reads beside each raw
 /// `pcall` outcome.
@@ -93,8 +96,10 @@ pub(crate) fn loop_begin(
 }
 
 /// `loop_begin`'s body: the leading handle, then the arity; the
-/// compactor's type; the refusal while
-/// `running` or the list's `compacting` flag is set; then the machine over
+/// compactor's type, or the refusal of a `compactors.fail` that the
+/// collector decides; the refusal while
+/// `running` or the list's `compacting` flag is set; the refusal of a
+/// `sys.taskid` that the collector decides; then the machine over
 /// the section's list, its step closure, and the first action. `running`
 /// is set only once nothing here can fail and the first action leaves the
 /// machine running; the step clears it when the machine is done, before it
@@ -126,7 +131,12 @@ fn begin(
     }
     let compactor = rest.first().cloned().unwrap_or(Value::Nil);
     let compactor = match compactor {
-        Value::Nil => compactors.get::<Value>("fail")?,
+        Value::Nil => {
+            if let Some(refusal) = weak_read(lua, compactors, "compactors", "fail")? {
+                return refuse(lua, &refusal);
+            }
+            compactors.get::<Value>("fail")?
+        }
         function @ Value::Function(_) => function,
         other => {
             let message = format!(
@@ -141,10 +151,14 @@ fn begin(
     if running.load(Ordering::Relaxed) || list.compacting() {
         return refuse(lua, LOOP_RUNNING);
     }
+    let on_task = match on_task(lua)? {
+        Ok(on_task) => on_task,
+        Err(refusal) => return refuse(lua, &refusal),
+    };
     let messages = Value::UserData(messages);
     let flagged = list.clone();
     let (mut machine, first) =
-        Machine::begin(max_rounds, list, messages, handle, compactor, on_task(lua));
+        Machine::begin(max_rounds, list, messages, handle, compactor, on_task);
     let started = !matches!(machine.phase(), Phase::Done);
     let hook = hook.clone();
     let cleared = Arc::clone(running);
@@ -252,12 +266,39 @@ fn refuse(lua: &Lua, message: &str) -> mlua::Result<MultiValue> {
 
 /// Whether the loop runs inside a task rather than on the main chain: the
 /// section's `sys.taskid` is not `0`, the main chain's task, which its
-/// `call` children share. A VM with no `sys` runs as the main chain.
-fn on_task(lua: &Lua) -> bool {
+/// `call` children share. A VM with no `sys` runs as the main chain. The
+/// inner `Err` is the refusal of a `sys` whose `taskid` the collector
+/// decides, as [`weak_read`] words it.
+///
+/// # Errors
+/// Returns the `mlua` error of [`weak_read`].
+fn on_task(lua: &Lua) -> mlua::Result<std::result::Result<bool, String>> {
     let Ok(Value::Table(sys)) = lua.globals().raw_get::<Value>("sys") else {
-        return false;
+        return Ok(Ok(false));
     };
-    sys.get::<String>("taskid").is_ok_and(|task| task != "0")
+    if let Some(refusal) = weak_read(lua, &sys, "sys", "taskid")? {
+        return Ok(Err(refusal));
+    }
+    Ok(Ok(sys
+        .get::<String>("taskid")
+        .is_ok_and(|task| task != "0")))
+}
+
+/// The refusal of a `models.loop` whose read of `field` in `table`, the
+/// global `name`, looks into a weak table, as [`field_weakness`] tells
+/// one, or `None` when it looks into none. A block can put a metatable on
+/// `compactors` and a table of its own in `sys`, and Lua reads a field
+/// that a table lacks through the `__index` of its metatable, so what the
+/// read finds would follow the collector.
+///
+/// # Errors
+/// Returns the `mlua` error of a read of a table or a metatable.
+fn weak_read(lua: &Lua, table: &Table, name: &str, field: &str) -> mlua::Result<Option<String>> {
+    let key = Value::String(lua.create_string(field)?);
+    let weakness = field_weakness(lua, &MetaNames::default(), table, &key)?;
+    Ok(weakness.map(|weakness| {
+        format!("models.loop reads {name}.{field}, and {name} must not be {weakness}")
+    }))
 }
 
 /// Reads the values the trampoline passed as the input `phase` awaits.
@@ -405,11 +446,11 @@ fn request<const N: usize>(lua: &Lua, op: &str, fields: [(&str, Value); N]) -> m
     Ok(Value::Table(table))
 }
 
-/// The value `fail` raises for an envelope's failure: an error table
+/// The value the loop raises for an envelope's failure: an error table
 /// unchanged; anything else a new `lua`-kind table whose message is what
-/// the `tostring` global returns for it, as `fail` builds it. The Engine
-/// renders every failure as an error table, so only a hand-built envelope
-/// reaches the second branch.
+/// the `tostring` global returns for it. The Engine renders every failure
+/// as an error table, so only a hand-built envelope reaches the second
+/// branch.
 fn envelope_failure(lua: &Lua, value: Value) -> mlua::Result<Value> {
     if let Value::Table(_) = value {
         return Ok(value);

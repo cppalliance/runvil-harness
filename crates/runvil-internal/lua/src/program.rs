@@ -66,12 +66,13 @@ fn compiler() -> mlua::Result<Lua> {
     )
 }
 
-/// Compiles a named chunk in `lua` and keeps debug info.
-fn compile_chunk(lua: &Lua, source: &str, chunk_name: &str) -> mlua::Result<Vec<u8>> {
+/// Compiles a named chunk in `lua`. Without `strip` the bytecode keeps
+/// debug info, so a runtime error reports the chunk name and line. With
+/// `strip` it drops debug info, the lines, the chunk's name, and the
+/// names of locals and upvalues, and a traceback has `?:` in their place.
+fn compile_chunk(lua: &Lua, source: &str, chunk_name: &str, strip: bool) -> mlua::Result<Vec<u8>> {
     let function = lua.load(source).set_name(chunk_name).into_function()?;
-    // Keep debug info so runtime errors report the chunk name and line
-    // (`dump(true)` strips them and leaves `?:` in the traceback).
-    Ok(function.dump(false))
+    Ok(function.dump(strip))
 }
 
 /// Compiles a prompt block's `source` in `lua` under `chunk_name`, twice.
@@ -92,6 +93,7 @@ fn compile_block(lua: &Lua, source: &str, chunk_name: &str) -> mlua::Result<Vec<
         lua,
         &format!("{FRAME_GUARD}{RAN_OFF_OPENER}{source}{RAN_OFF_TRAILER}"),
         chunk_name,
+        false,
     )
 }
 
@@ -210,16 +212,7 @@ impl LuaProgram {
     /// Returns a `LuaRuntime` failure if the temporary compiler VM cannot be
     /// created or the source fails to compile.
     pub fn compile_internal(source: &str, chunk_name: &str) -> Result<Self> {
-        let bytecode = compiler()
-            .and_then(|lua| compile_chunk(&lua, source, chunk_name))
-            .map_err(error::make_lua_error)?;
-        Ok(Self {
-            source: source.to_owned(),
-            bytecode,
-            chunk_name: chunk_name.to_owned(),
-            location: chunk_name.to_owned(),
-            source_line: NonZeroU32::MIN,
-        })
+        Self::compile_embedded(source, chunk_name, false)
     }
 
     /// Returns the original Lua source retained for diagnostics.
@@ -250,6 +243,29 @@ impl LuaProgram {
         lua.load(self.bytecode.as_slice())
             .into_function()
             .map_err(error::make_lua_error)
+    }
+
+    /// Compiles one of the crate's embedded Lua chunks with no debug info.
+    ///
+    /// A function of such a chunk has no line, as a C function has none.
+    /// `error(text, level)` puts the position of the function at `level`
+    /// in front of `text`, and puts nothing there for a function with no
+    /// line. So a function of this chunk that stands in for a stock C
+    /// function, and calls the author's code from its own frame, is to
+    /// that code the frame the stock function is: one level, with no
+    /// position.
+    ///
+    /// The cost is in what Lua says about the chunk itself. A failure
+    /// Lua raises in a function of it starts with `?:?:`, a function it
+    /// calls through an upvalue is named `?` in an argument error, and a
+    /// traceback names no line of it. `chunk_name` names the chunk in a
+    /// compile failure only.
+    ///
+    /// # Errors
+    /// Returns a `LuaRuntime` failure if the temporary compiler VM cannot be
+    /// created or the source fails to compile.
+    pub(crate) fn compile_internal_stripped(source: &str, chunk_name: &str) -> Result<Self> {
+        Self::compile_embedded(source, chunk_name, true)
     }
 
     /// Loads the compiled function into `lua` with `env` as its
@@ -328,6 +344,21 @@ impl LuaProgram {
     #[must_use]
     pub fn location(&self) -> &str {
         &self.location
+    }
+
+    /// Compiles one of the crate's embedded Lua chunks, with no debug info
+    /// when `strip` is set.
+    fn compile_embedded(source: &str, chunk_name: &str, strip: bool) -> Result<Self> {
+        let bytecode = compiler()
+            .and_then(|lua| compile_chunk(&lua, source, chunk_name, strip))
+            .map_err(error::make_lua_error)?;
+        Ok(Self {
+            source: source.to_owned(),
+            bytecode,
+            chunk_name: chunk_name.to_owned(),
+            location: chunk_name.to_owned(),
+            source_line: NonZeroU32::MIN,
+        })
     }
 }
 

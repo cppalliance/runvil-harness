@@ -4,7 +4,9 @@
 
 use crate::RenderedTools;
 use crate::error::root_text;
-use crate::test_vm::{catalog_set, lua_over, offer_set, offers, raised, scoped, tool_at};
+use crate::test_vm::{TestVm, catalog_set, lua_over, offer_set, offers, raised, scoped, tool_at};
+use crate::vm::DEFAULT_LUA_LOG_EVENTS;
+use crate::weak::{WEAK_METATABLE, WEAK_TABLE};
 
 /// The adhoc tool `grab` the forms below offer as an object.
 const GRAB: &str =
@@ -209,6 +211,52 @@ fn each_refusal_names_its_verb_and_a_refused_call_records_nothing() {
 }
 
 #[test]
+fn a_weak_array_is_refused_before_its_first_read_and_after_each_metamethod() {
+    // A `__len` and an `__index` run before the last read of the table,
+    // and either can make it weak: no entry is read after the `__len` of
+    // the second array, and one is after the `__index` of the third. A
+    // weak metatable has its `__len` or not as the collector leaves it.
+    // An `__index` that is a table gives the entries the array lacks, so
+    // the read of the last array looks into a weak table.
+    let vm = TestVm::new().tools(offer_set()).build();
+    for verb in ["tools.offer", "tools.offer_dynamic"] {
+        for (array, weakness) in [
+            (
+                "setmetatable({ 'web' }, { __mode = 'v' })",
+                WEAK_TABLE.to_owned(),
+            ),
+            (
+                "setmetatable({}, { __len = function(t) \
+                   getmetatable(t).__mode = 'v' t.p = {} return 0 end })",
+                WEAK_TABLE.to_owned(),
+            ),
+            (
+                "setmetatable({}, { __len = function() return 1 end, __index = function(t) \
+                   getmetatable(t).__mode = 'k' return 'web' end })",
+                WEAK_TABLE.to_owned(),
+            ),
+            (
+                "setmetatable({ 'web' }, setmetatable({ __len = function() return 1 end }, \
+                   { __mode = 'v' }))",
+                WEAK_METATABLE.to_owned(),
+            ),
+            (
+                "setmetatable({}, { __len = function() return 1 end, \
+                   __index = setmetatable({ 'web' }, { __mode = 'v' }) })",
+                format!("a table whose __index leads to {WEAK_TABLE}"),
+            ),
+        ] {
+            assert_eq!(
+                root_text(&vm.eval_err(&format!("{verb}({array})"))),
+                format!("{verb} takes an array, got {weakness}"),
+                "{verb}({array})"
+            );
+        }
+    }
+    assert_eq!(offers(&vm), Vec::<String>::new());
+}
+
+#[test]
 fn an_array_with_several_keys_outside_it_is_refused_for_the_same_one_in_every_vm() {
     // Each VM walks the table under its own hash seed. The refusal names
     // the first key in the shared order, where a number comes before a
@@ -224,10 +272,21 @@ fn an_array_with_several_keys_outside_it_is_refused_for_the_same_one_in_every_vm
                 "{ 'web', zulu = 1, mike = 1, alpha = 1, oscar = 1 }",
                 "alpha",
             ),
-            // `#t` is 3 in one VM and 5 in another, which read the nil at
-            // index 4 first.
+            // `#t` is 3 in one VM and 5 in another. The array ends at the
+            // first index the table lacks, whatever `#t` is, and an
+            // `__index` that gives a value there does not move the end.
             (
                 "{ [1] = 'web', [2] = 'web', [3] = 'web', [5] = 'web' }",
+                "5",
+            ),
+            (
+                "setmetatable({ [1] = 'web', [2] = 'web', [3] = 'web', [5] = 'web' }, \
+                 { __index = { [4] = 'web' } })",
+                "5",
+            ),
+            (
+                "setmetatable({ [1] = 'web', [2] = 'web', [3] = 'web', [5] = 'web', [7] = 'web' }, \
+                 { __index = { [4] = 'web', [6] = 'web' } })",
                 "5",
             ),
         ] {
@@ -257,6 +316,86 @@ fn an_array_is_read_through_its_metamethods() {
         ["static:gh", "static:web/fetch"],
         "a negative length reads as no entries"
     );
+}
+
+#[test]
+fn an_array_with_more_mode_than_one_call_scans_is_refused() {
+    // The read tests the array for a weak table before its first entry,
+    // after the call of its `__len`, and after each call of its
+    // `__index`, since each runs code of the author. Each test scans the
+    // `__mode` of 1 MiB, which makes the array not weak: two entries are
+    // the 4 MiB that a 4 MiB heap gives one call, and three are past it.
+    // An array that holds its entries itself runs no code of the author,
+    // and is tested once.
+    let vm = TestVm::new()
+        .tools(offer_set())
+        .limits(4 * 1024 * 1024, DEFAULT_LUA_LOG_EVENTS)
+        .build();
+    vm.exec(
+        "local mode = string.rep('x', 2^20) \
+         function array(entries) \
+           return setmetatable({}, { \
+             __mode = mode, \
+             __len = function() return entries end, \
+             __index = function() return 'web' end, \
+           }) \
+         end \
+         function held(entries) \
+           local t = setmetatable({}, { __mode = mode }) \
+           for i = 1, entries do t[i] = 'web' end \
+           return t \
+         end",
+    );
+    for (verb, mode) in [
+        ("tools.offer", "static"),
+        ("tools.offer_dynamic", "dynamic"),
+    ] {
+        assert_eq!(
+            root_text(&vm.eval_err(&format!("{verb}(array(3))"))),
+            format!(
+                "{verb} takes an array, got a table with 5242880 bytes of __mode to scan: one \
+                 call scans at most 4194304 bytes"
+            )
+        );
+        for taken in ["array(2)", "held(100)"] {
+            vm.exec(&format!("{verb}({taken})"));
+            assert_eq!(offers(&vm).last(), Some(&format!("{mode}:web")), "{taken}");
+        }
+    }
+}
+
+#[test]
+fn an_array_whose_reads_follow_more_tables_than_one_call_follows_is_refused() {
+    // The read of each entry that the array lacks goes through the 1024
+    // tables behind it, the last of which holds the entries. A 4 MiB heap
+    // gives one call 524288 tables to follow: 512 entries are that many,
+    // and 513 are past it.
+    let vm = TestVm::new()
+        .tools(offer_set())
+        .limits(4 * 1024 * 1024, DEFAULT_LUA_LOG_EVENTS)
+        .build();
+    vm.exec(
+        "local last = {} \
+         for index = 1, 513 do last[index] = 'web' end \
+         for _ = 1, 1023 do last = setmetatable({}, { __index = last }) end \
+         function array(entries) \
+           return setmetatable({}, { __index = last, __len = function() return entries end }) \
+         end",
+    );
+    for (verb, mode) in [
+        ("tools.offer", "static"),
+        ("tools.offer_dynamic", "dynamic"),
+    ] {
+        assert_eq!(
+            root_text(&vm.eval_err(&format!("{verb}(array(513))"))),
+            format!(
+                "{verb} takes an array, got a table whose __index chain is followed through \
+                 more than 524288 tables: one call follows at most 524288"
+            )
+        );
+        vm.exec(&format!("{verb}(array(512))"));
+        assert_eq!(offers(&vm).last(), Some(&format!("{mode}:web")));
+    }
 }
 
 #[test]

@@ -2,7 +2,12 @@
 //! and the coroutine shim's `pcall` and `xpcall` neither swallow
 //! cancellation nor change an uncanceled failure.
 
+use std::sync::atomic::AtomicBool;
+
+use mlua::{HookTriggers, VmState};
+
 use super::*;
+use crate::error::root_text;
 
 #[test]
 fn long_running_lua_block_cancels_cooperatively() {
@@ -160,4 +165,31 @@ fn an_xpcall_message_handler_without_a_cancel_flag_still_receives_the_failure() 
         panic!("the block must return, got {step:?}");
     };
     assert_eq!(returned.as_deref(), Some("false|handled boom"));
+}
+
+#[test]
+fn table_concat_raises_an_abort_inside_its_stock_call_and_does_not_start_again() {
+    // A list with no metatable goes to the stock `table.concat` under
+    // `pcall` first. The hook aborts once, inside that call. A
+    // replacement that took the abort for the stock function's refusal of
+    // the list would join the list itself and return.
+    let vm = TestVm::new().build();
+    let aborted = Arc::new(AtomicBool::new(false));
+    vm.lua()
+        .set_hook(
+            HookTriggers::new().every_nth_instruction(1),
+            move |_lua, debug| {
+                let in_stock_chunk = debug
+                    .source()
+                    .source
+                    .is_some_and(|source| source.ends_with("__impl_stdlib_stock.lua"));
+                if in_stock_chunk && !aborted.swap(true, Ordering::Relaxed) {
+                    return Err(mlua::Error::runtime("aborted"));
+                }
+                Ok(VmState::Continue)
+            },
+        )
+        .expect("the hook installs");
+    let raised = vm.eval_err("return table.concat({ 'a', 'b' })");
+    assert_eq!(root_text(&raised), "aborted");
 }

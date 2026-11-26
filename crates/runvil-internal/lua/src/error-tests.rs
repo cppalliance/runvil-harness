@@ -25,7 +25,8 @@ use super::{
     make_context_exhausted_error, make_internal_at_error, make_internal_error,
     make_lua_compile_error, make_lua_error, make_lua_quota_error, make_lua_runtime_error,
     make_task_canceled_error, make_task_consumed_error, make_task_not_owned_error,
-    make_tool_loop_exhausted_error, prompt_file, reworded, set_call_line, set_prompt_file, tool,
+    make_tool_loop_exhausted_error, prompt_file, rendered, reworded, set_call_line,
+    set_prompt_file, tool,
 };
 use crate::error_value::{ErrorField, ErrorKind, error_fields, error_kind};
 
@@ -155,9 +156,9 @@ fn every_address_that_ends_a_text_or_stands_before_a_traceback_is_taken_out() {
             Some("error object is a table value"),
         ),
         (
-            "runtime error: My Thing: 0x600003a1c0c0\nstack traceback:\n\t[C]: in ?",
+            "My Thing: 0x600003a1c0c0\nstack traceback:\n\t[C]: in ?",
             false,
-            Some("runtime error: error object is a My Thing value\nstack traceback:\n\t[C]: in ?"),
+            Some("error object is a My Thing value\nstack traceback:\n\t[C]: in ?"),
         ),
         (
             msvc_table.as_str(),
@@ -173,6 +174,11 @@ fn every_address_that_ends_a_text_or_stands_before_a_traceback_is_taken_out() {
             "My: Thing: 0x600003a1c0c0",
             false,
             Some("My: Thing: (address)"),
+        ),
+        (
+            "runtime error: Thing: 0x1f",
+            false,
+            Some("runtime error: Thing: (address)"),
         ),
         (
             "[string \"line 3\"]:2: size: 0x1f",
@@ -209,6 +215,40 @@ fn every_address_that_ends_a_text_or_stands_before_a_traceback_is_taken_out() {
             expected,
             "{text} with msvc {msvc}"
         );
+    }
+}
+
+#[test]
+fn the_label_mlua_wrote_stays_and_the_same_words_of_the_author_are_a_name() {
+    let raised = |text: &str| mlua::Error::RuntimeError(text.to_owned());
+    let in_callback = mlua::Error::CallbackError {
+        traceback: "stack traceback:\n\t[C]: in ?".to_owned(),
+        cause: Arc::new(raised("My Thing: 0x600003a1c0c0")),
+    };
+    for (error, expected) in [
+        (
+            raised("My Thing: 0x600003a1c0c0"),
+            "runtime error: error object is a My Thing value",
+        ),
+        (
+            in_callback,
+            "runtime error: error object is a My Thing value\nstack traceback:\n\t[C]: in ?\n",
+        ),
+        (
+            raised("runtime error: Thing: 0x1f"),
+            "runtime error: runtime error: Thing: (address)",
+        ),
+        (raised("0x1f"), "runtime error: 0x1f"),
+        (
+            raised("?:?: stack overflow"),
+            "runtime error: stack overflow",
+        ),
+        (
+            mlua::Error::external("runtime error: Thing: 0x1f"),
+            "runtime error: Thing: (address)",
+        ),
+    ] {
+        assert_eq!(rendered(&error, false), expected);
     }
 }
 

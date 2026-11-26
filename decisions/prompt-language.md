@@ -218,9 +218,9 @@ Shared code exists for reuse, so a library runs only where a section asks for it
 
 ### A library runs once in each section VM, and `require` returns the value of its first `return`
 
-A library's blocks run in order. After a block that ends without a `return`, the next block runs. The first block that executes a `return` ends the load, and `require` returns its value, which may be a table or a function, or `true` when the `return` is bare or gives nil. For a library whose blocks all end without a `return`, `require` returns `true`. Later calls in the same VM return the saved value, and a library that requires itself raises an error that begins `require cycle:`.
+A library's blocks run in order. After a block that ends without a `return`, the next block runs. The first block that executes a `return` ends the load, and `require` returns its value, which may be a table or a function, or `true` when the `return` is bare or gives nil. For a library whose blocks all end without a `return`, `require` returns `true`. Later calls in the same VM return the saved value, and a library that requires itself raises an error that begins `require cycle:`. A saved table comes back as the library returned it, and its `__eq` does not run inside `require`.
 
-`require` returns a value of any type because a library returns its module as a table. A `return` ends the load the way a block's `return` ends a chain, and the result `true` in place of a nil value matches standard Lua. The cycle error exists because standard Lua 5.5 lacks cycle detection and recurses until the stack overflows.
+`require` returns a value of any type because a library returns its module as a table. A `return` ends the load the way a block's `return` ends a chain, and the result `true` in place of a nil value matches standard Lua. The cycle error exists because standard Lua 5.5 lacks cycle detection and recurses until the stack overflows. The Engine tells a library that still loads from a saved value by identity, because an `__eq` that calls its table equal to anything would make a loaded library read as one that still loads, and the second `require` of it would raise the cycle error.
 
 ### A library is an ordinary section, and each section requires the libraries it uses
 
@@ -289,7 +289,7 @@ The Engine derives the seed of a generator with SHA-256, as it derives the nonce
 
 The Engine supplies its own `table.sort`, a merge sort.
 Elements that compare equal keep the order they had, so two runs sort a list the same way.
-The list must be a table, where stock Lua also takes a value that has the `__index`, `__newindex`, and `__len` metamethods.
+The list is a table, or a value that has the `__index`, `__newindex`, and `__len` metamethods, as in stock Lua, and a failure of an argument has stock Lua's text.
 The default order is by `<`, as in stock Lua, and no comparison function raises `invalid order function for sorting`.
 The sort reads every element once, compares, and then writes every element once, so a sort whose comparison fails leaves the list as it was.
 The sort is Lua code, so it is slower than stock Lua's C function, and it holds more arrays of the list's length while it runs.
@@ -319,6 +319,53 @@ Stock Lua prints such a value with its address, as in `table: 0x55d0c0a1e2f0`, a
 The address is where the allocator put the value, so it differs between a run and a second run with the same inputs, and so does every text that holds it.
 The Lua binding's own text for a failure holds the address of a table that a metamethod raised inside an Engine function, so the failure prints as its message.
 
+### `tostring`, `string.format`, `table.concat`, and `table.sort` run a metamethod as stock Lua does
+
+These functions are the Engine's own.
+Each runs the author's code, a `__tostring`, `__len`, `__lt`, `__index`, or `__newindex` metamethod or a comparison function, with no protected call of its own around it.
+A failure of that code reaches the message handler of an `xpcall` around the call while the variables of that code are still open, so a `<close>` variable closes after the handler has run.
+The failure names the line that raised it, also when the raised value is no string or has no position.
+To that code each of them is one function with no line, as the stock function is: `error(text, 2)` in a metamethod puts no position in front of the text, and `error(text, 3)` the line of the author's call.
+A call that is the whole of a `return` in a function, as in `return tostring(value)`, is a tail call, which drops that function from the levels, so level 3 is then the line that called the function, where stock Lua names the line of the `return`.
+When Lua cannot run the code, the failure has stock Lua's text and no position, as in `attempt to call a number value` for a `__tostring` that is a number and `attempt to compare two table values` for two tables with no `__lt`.
+`table.concat` joins a value that has `__tostring` as `tostring` gives it and a userdata without one as its name, where stock Lua joins strings and numbers only.
+In every other respect it is the stock function: the list is a table or a value with `__index` and `__len`, the bounds are integers, and a failure has stock Lua's text on the line of the call.
+An argument error names each of them, and `math.randomseed`, `pcall`, `xpcall`, `setmetatable`, and `getmetatable`, as the call is written, as stock Lua does.
+`table.sort(5)` raises `bad argument #1 to 'sort' (table expected, got number)`, the same call through a local `order` says `'order'`, and `pcall(table.sort, 5)`, where no Lua code makes the call, says `'table.sort'`, the name in the library.
+A call written `value:name(...)` leaves the value out of the count, so `('%d'):format('x')` names argument 1.
+One of these functions that another runs as a metamethod, such as a `__index` that is `string.format` on a joined list, is named by the library too, as under the stock function.
+A tail call and a `__call` metamethod read otherwise than in stock Lua.
+A call that is the whole of a `return`, as in `return order(5)`, is named by the field of the library, `sort`, and a method call written that way counts its value.
+The Engine calls an `__index` or a `__newindex` function of the globals that way, so one of these functions in that place is named by its field, as in `format`, where stock Lua names it `index` or `newindex`.
+It calls the message handler of an `xpcall` that way too, so one of these functions as the handler is named `format`, where stock Lua names it `string.format`.
+A value whose `__call` is one of these functions is counted among the arguments, so `callee(5)` names argument 2, where stock Lua names argument 1.
+The Engine's `pcall` and `xpcall` refuse their own arguments in stock Lua's text on the line of the call, as in `bad argument #2 to 'xpcall' (function expected, got number)`.
+Calls that nest without end, such as a `__tostring` that prints its own value, fail with Lua's `stack overflow` at the default memory limit, where stock Lua fails with `C stack overflow` at about 200 levels.
+That failure names the author's line when the stack runs out in the author's function, and has no position when it runs out in an Engine function.
+A metamethod that Lua runs for an operator, such as a `__len` that sorts its own table, takes one of Lua's nested C calls at each level, so that nest fails with Lua's `C stack overflow` at about 200 levels, as in stock Lua.
+While they take a table the functions of this entry call no Rust function that makes a nested C call, so the failure is Lua's own string.
+`string.format` and `table.concat` call the stock function under a protected call, which is a nested C call, so with one of them at each level of such a nest the limit is met in that call, and the text has no position, where stock Lua names the author's line.
+Where the limit is met inside another Engine function, such as `json.encode` or the `__tostring` of an error value, the caught failure is an error value, as the failure of any Engine function is, and its message has `C stack overflow` in it.
+It is an error value too where the limit is met while a function of this entry reads the metatable of a userdata, such as the message list: to print it, to join or sort it as a list, or to compare it in a sort.
+A `stack overflow` that Lua meets in that read is an error value in the same way, with `stack overflow` in its message.
+Under a memory limit below the default, such a nest can fill the Lua heap before the stack, and it then fails with `not enough memory`: a `__tostring` that prints its own value with `string.format` does at 48 MiB.
+
+Stock Lua's functions are C functions that call a metamethod directly.
+A protected call inside the Engine's function would catch the failure and raise it again: the variables of the metamethod would close before the author's handler ran, and the failure would name the line of the call in place of the line that raised it.
+So the Engine's function has none, and what Lua cannot run, Lua refuses in that function, in its own text.
+A C function has no line, so the level of an `error` in a metamethod that names the stock function adds no position, and the next level is the author's call.
+The Engine's functions are Lua functions, which have a line each, so the Engine compiles them with none, and each calls the author's code itself: an author's `error(text, 2)` then names no Engine file, and a count of levels reaches the same lines as under stock Lua.
+A failure that Lua raises in a function with no line starts with `?:?:`, and one that it raises in any other Engine function starts with the name of an Engine file and a line.
+Such a failure is a refusal of Lua's in one of these functions or in the guard of the globals, or the stack overflow above, and which function the stack runs out in follows the sizes of the frames on it.
+So the Engine takes such a position off the front of a failure's text, where `pcall` and `xpcall` hand the failure to the author's code and where the run reports it.
+The rule reads a text, so an author's own text that starts the same way loses that start: `error('?:?: x', 0)` reads `x`.
+Under a `pcall`, a `__close` handler receives the text as Lua raised it, with that start, and under an `xpcall` it receives what the message handler returned.
+One refusal has other words in a Lua function than in a C function: of a `__len` or a `__lt` that cannot be called, Lua says there which metamethod it was.
+The Engine therefore asks, before it takes a length or compares two values, whether Lua can call that metamethod, and raises stock Lua's text itself.
+Lua keeps the name of a call for the function it calls, and keeps none for a Lua function that it tail-calls, where a C function that is tail-called runs under the caller's own name.
+So under a tail call the Engine's function gives the name of the library's field, which is the name stock Lua gives `return table.sort(list)`.
+Lua tells a C function how many values a `__call` put in front of the arguments, and the Engine has no safe read of that count, so the Engine's function counts the called value.
+
 ### The Engine installs a fixed set of globals and reserves their names
 
 The Engine globals that are the data of the run are `args`, `item`, `messages`, `prose`, `sys`, and `var`. The tables of operations are `compactors`, `json`, `markdown`, `models`, `prompt`, `store`, `tasks`, and `tools`. The functions are `call`, `execute`, `jump`, `log`, `require`, and `untrusted`. One global exists only in some VMs: `item`, in the first section of a task whose spawn supplied one. The reserved names are these globals, the Lua globals that the sandbox leaves in place, and the keywords of Lua 5.5. A Pack prelude, the Lua that the Engine runs for a Pack in each section VM, fails to install when it defines a reserved name.
@@ -337,7 +384,15 @@ The owner's reason: "Simpler implementation. Simpler mental model for authors. T
 
 `var` is an empty proxy table over a hidden data table, and each table that an author reads from it is a view of the same kind. The proxy checks each write at the assigning line, by the rules of `json.encode`: a function, a userdata, or a thread raises an error that says the value `must be JSON data`, and a table that mixes list items and named keys raises an error that names it. A write that would break its table's shape as a list or an object raises too, such as a boolean key, a named field in a list, or an index past the end of a list. A view measures and iterates like the table it stands for: `#` gives the length of the data, `pairs` and `next` visit its entries, and `var.items[#var.items + 1] = x` appends to a list.
 
+A write also raises an error for a string key that is not valid UTF-8, and for a table that it would put more than 127 levels deep.
+The levels count from `var` itself, which is the first, and they count the same whether one write made them or one write for each.
+So a value under a field of `var` nests at most 126 tables deep, one fewer than `json.encode` accepts.
+
 The proxy is empty because Lua calls `__newindex` only for a key that a table lacks, so only an empty table sees every write. The guard refuses a write that `var` cannot hold as JSON data, where the write is made, because the read-back of `var` at the end of the block would otherwise fail on it or silently drop a part of it. The Engine sets `__len` on each view, and its own `pairs` and `next` read through one, so that an author treats a `var` table as a plain table.
+
+The 127 levels are those of the whole of `var`, because the Engine hands the whole of it to a called chain and to a task, and reports it in the event that starts a task, so its JSON text must read back.
+A limit on the value of each write alone would let a write for each level nest `var` to any depth.
+A key that is not UTF-8 has no JSON form, so the read-back of `var` would fail on it.
 
 ### `sys` is a sealed table of facts about the run and the section entry
 
@@ -356,6 +411,7 @@ The limits loosen only after examples from real prompt debugging establish a nee
 The Engine supplies its own versions of `pairs` and `next`.
 Each visits the keys that are whole numbers from 1 up in rising order, then the other keys sorted: booleans, then the other numbers, then strings.
 So a list comes out in index order, before any named field.
+`tasks.fanout` runs the arms of a collection in the same order, whatever a `__pairs` of the collection gives ([Tasks and fanout](tasks-and-fanout.md)).
 The place of a key depends on the key alone, so two runs walk a table the same way, and a table with a gap in its indices too.
 A loop of `next` may clear keys as it goes: every other key keeps its place, and the loop visits each key that is left once.
 Each raises an error for a table that has a table, a function, a userdata, or a thread as a key.
@@ -376,41 +432,155 @@ Which entry that is follows the order of Lua's own walk, so two such runs would 
 `#t` is the number of items of a list, a table that holds a value at every index from 1 up to its last.
 For a table with a gap in those indices, `#t` is an index that holds a value and whose next index holds none, and two runs with the same inputs can get different ones.
 `table.insert`, `table.remove`, `table.concat`, `table.unpack`, and `table.sort` measure a table by `#t`.
-The Engine measures such a table by `#t` too when it converts the table to data, such as the arguments of `tools.call`, the `item` of a spawn, or a global that prose names, and the items past the length are left out.
 A block that needs the same result in every run keeps its lists without a gap.
-`pairs`, `next`, and `ipairs` do not use the length, `json.encode` raises an error that names the missing item, and `tasks.fanout` ends the list at the first gap.
-`tools.offer` refuses such a table for the same key in every run, with one exception: a table with no `__len` whose `__index` gives a value at the gap is measured by `#t`, so one run can accept it and another refuse it.
+Every other Engine function treats such a table the same way in every run.
+`pairs`, `next`, and `ipairs` do not use the length, and `tasks.fanout` ends the list at the first gap.
+`json.encode`, a write to `var`, and the conversion of a table to data raise an error that names the missing item.
+`tools.offer` takes the entries from index 1 to the first that the table itself lacks, or as many as a `__len` metamethod gives, and refuses a key outside them.
 
 `#` is an operator of Lua and not a function, so the Engine cannot supply its own version of it as it does for `pairs`.
 Lua finds the end of such a list with a search that starts from the hash seed, and the Lua binding sets that seed itself.
 A list without a gap has one end, so its length is the same in every run.
+`table.concat` and `table.sort` are the Engine's own and still measure by `#t`, as the stock functions do and as `table.insert` must: a second rule for them alone would leave the block's own `#t` as it is.
 
 ### An error for one entry of a table names the entry whose key comes first
 
-Some functions check every entry of a table that an author passes: the options of `models.use`, the short form of the parameters of `tools.adhoc`, the array of `tools.offer`, and the keyed part of a `tasks.fanout` collection.
+Some functions check every entry of a table that an author passes: the options of `models.use`, the keys and the short form of the parameters of `tools.adhoc`, the array of `tools.offer`, the keyed part of a `tasks.fanout` collection, and each table of a value that the Engine converts to data.
 The Engine checks the globals that a Pack's prelude defines the same way.
 When several entries fail the check, the error is the one for the entry whose key comes first: booleans, then numbers, then strings in byte order, then any other key by the name of its type.
 
 The Engine reads such a table in the order of Lua's own walk, which differs between a run and a second run with the same inputs.
 A check that stopped at the first entry it read would give the two runs different error texts, and a block that catches the error can act on its text.
 
+### The Engine refuses a weak table wherever it reads the entries of one
+
+`json.encode`, a write to `var`, `models.use`, `tools.adhoc`, `tools.offer`, `tasks.fanout`, the other `tasks` functions, the `markdown` functions that take a list of blocks, and the conversion of a table to data raise an error for a weak table, one whose metatable has a `__mode` with `k` or `v` in it, as `pairs` and `next` do.
+The error says that the table is weak.
+With `{ debug = true }`, `json.encode` writes the placeholder `"[weak table]"` or `"[weak metatable]"` for such a table inside its value and raises no error for it, as for each value it refuses.
+`tools.adhoc` raises it for its attributes, for its parameters, and for the array of one parameter's type and description.
+The functions of `markdown` raise it for a list of blocks and for a block.
+`json.encode` raises it for its options table too.
+The `tasks` functions raise it for a set of tasks, for a Task handle, and for a table of options.
+Where the Engine reads one field of a table by its key, it raises the error for a weak table that the read looks into past that table, and the error says that the `__index` of the table leads to a weak table.
+Lua asks the `__index` of a table's metatable for a field that the table lacks, and the `__index` of the next table for a field that it lacks too.
+The Engine reads these fields that way: an option of a `tasks` function, the `task` of a handle, a member of a set of tasks, an entry that a `__len` counts and the array of `tools.offer` lacks, the Lua global of a placeholder, and the `compactors.fail` and the `sys.taskid` that `models.loop` reads.
+It follows the read as far as Lua does, which is 2000 values past the first table, and it stops at a table that holds the field and at an `__index` that is a function.
+An `__index` that is a string leads to the `__index` of the metatable that all strings share, and the Engine follows that too.
+`ipairs` and the functions of `table` read a table by its indices, as `t[i]` in a block does, and they take a weak table.
+A weak table is never read as a view.
+An empty weak table that has `__index` and `__metatable` raises the error in each of these places and in `pairs` and `next`.
+A view that leads to a weak table raises it in each place that reads through a view: `json.encode` for its value, a write to `var`, `tasks.fanout`, the other `tasks` functions, the `markdown` functions, the conversion of a table to data, the attributes and the parameters of `tools.adhoc` and the array of one parameter, `pairs`, and `next`.
+A table whose metatable is a weak table raises an error that says so in the same places, where the Engine asks the metatable what the table is.
+`tools.offer` raises that error too, because it asks the metatable of its array for a `__len`.
+`models.use` and the options of `json.encode` take the entries that their table itself holds, so a view is an empty table to them, whatever it leads to.
+`tools.offer` takes the entries that its array itself holds, or reads as many as a `__len` gives by index through the `__index` of the array.
+`tools.offer` calls the `__len` and the `__index` of its array, and it makes the checks again after each call, so an array that such a call makes weak raises the error.
+A `tasks` function makes the check before each read of a set, a handle, or a table of options, so a table that the `__index` of a member or of an option makes weak raises it too.
+The Engine checks a table at the moment it reads it, so a table that was weak earlier is read as the collector left it.
+`pairs` checks its table when the loop begins, so a table that the body of the loop makes weak is read as the collector leaves it.
+For the check the Engine reads the `__mode` up to its first `k`, `v`, or zero byte, each time it meets the table.
+One walk of a value, one call of `pairs`, `next`, `tasks.fanout`, or `tools.offer`, one read of a block's `prose`, and one check that a `tasks` function or `models.loop` makes of a table, may read as many bytes of `__mode` as the VM's memory limit, which is 64 MiB by default, and then to the end of the one `__mode` that passes the limit, so at most twice the limit.
+`json.encode`, a write to `var`, a `markdown` function, and the short form of `tools.adhoc` walk a value once.
+The conversion of a table to data walks a value that it refuses a second time, to name the entry whose key comes first, so it reads at most four times the limit.
+Past the limit, the conversion of a table to data and the short form of `tools.adhoc` raise their error for a value that is too large, whatever else is wrong with the value.
+`json.encode`, a write to `var`, and the `markdown` functions stop at the first fault of their walk, so they raise their error for a value that is too large when the walk meets no other fault before the limit.
+`pairs`, `next`, `tasks.fanout`, `tools.offer`, the other `tasks` functions, a placeholder, and `models.loop` raise an error that gives the bytes of `__mode` the call came to and the most that one call scans.
+One call of `tools.offer` reads every entry that its array lacks, and one read of a block's `prose` every Lua global of its placeholders, each through the tables that an `__index` leads to.
+Either may follow as many of those tables in all as one eighth of the VM's memory limit in bytes, which is 8,388,608 tables at the default of 64 MiB, and past that it raises an error that says that the `__index` chain of the table is followed through more than that many tables.
+The Engine follows the tables again for each entry and each global, because an `__index` that is a function can change them when it runs, and it makes all the reads of one call in one step that a cancel does not interrupt.
+Without the count, the 100,000 entries that an array may have, each read through 2000 tables, would hold a cancelled run for far longer than any other call does.
+Where a conversion has a limit on the bytes of strings, the bytes of `__mode` count toward the same limit.
+
+Lua's collector can take an entry out of a weak table between two reads of it, and which entries are still unread at that moment follows the order of Lua's own walk.
+So two runs with the same inputs would read different entries.
+A table is a view only while it has no entry of its own, and the collector decides whether a weak table has one.
+Read as a view, such a table would raise the error while it held an entry and give the data of its `__index` table once the collector had taken the entry.
+The fields of a metatable are the entries of a table, and the collector takes them out of a weak one.
+`__index` and `__metatable` make a table a view, and `__len` gives an array its length, so a table under a weak metatable would be a view in one run and an empty table in the next.
+`json.encode` names the first of several unknown options, and the collector decides which options a weak table still has.
+A wait reads its set one task at a time and writes to Lua's heap between two reads, so the collector could take a handle that only a weak set holds, and the wait would be for fewer tasks in one run than in another.
+A table that is not weak can take a field from one that is: options with no `item` of their own get it from the `__index` of their metatable, so the collector would decide whether the spawned chain has an item.
+A function at the end of that way is the author's code, and what it reads is the author's own read, as `t[i]` in a block is.
+A read by index is a read by key, which a weak table allows, and `table.concat` and `table.sort` do what Lua's own do: a refusal in those functions alone would leave `t[i]`, `ipairs`, and the others as they are.
+A `__mode` can be as long as the memory limit allows, and any number of tables can share one metatable.
+A call that read it once for each table would do far more work than the Lua heap holds, inside one Rust call that a cancel does not interrupt.
+
+### A path, and a refusal of `tools.adhoc`, quotes at most 64 bytes of a key or a name
+
+A path such as `value.items[3]` shows a key longer than 64 bytes as its first 64 bytes, without a character that the cut would split, and its length, as in `value.kkkk... (1000 bytes)`.
+A path of `var` shows a key the same way, wherever the key was written.
+`tools.adhoc` shows a key, a name, and a type that it refuses the same way.
+Other errors that name one key quote it whole, such as an unknown option of `json.encode` or of `tasks.spawn`, a key outside the array of `tools.offer`, and a write to `args` or to `sys`.
+
+An error text goes to the model, the log, and the record of the run.
+A key can be as long as the VM's memory allows, and a text that quoted it whole, once for each level of a path, could be many times that size.
+An error that quotes one key once is no longer than the key and the words around it, and a block can raise a text of that length itself with `error`.
+
 ### One guard on `_G` answers reads of `args`, `prose`, and `messages`, and `setmetatable` refuses finalizers
 
 The Engine puts one metatable on the globals table. It answers reads of `args`, `prose`, and `messages` and raises on an assignment to any of them. An author's `setmetatable(_G, mt)` records `mt` behind the guard, so the documented pattern of default values for globals works. Author code can overwrite every other Engine global for the rest of that VM.
+
+An `__index` or a `__newindex` of the author's metatable that is a function runs as stock Lua runs it, with the same levels for `error`.
+One that Lua cannot index, such as a number, fails in Lua's own text, as in `attempt to index a number value`, on the line of the read or the write.
+A `pcall` around that line catches the text with no position in front, where stock Lua has the line.
+The guard is a Lua function of the Engine between the author's line and the author's metatable, and the Engine compiles it with no line, as it does `tostring`, `string.format`, `table.concat`, and `table.sort`, so Lua names neither a line nor a variable of the guard.
+For the same reason `error(text, 2)` in an `__index` function of a table that is the author's `__index` puts no position in front of the text.
+
+The Engine's own Lua code calls no global that author code overwrote.
+It takes each global it uses when the VM is made, before any block runs.
+A `tasks` function checks a table and then reads it, and a function of the author's in place of `ipairs` or `type` would run between the two.
+
+A `var` global that author code replaced or removed raises an error at the next `call`, spawn, or end of a block, where the Engine reads `var`.
+The Engine reads the globals table itself for it, so the author's metatable does not answer for a removed `var`, and no code of the author's runs inside that read.
+It tells its own table from another by identity, so a table in the place of `var` is a replacement whatever its `__eq` returns, and that `__eq` does not run.
 
 `setmetatable` raises for a metatable with a `__gc` field. Lua runs finalizers with hooks disabled, so a finalizer that loops would continue to run after a cancel.
 
 ### `json` is a global table with `json.null` for null and `json.array` for lists
 
-The members of `json` are `encode`, `encode_lines`, `decode`, `decode_lines`, `null`, and `array`. `json.decode` returns fresh writable tables and returns `json.null` for each JSON null. `json.null` is truthy, and code tests for it with `v == json.null`. An unmarked empty table encodes as `{}`, and `json.array()` returns an empty table that encodes as `[]`. The `_lines` functions read and write JSON Lines.
+The members of `json` are `encode`, `encode_lines`, `decode`, `decode_lines`, `null`, and `array`. `json.decode` returns fresh writable tables and returns `json.null` for each JSON null. Every key of a decoded object is the name of a field, whatever its text. `json.null` is truthy, and code tests for it with `v == json.null`. An unmarked empty table encodes as `{}`, and `json.array()` returns an empty table that encodes as `[]`. The `_lines` functions read and write JSON Lines.
 
-The table is always present because `require` loads only sections of the running prompt. Null is a sentinel value so that a key whose value is null remains in its table. A sequence encodes as an array, so only the empty array needs the `json.array()` marker.
+The table is always present because `require` loads only sections of the running prompt. Null is a sentinel value so that a key whose value is null remains in its table. A sequence encodes as an array, so only the empty array needs the `json.array()` marker. The JSON library that parses the text reads one key of an object as JSON text of its own, in a build where any crate asks it to, and that text is parsed with a nesting limit of its own, so a small text with such keys inside one another would nest past every limit and end the process. The Engine's parse therefore reads every key as a name, and so does the parse of a tool's structured output.
 
 ### `json.encode` raises for a value outside JSON and names its path
 
-`json.encode` raises for a function, a thread, a userdata other than `json.null`, NaN, an infinity, a table that mixes list items and named keys, and a list with a gap. The message names the place, as in `value.items[3]`. The encoder writes keys sorted, so the same value produces the same text and the same error on every run. The option `{ debug = true }` writes a placeholder string such as `"[function]"` for each refused value.
+`json.encode` raises for a function, a thread, a userdata other than `json.null`, NaN, an infinity, a table that mixes list items and named keys, a list with a gap, and a weak table. The message names the place, as in `value.items[3]`. The encoder writes keys sorted, so the same value produces the same text and the same error on every run. The option `{ debug = true }` writes a placeholder string such as `"[function]"` for each refused value.
 
 The Engine walks the value itself, because the Lua binding's own conversion silently drops keys from mixed tables and leaves the path out of its errors. The walk reads through sealed tables such as `var`, because `json.encode(var.items)` would otherwise produce `{}` silently.
+
+### A table that the Engine converts to data has no gap, is not weak, and nests at most 127 deep
+
+The Engine converts a Lua value to JSON data for the arguments of `tools.call`, the `item` of a spawn and of a fanout member, a field of a message, and a global that prose names.
+A table that holds a value at index 1, or that `json.array` marked, converts to a list of its items, and what its other keys hold is left out, whether the key is a name, a boolean, a number with a fraction, or a whole number below 1.
+Any other table converts to an object, whose keys must be strings.
+Every string key is the name of a field, whatever its text.
+A key that is a table, a function, a userdata, or a thread raises an error that names the key's type and nothing else of the key, as in `value.rows has a table key; object keys must be strings`.
+The conversion raises an error for a list with a gap, for a weak table, for a table that holds itself, and for a value nested more than 127 tables deep.
+A sealed table that only a function can read converts to an empty object, and counts as one level.
+A table that holds itself through a sealed table raises the same error as one that holds itself directly.
+The error names the place, as in `value.rows is missing list item [4]`.
+These rules apply to the tables that become data, so what another key of a list holds is not checked.
+It counts toward the limits below all the same, so that a value is too large on every run or on none: which entries the Lua binding reads of a table with a gap differs between two runs.
+A number that is NaN or an infinity converts to null with no error, where `json.encode` and a write to `var` raise an error for it.
+A view of a message record inside the value converts to the record's data, and counts as that data: its nesting adds to the tables that it sits under, and its values and the bytes of its strings count toward the limits below.
+When several entries of one table cannot convert, the error is the one for the entry whose key comes first.
+One value may hold as many values as one eighth of the VM's memory limit, which is 8,388,608 at the default, and a value past that raises `the value is too large to convert`.
+It may also hold as many bytes of strings as the limit, keys included, with a string counted each time it occurs, and past that it raises the same error, whatever else is wrong with it.
+
+The Lua binding makes the conversion, and several of its ways need a rule on top.
+It takes the length of a table as the number of its items, and the length of a list with a gap differs between two runs, so one table would become a list of three items in one run and of five in another.
+It reads an object in the order of Lua's own walk and stops at the first entry that it cannot convert, so two runs would name different entries.
+Its error for a key that is a table says whether that table holds a list, and two such keys have no order that every run agrees on, so the error for such a key is the Engine's own.
+It follows a value to any depth, and a value some thousands of tables deep overflows the stack of the process.
+A value 127 tables deep is the deepest whose JSON text reads back.
+The Engine converts a copy of the data in place of each sealed table, and inside a copy the binding does not know a table that holds itself for one it has met, so it would read that table a second time, below the 127 levels.
+A record can hold the data that an earlier conversion made of another record's view, so a view that counted as one value would let each record nest deeper than the one before it, to any depth.
+The JSON library that the binding converts to can read one key of an object as JSON text in place of a name, when any part of the program turns that on, and it does so only for the key that Lua's own walk puts first, so the Engine reads the keys of an object itself.
+The data is a copy of the value's strings outside the VM's memory limit, one copy for each time a string occurs, so a value that fits the limit could make data many times that size.
+The count of values bounds the rest of the data at the size that the entry on the limits of a conversion gives.
+To name the entry whose key comes first, the Engine also reads every string of a value that cannot convert, where the binding stops at the first fault.
+The bytes are counted before they are read, so that one conversion copies at most as much text as the limit, and one refusal reads at most as much.
+The conversion writes null for a number that JSON cannot hold, as the JSON library's own reader does, and the Engine leaves that as it is: the result is the same in every run, and a refusal would fail a prompt that passes such a number today.
 
 ## 7. Errors and limits
 
@@ -419,6 +589,9 @@ The Engine walks the value itself, because the Lua binding's own conversion sile
 `pcall` returns a failure as a table whose `tostring` is its message. `kind` is a string that an author branches on, such as `lua`, `store`, `tool`, `model_failure`, and `canceled`. `code` is the tag of the exact failure, such as `lua_quota`, and an uncaught error ends the run with it ([The Engine](engine.md)). `message` starts with the prompt's file and line when the failure has a location.
 
 The table prints as its message, so code that prints a caught failure shows the text, and code that branches reads `kind`.
+
+A failure that ends a block is text, so bytes of its message or of its traceback that are not UTF-8 read as the replacement character U+FFFD, as they do in the text a block returns.
+A traceback names a function by the key that holds it, and an Engine refusal quotes a key it refuses, so either can hold such bytes: the failure then keeps its own message and line, where a refusal of the text would take their place.
 
 ### A cancel passes through `pcall`, and a stop raises an error that `pcall` catches
 
@@ -430,7 +603,7 @@ A stop drops the model round or the tool call in flight and leaves the cancel fl
 
 A call that waits, such as `tools.call`, yields the block's coroutine, and Lua refuses a yield that would cross a C function.
 Lua's `string.gsub` is a C function, so a waiting call inside its replacement function raises Lua's own error, `attempt to yield across a C-call boundary`.
-`table.sort` is the Engine's own Lua function, so a waiting call inside its comparison function works.
+The Engine's `tostring`, `string.format`, `table.concat`, and `table.sort` are Lua functions, so a waiting call works inside a `__tostring`, a `__len`, a `__lt`, and a comparison function that one of them runs, inside the `__index` of a list that `table.concat` joins, and inside the `__index` and the `__newindex` of a list that `table.sort` sorts.
 
 ### `call`, `execute`, tasks, and fanout arms nest at most 8 levels
 
@@ -443,11 +616,13 @@ The nesting cap and the round cap of `models.loop` are backstops: a prompt ends 
 The limits are fixed numbers:
 
 - `json.encode` and `json.decode` accept 127 levels of nesting.
+- `var` holds 127 levels of nesting, with `var` itself as the first.
 - `json.decode` accepts 8,388,608 bytes of input.
 - One `json.encode` call or one write to `var` may visit as many values as one eighth of the VM's memory limit in bytes, which is 8,388,608 values at the default of 64 MiB.
 - One path of an encoded value may have 100,000 keys that are strings or tables.
+- The data that one `json.encode` call, one write to `var`, or one conversion of a table to data builds is held outside the VM's memory limit. It takes up to about 670 bytes for each value, so up to about 84 times the limit, which is 5.2 GiB at the default.
 
-The nesting limit is 127 because `serde_json`, which parses the input of `json.decode`, refuses the 128th nested array or object, and the encoder writes only a depth that the decoder accepts. The size budget exists for tables that are small in Lua and huge once converted: a conversion runs inside one Rust call, outside the instruction hook and outside the limit on the Lua heap.
+The nesting limit is 127 because `serde_json`, which parses the input of `json.decode`, refuses the 128th nested array or object, and the encoder writes only a depth that the decoder accepts. The size budget exists for tables that are small in Lua and huge once converted: a conversion runs inside one Rust call, outside the instruction hook and outside the limit on the Lua heap. The budget counts values and the bytes of strings. It does not count the memory that the data takes for each value, which is largest for an object of one key, so a table that many places share can make data of the size above from about one megabyte of the Lua heap.
 
 ## 8. Planned work
 

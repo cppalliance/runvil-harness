@@ -35,20 +35,32 @@ use runvil_types::error::{Error, ErrorCode, ErrorFact, coordinates};
 use runvil_types::ids::TaskId;
 use serde_json::Value as Json;
 
-use crate::chunk_line::first_prompt_line;
+use crate::chunk_line::{engine_position_len, first_prompt_line};
 use crate::error::{
     accepted_tags, author_line, authored_at, call_line, failure_text, lua_text,
     make_internal_error, make_lua_runtime_error, prompt_file, root_cause, root_text,
 };
 
-/// The registry key of the shared error metatable, created on first use per
-/// VM so every error table on that VM - Lua-built or Rust-built - shares
-/// the same identity and the read-back can recognize it.
+/// The registry key of the shared error metatable, which
+/// [`install_metatable`] builds once per VM, so every error table on that
+/// VM - Lua-built or Rust-built - shares the same identity and the
+/// read-back can recognize it.
 const METATABLE_REGISTRY: &str = "runvil.error_value.metatable";
 
 /// The registry key of the VM's weak-keyed table from each error table
 /// rendered from a universal error to that error, created on first use.
 const RETAINED_REGISTRY: &str = "runvil.error_value.retained";
+
+/// The name of the chunk that builds the `__concat` of the error
+/// metatable. A chunk loaded with no name takes the Rust line that loads
+/// it for one, which the rule on the position of an Engine chunk does not
+/// read.
+const CONCAT_CHUNK_NAME: &str = "@crates/runvil-internal/lua/src/error_value.rs";
+
+/// The source of that `__concat`, which joins both sides as `tostring`
+/// gives them.
+const CONCAT_SOURCE: &str =
+    "local tostring = tostring; return function(a, b) return tostring(a) .. tostring(b) end";
 
 /// The closed vocabulary of failure kinds an author can branch on.
 ///
@@ -377,33 +389,34 @@ pub fn error_fields(error: &Error) -> Vec<(String, ErrorField)> {
     }
 }
 
-/// Returns the facts an error table's `fields` hold for a failure with
-/// `code`, the inverse of [`error_fields`]: each field that code's table
-/// gives, under its fact, with `tasks` split back into the ids it joins.
-/// A field of another shape, or one the code's table never gives, holds
-/// no fact.
+/// Returns the facts an error table holds for a failure with `code`, the
+/// inverse of [`error_fields`]: each field that code's table gives, under
+/// its fact, with `tasks` split back into the ids it joins. `field` reads
+/// one field of the table by its name, and is asked for the fields of
+/// that code alone, so a field of another shape, or one the code's table
+/// never gives, holds no fact, and no other entry of the table is read.
+///
+/// # Errors
+/// Returns the failure of `field`.
 fn field_facts(
     code: ErrorCode,
-    fields: &BTreeMap<String, ErrorField>,
-) -> BTreeMap<ErrorFact, Json> {
+    field: impl Fn(&str) -> mlua::Result<Option<ErrorField>>,
+) -> mlua::Result<BTreeMap<ErrorFact, Json>> {
+    let string = |name: &str, key: ErrorFact, shape: fn(&str) -> Json| {
+        let value = field(name)?;
+        let fact = value.as_ref().and_then(ErrorField::as_str);
+        Ok(fact.map(|text| (key, shape(text))).into_iter().collect())
+    };
     match code {
-        ErrorCode::TasksLive => fields
-            .get("tasks")
-            .and_then(ErrorField::as_str)
-            .map(|joined| {
-                let tasks: Vec<&str> = joined.split(", ").filter(|id| !id.is_empty()).collect();
-                (ErrorFact::Tasks, Json::from(tasks))
-            })
-            .into_iter()
-            .collect(),
-        code if kind_of(code) == ErrorKind::Store => store_field_facts(fields),
-        code => string_fact(code)
-            .and_then(|(name, key)| {
-                let value = fields.get(name)?.as_str()?;
-                Some((key, Json::from(value)))
-            })
-            .into_iter()
-            .collect(),
+        ErrorCode::TasksLive => string("tasks", ErrorFact::Tasks, |joined| {
+            let tasks: Vec<&str> = joined.split(", ").filter(|id| !id.is_empty()).collect();
+            Json::from(tasks)
+        }),
+        code if kind_of(code) == ErrorKind::Store => store_field_facts(field),
+        code => match string_fact(code) {
+            Some((name, key)) => string(name, key, |text| Json::from(text)),
+            None => Ok(BTreeMap::new()),
+        },
     }
 }
 
@@ -531,21 +544,26 @@ fn store_fact_fields(error: &Error) -> Vec<(String, ErrorField)> {
     fields
 }
 
-/// Returns the store facts a store failure's Lua error table `fields`
-/// hold, the inverse of [`store_fact_fields`]: each store field under its
-/// fact, a string field as a string and an integer field as a number.
-/// `reason` is the code's tag, not a fact.
-fn store_field_facts(fields: &BTreeMap<String, ErrorField>) -> BTreeMap<ErrorFact, Json> {
-    STORE_FACTS
-        .iter()
-        .filter_map(|&(name, key)| {
-            let value = match fields.get(name)? {
-                ErrorField::String(text) => Json::from(text.as_str()),
-                ErrorField::Integer(number) => Json::from(*number),
-            };
-            Some((key, value))
-        })
-        .collect()
+/// Returns the store facts a store failure's Lua error table holds, the
+/// inverse of [`store_fact_fields`]: each store field that `field` reads,
+/// under its fact, a string field as a string and an integer field as a
+/// number. `reason` is the code's tag, not a fact.
+///
+/// # Errors
+/// Returns the failure of `field`.
+fn store_field_facts(
+    field: impl Fn(&str) -> mlua::Result<Option<ErrorField>>,
+) -> mlua::Result<BTreeMap<ErrorFact, Json>> {
+    let mut facts = BTreeMap::new();
+    for (name, key) in STORE_FACTS {
+        let value = match field(name)? {
+            Some(ErrorField::String(text)) => Json::from(text),
+            Some(ErrorField::Integer(number)) => Json::from(number),
+            None => continue,
+        };
+        facts.insert(key, value);
+    }
+    Ok(facts)
 }
 
 /// The code named after the variant.
@@ -577,7 +595,9 @@ fn store_error_code(error: &runvil_vfs::VfsError) -> ErrorCode {
     }
 }
 
-/// Returns the VM's shared error metatable, creating it on first use.
+/// Returns the VM's shared error metatable. The hardening of a VM builds
+/// it, through [`install_metatable`], and a VM that was never hardened
+/// gets it at the first call.
 ///
 /// `__tostring` returns the table's `message`, so an author's `tostring`
 /// (and mlua's own stringification when the table surfaces as a coroutine
@@ -591,7 +611,8 @@ fn metatable(lua: &Lua) -> mlua::Result<Table> {
     let tostring = lua.create_function(|_lua, table: Table| table.raw_get::<Value>("message"))?;
     metatable.raw_set("__tostring", tostring)?;
     let concat = lua
-        .load("local tostring = tostring; return function(a, b) return tostring(a) .. tostring(b) end")
+        .load(CONCAT_SOURCE)
+        .set_name(CONCAT_CHUNK_NAME)
         .eval::<Function>()?;
     metatable.raw_set("__concat", concat)?;
     lua.set_named_registry_value(METATABLE_REGISTRY, &metatable)?;
@@ -687,6 +708,16 @@ pub(crate) fn message_table(lua: &Lua, kind: ErrorKind, message: &str) -> mlua::
     finish_table(lua, kind, code, fields)
 }
 
+/// Builds the VM's shared error metatable. The hardening of a VM calls
+/// this before any block runs, so the chunk of the `__concat` takes the
+/// Engine's `tostring`, and not a function that a block put in its place.
+///
+/// # Errors
+/// Returns an `mlua` error if the metatable cannot be built.
+pub(crate) fn install_metatable(lua: &Lua) -> mlua::Result<()> {
+    metatable(lua).map(drop)
+}
+
 /// Builds the `error_value(kind, fields)` chunk capture for the shim: the
 /// Lua-side constructor of the same table shape, so a shim raise and a
 /// Rust-raised error are indistinguishable to author code. The table's
@@ -777,11 +808,21 @@ pub(crate) fn failure_message(lua: &Lua, failure: &mlua::Error) -> String {
 }
 
 /// Returns what `normalize_failure` returns for `value`: a Rust callback's
-/// failure as the error table its classification names, anything else
-/// unchanged, for the capture and the loop's compactor rule alike.
+/// failure as the error table its classification names, a string without
+/// the position of a chunk of the Engine's own in front of it, and
+/// anything else unchanged, for the capture and the loop's compactor rule
+/// alike.
 pub(crate) fn normalized(lua: &Lua, value: Value) -> mlua::Result<Value> {
     match value {
         Value::Error(error) => Ok(Value::Table(error_table(lua, &classified(lua, &error))?)),
+        Value::String(text) => {
+            let position = engine_position_len(&text.as_bytes());
+            if position == 0 {
+                return Ok(Value::String(text));
+            }
+            let raised = lua.create_string(&text.as_bytes()[position..])?;
+            Ok(Value::String(raised))
+        }
         other => Ok(other),
     }
 }
@@ -852,8 +893,13 @@ fn table_code(kind: ErrorKind, fields: &Table) -> ErrorCode {
 /// Reads a raised Lua value back as the universal error it stands for,
 /// when it is an error table built on this VM. The code is the one
 /// [`table_code`] names; the message and the prose are both the table's
-/// `message`; and the facts are its fields under the fact names the
-/// table's fields hold for that code. Any other value is `None`.
+/// `message`, with U+FFFD for each part of it that is not UTF-8; and the
+/// facts are the fields that code's table gives, each read by its name,
+/// under the fact it holds. A field holds a UTF-8 string or an integer,
+/// and no other entry of the table is read, so the read makes at most
+/// nine copies of strings and holds at most seven at once: the message
+/// twice, the `code`, a `task` or a `reason`, and the facts. Any other
+/// value is `None`, and so is a table whose `kind` is not a kind's tag.
 ///
 /// # Errors
 /// Returns an `mlua` error if the table's fields cannot be read.
@@ -867,31 +913,26 @@ pub(crate) fn raised_from(lua: &Lua, value: &Value) -> mlua::Result<Option<Error
     let Value::String(tag) = table.raw_get::<Value>("kind")? else {
         return Ok(None);
     };
-    let Some(kind) = ErrorKind::from_tag(&tag.to_str()?) else {
+    let Some(kind) = tag.to_str().ok().and_then(|tag| ErrorKind::from_tag(&tag)) else {
         return Ok(None);
     };
     let message = match table.raw_get::<Value>("message")? {
-        Value::String(message) => message.to_str()?.to_owned(),
+        Value::String(message) => message.to_string_lossy(),
         _ => kind.tag().to_owned(),
     };
-    // `pairs` order is unspecified, but `fields` is a `BTreeMap`, so the
-    // facts never depend on it.
-    let mut fields = BTreeMap::new();
-    for pair in table.pairs::<String, Value>() {
-        let (name, value) = pair?;
-        if matches!(name.as_str(), "kind" | "code" | "message") {
-            continue;
-        }
-        let field = match value {
-            Value::String(value) => ErrorField::String(value.to_str()?.to_owned()),
-            Value::Integer(value) => ErrorField::Integer(value),
-            _ => continue,
-        };
-        fields.insert(name, field);
-    }
+    let field = |name: &str| {
+        Ok(match table.raw_get::<Value>(name)? {
+            Value::String(value) => value
+                .to_str()
+                .ok()
+                .map(|value| ErrorField::String(value.to_owned())),
+            Value::Integer(value) => Some(ErrorField::Integer(value)),
+            _ => None,
+        })
+    };
     let code = table_code(kind, table);
     let mut error = Error::new(code, message.clone(), message);
-    error.facts = field_facts(code, &fields);
+    error.facts = field_facts(code, field)?;
     Ok(Some(error))
 }
 

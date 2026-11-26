@@ -443,6 +443,14 @@ fn from_dispatch_classifies_by_the_declared_output_kind() {
         Ok(ToolCallOutcome::Structured(json)) => assert_eq!(json, json!({ "text": "hi" })),
         other => panic!("expected the structured parse, got {other:?}"),
     }
+    // A key that `serde_json` keeps for itself is a name.
+    let reserved = r#"{"$serde_json::private::RawValue":"[1,2]"}"#;
+    match ToolCallOutcome::from_dispatch(ToolOutputKind::Structured, "form", reserved.to_owned()) {
+        Ok(ToolCallOutcome::Structured(json)) => {
+            assert_eq!(json, json!({ "$serde_json::private::RawValue": "[1,2]" }));
+        }
+        other => panic!("expected the structured parse, got {other:?}"),
+    }
     // Invalid JSON from a structured binding is the tool's error.
     match ToolCallOutcome::from_dispatch(ToolOutputKind::Structured, "form", "not json".to_owned())
     {

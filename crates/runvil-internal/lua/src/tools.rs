@@ -20,7 +20,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use mlua::{Function, Lua, MultiValue, Table, Value};
+use mlua::{Function, Lua, LuaString, MultiValue, Table, Value};
 use runvil_model_client::detail::tool_schema_new;
 use runvil_types::names::is_alias;
 use runvil_types::tools::{ToolId, ToolInfo};
@@ -31,8 +31,10 @@ use crate::bindings::{DiscoveryTool, ToolBinding, ToolSet};
 use crate::error::{self, Result};
 use crate::json::to_json;
 use crate::messages::MessageList;
+use crate::meta_names::MetaNames;
+use crate::order::FirstRefusal;
 use crate::packs::{ADHOC_PACK, install_pack_list, install_pack_objects};
-use crate::proxy::{key_text, view_data};
+use crate::proxy::{key_text, quoted, view_data};
 use crate::scope::{OfferMode, Offers};
 
 mod decode;
@@ -183,33 +185,40 @@ fn install_adhoc(lua: &Lua, tools: &Table, adhoc_tools: &AdhocTools) -> Result<(
 /// and that neither the name nor the id is taken, a discovery tool's wire
 /// name included.
 fn adhoc_info(lua: &Lua, attrs: &Table, adhoc: &AdhocTools) -> mlua::Result<(String, ToolInfo)> {
+    let names = &MetaNames::default();
     // A view is an empty proxy with its data behind `__index`, so the raw
     // walk below and the raw `attr_text` reads would both see nothing and
     // `tools.adhoc(var.tool, f)` would report a missing `name` for a table
     // Lua reads fine.
-    let attrs = view_data(attrs)?;
-    let attrs = &attrs;
-    let mut unknown: Vec<String> = Vec::new();
+    let attrs = &read_table(lua, names, attrs, "the attributes are")?;
+    let mut unknown = FirstRefusal::default();
     for pair in attrs.pairs::<Value, Value>() {
         let (key, _) = pair?;
         let known = matches!(&key, Value::String(text)
             if text == "name" || text == "description" || text == "parameters");
         if !known {
-            unknown.push(key_text(&key));
+            let shown = match &key {
+                Value::String(text) => quoted(&text.as_bytes()),
+                other => key_text(other),
+            };
+            unknown.refuse(&key, shown);
         }
     }
-    unknown.sort();
-    if let Some(key) = unknown.first() {
-        return Err(mlua::Error::external(format!(
+    unknown.into_result().map_err(|key| {
+        mlua::Error::external(format!(
             "tools.adhoc: unknown key {key:?}; accepted keys are name, description, parameters"
-        )));
-    }
+        ))
+    })?;
     let name = attr_text(attrs, "name")?;
-    if !is_alias(&name) {
-        return Err(mlua::Error::external(format!(
-            "tools.adhoc: invalid name {name:?}: expected [A-Za-z][A-Za-z0-9_-]{{0,63}}"
-        )));
-    }
+    let name = match name.to_str() {
+        Ok(text) if is_alias(&text) => text.to_owned(),
+        _ => {
+            return Err(mlua::Error::external(format!(
+                "tools.adhoc: invalid name {:?}: expected [A-Za-z][A-Za-z0-9_-]{{0,63}}",
+                quoted(&name.as_bytes())
+            )));
+        }
+    };
     if DiscoveryTool::ALL
         .iter()
         .any(|tool| tool.wire_name() == name)
@@ -218,7 +227,7 @@ fn adhoc_info(lua: &Lua, attrs: &Table, adhoc: &AdhocTools) -> mlua::Result<(Str
             "tools.adhoc: the name {name:?} is reserved for a discovery tool; pick another name"
         )));
     }
-    let description = attr_text(attrs, "description")?;
+    let description = attr_text(attrs, "description")?.to_string_lossy();
     let id =
         ToolId::parse(&format!("{ADHOC_PACK}/{}", name.to_ascii_lowercase())).map_err(|error| {
             mlua::Error::external(error::make_internal_error(format!(
@@ -242,7 +251,7 @@ fn adhoc_info(lua: &Lua, attrs: &Table, adhoc: &AdhocTools) -> mlua::Result<(Str
     }
     let parameters = match attrs.raw_get::<Value>("parameters")? {
         Value::Nil => json!({ "type": "object", "properties": {}, "required": [] }),
-        Value::Table(parameters) => parameters_schema(lua, &parameters)?,
+        Value::Table(parameters) => parameters_schema(lua, names, &parameters)?,
         other => {
             return Err(mlua::Error::external(format!(
                 "tools.adhoc: parameters must be a table, got {}",
@@ -256,9 +265,9 @@ fn adhoc_info(lua: &Lua, attrs: &Table, adhoc: &AdhocTools) -> mlua::Result<(Str
 }
 
 /// Reads the required string attr `key`.
-fn attr_text(attrs: &Table, key: &str) -> mlua::Result<String> {
+fn attr_text(attrs: &Table, key: &str) -> mlua::Result<LuaString> {
     match attrs.raw_get::<Value>(key)? {
-        Value::String(text) => Ok(text.to_string_lossy()),
+        Value::String(text) => Ok(text),
         Value::Nil => Err(mlua::Error::external(format!(
             "tools.adhoc: {key:?} is required"
         ))),
@@ -277,14 +286,23 @@ fn attr_text(attrs: &Table, key: &str) -> mlua::Result<String> {
 /// proxy whose data sits behind `__index`, so the raw `type` read and the
 /// raw `pairs` walk in the short form would both see nothing, and a schema
 /// that came from `args` or `var` would define a tool with no parameters.
-fn parameters_schema(lua: &Lua, parameters: &Table) -> mlua::Result<Json> {
-    let parameters = view_data(parameters)?;
+fn parameters_schema(lua: &Lua, names: &MetaNames, parameters: &Table) -> mlua::Result<Json> {
+    let parameters = read_table(lua, names, parameters, "parameters are")?;
     match parameters.raw_get::<Value>("type")? {
         Value::String(kind) if kind == "object" => {
             to_json(lua, PARAMETERS_NOT_JSON, false, &Value::Table(parameters))
         }
         _ => adhoc_params_schema(lua, &parameters),
     }
+}
+
+/// The table that `table` stands for, as [`view_data`] reads it, where
+/// the words `what` name `table` in the refusal of a weak table on the
+/// way: a view is a view in one run and its own data in the next when the
+/// collector takes the entries of a table that the read looks into.
+fn read_table(lua: &Lua, names: &MetaNames, table: &Table, what: &str) -> mlua::Result<Table> {
+    view_data(lua, names, table)?
+        .map_err(|weakness| mlua::Error::external(format!("tools.adhoc: {what} {weakness}")))
 }
 
 #[cfg(test)]

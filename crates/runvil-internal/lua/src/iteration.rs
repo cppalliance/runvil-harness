@@ -4,11 +4,12 @@
 //! fresh VMs) can visit the same table differently. [`install_deterministic_iteration`]
 //! replaces the `pairs` and `next` globals with one deterministic walk, in
 //! the order of [`WalkPlace`]: the integer keys from 1 up by value, then
-//! the other keys by the shared [`SortKey`] order (booleans, then numbers,
-//! then strings). A table that holds a key of any other type is refused, as
-//! the end of this text explains. A `__pairs` metamethod on a table's or a
-//! userdata's metatable still wins, as in stock Lua; any other non-table
-//! value, a userdata without `__pairs` included, is refused.
+//! the other keys by the shared [`order::SortKey`] order (booleans, then
+//! numbers, then strings). A table that holds a key of any other type is
+//! refused, as the end of this text explains. A `__pairs` metamethod on a
+//! table's or a userdata's metatable still wins, as in stock Lua; any
+//! other non-table value, a userdata without `__pairs` included, is
+//! refused.
 //!
 //! The place of a key is the key's own. It does not follow `#t`, which for
 //! a table with a gap in its indices is any index before a gap, picked
@@ -55,8 +56,8 @@
 //! writes it, and only a walk is refused.
 //!
 //! A weak table is refused for the same reason: what a walk finds in it
-//! depends on Lua's own order ([`order::is_weak`] tells how). It stays
-//! usable by key too.
+//! depends on Lua's own order ([`is_weak`](crate::weak::is_weak) tells
+//! how). It stays usable by key too.
 
 use std::cmp::Ordering;
 use std::sync::LazyLock;
@@ -64,7 +65,8 @@ use std::sync::LazyLock;
 use mlua::{Function, Lua, MultiValue, Table, Value};
 
 use crate::error::{self, Error, Result};
-use crate::order::{self, FirstRefusal, SortKey};
+use crate::meta_names::MetaNames;
+use crate::order::{self, FirstRefusal, WalkPlace};
 use crate::program::LuaProgram;
 use crate::proxy::view_data;
 
@@ -85,50 +87,22 @@ pub(crate) fn install_deterministic_iteration(lua: &Lua) -> Result<()> {
         .call::<Function>(())
         .map_err(error::make_lua_error)?;
     let globals = lua.globals();
+    let names = MetaNames::default();
     let next_fn = lua
-        .create_function(deterministic_next)
+        .create_function(move |lua, (table, previous): (Table, Value)| {
+            deterministic_next(lua, &names, &table, &previous)
+        })
         .map_err(error::make_lua_error)?;
     globals
         .raw_set("next", &next_fn)
         .map_err(error::make_lua_error)?;
+    let names = MetaNames::default();
     let pairs_fn = lua
-        .create_function(move |lua, value: Value| pairs(lua, &make_iterator, value))
+        .create_function(move |lua, value: Value| pairs(lua, &names, &make_iterator, value))
         .map_err(error::make_lua_error)?;
     globals
         .raw_set("pairs", pairs_fn)
         .map_err(error::make_lua_error)
-}
-
-/// Where a key sits in the walk order: an integer from 1 up comes before
-/// every other key, by its value, and the other keys follow by
-/// [`SortKey`]. So the items of a list precede a boolean key, though
-/// [`SortKey`] ranks a boolean below a number.
-enum WalkPlace {
-    /// An integer key from 1 up.
-    Index(i64),
-    /// Any other key: never an integer from 1 up.
-    Scalar(SortKey),
-}
-
-impl WalkPlace {
-    /// The place of `key`, or the name of its type when the order has no
-    /// place for it.
-    fn of(key: &Value) -> std::result::Result<Self, &'static str> {
-        Ok(match order::position(key)? {
-            SortKey::Integer(index) if index >= 1 => WalkPlace::Index(index),
-            place => WalkPlace::Scalar(place),
-        })
-    }
-
-    /// Orders two places.
-    fn compare(&self, other: &WalkPlace) -> Ordering {
-        match (self, other) {
-            (WalkPlace::Index(left), WalkPlace::Index(right)) => left.cmp(right),
-            (WalkPlace::Index(_), WalkPlace::Scalar(_)) => Ordering::Less,
-            (WalkPlace::Scalar(_), WalkPlace::Index(_)) => Ordering::Greater,
-            (WalkPlace::Scalar(left), WalkPlace::Scalar(right)) => left.compare(right),
-        }
-    }
 }
 
 /// The refusal of a table that holds a key the walk order has no place for,
@@ -140,18 +114,17 @@ fn refused(function: &str, type_name: &str) -> mlua::Error {
     ))
 }
 
-/// Refuses a weak table, in the name of the function the author called:
-/// what a walk finds in one follows Lua's own order, as [`order::is_weak`]
-/// tells. The check is made at each walk, since a table can become weak
-/// after it has its metatable.
-fn refuse_weak(function: &str, data: &Table) -> mlua::Result<()> {
-    if order::is_weak(data)? {
-        return Err(mlua::Error::runtime(format!(
-            "'{function}' does not walk a weak table, one whose metatable sets __mode: the \
-             entries the collector leaves in it are not the same in two runs"
-        )));
-    }
-    Ok(())
+/// The table a walk of `table` reads: the data of a sealed view, and
+/// `table` itself when it is no view. A weak table is refused in the name
+/// of the function the author called, whether it is `table`, a view on the
+/// way to the data, or the data: what a walk finds in one follows Lua's
+/// own order, as [`is_weak`](crate::weak::is_weak) tells. So is a table
+/// whose metatable is weak, which is a view or not as the collector leaves
+/// that metatable. The check is made at each walk, since a table can
+/// become weak after it has its metatable.
+fn walked(lua: &Lua, names: &MetaNames, function: &str, table: &Table) -> mlua::Result<Table> {
+    view_data(lua, names, table)?
+        .map_err(|reason| mlua::Error::runtime(format!("'{function}' does not walk {reason}")))
 }
 
 /// Whether `key` is an index of the list, `1..=listed`.
@@ -177,12 +150,16 @@ fn array_key(index: usize) -> mlua::Result<Value> {
 /// comes after `key`. The key and the value returned are the table's own,
 /// and the read keeps one candidate, so a step holds a fixed number of Lua
 /// references whatever the table's size.
-fn deterministic_next(_: &Lua, (table, previous): (Table, Value)) -> mlua::Result<(Value, Value)> {
-    let data = view_data(&table)?;
-    refuse_weak("next", &data)?;
+fn deterministic_next(
+    lua: &Lua,
+    names: &MetaNames,
+    table: &Table,
+    previous: &Value,
+) -> mlua::Result<(Value, Value)> {
+    let data = walked(lua, names, "next", table)?;
     // The table is refused before the key is, so the key's refusal waits
     // for the read below, which then takes no candidate.
-    let after = match &previous {
+    let after = match previous {
         Value::Nil => Ok(None),
         key => previous_place(key).map(Some),
     };
@@ -226,7 +203,12 @@ fn deterministic_next(_: &Lua, (table, previous): (Table, Value)) -> mlua::Resul
 /// non-table value, and so are a weak table and a table that holds a key
 /// with no place in the walk order. `make_iterator` is the function of the
 /// iterator chunk.
-fn pairs(lua: &Lua, make_iterator: &Function, value: Value) -> mlua::Result<MultiValue> {
+fn pairs(
+    lua: &Lua,
+    names: &MetaNames,
+    make_iterator: &Function,
+    value: Value,
+) -> mlua::Result<MultiValue> {
     let metamethod = match &value {
         Value::Table(table) => match table.metatable() {
             Some(metatable) => metatable.raw_get::<Value>("__pairs")?,
@@ -265,8 +247,7 @@ fn pairs(lua: &Lua, make_iterator: &Function, value: Value) -> mlua::Result<Mult
     // cleared mid-loop reads as nil and is skipped, and no key-based lookup
     // can end the walk early. A key the loop adds is not in the snapshot, so
     // the refusal looks at the table as it was when the walk began.
-    let data = view_data(&table)?;
-    refuse_weak("pairs", &data)?;
+    let data = walked(lua, names, "pairs", &table)?;
     let (order, count) = walk_list(lua, &data)?;
     let iterator = make_iterator.call::<Function>((data, order, count))?;
     let state = table;

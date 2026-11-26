@@ -1,16 +1,19 @@
 //! The shared ordering of a Lua table's hash keys.
 //!
 //! Lua leaves a table's hash traversal order unspecified, so every path that
-//! turns a table into an ordered sequence imposes the same order: booleans
-//! first (`false` before `true`), then numbers by value, then strings
-//! bytewise. [`sort_key`] classifies one Lua key into its [`SortKey`];
-//! [`SortKey::compare`] orders two of them. Fanout's member enumeration, the
-//! deterministic `pairs`/`next` installer, and `json.encode`'s key order
-//! share both, so a table's order is a function of its contents wherever it
-//! is read. [`FirstRefusal`] gives the same order to a check that refuses a
-//! table for one of its entries, and [`sort_list`] to a Lua list of a
-//! table's entries. [`is_weak`] tells a table that no such list is made
-//! of, and [`listed`] counts the items that come before the keys.
+//! turns a table into an ordered sequence imposes an order of its keys:
+//! booleans first (`false` before `true`), then numbers by value, then
+//! strings bytewise. [`sort_key`] classifies one Lua key into its
+//! [`SortKey`]; [`SortKey::compare`] orders two of them, and `json.encode`
+//! visits the keys of a table that way. A walk of a table goes by
+//! [`WalkPlace`], which puts the integer keys from 1 up ahead of the rest:
+//! the deterministic `pairs`/`next` installer and fanout's member
+//! enumeration share it, so a walk of a table is a function of its
+//! contents wherever it is made. [`FirstRefusal`] gives the order of
+//! [`SortKey`] to a check that refuses a table for one of its entries,
+//! and [`sort_list`] puts a Lua list of a table's entries in the order
+//! its caller gives their places. [`listed`] counts the items that come
+//! before the keys.
 
 use std::cmp::Ordering;
 
@@ -177,33 +180,46 @@ pub(crate) fn compare_places(
     }
 }
 
-/// Whether `table` is weak: its metatable has a `__mode` that is a string
-/// with `k` or `v` in it before its first zero byte, which is how Lua reads
-/// the field. Lua reads it each time it collects, so a table can become
-/// weak after it has its metatable.
+/// Where a key sits in the walk order: an integer from 1 up comes before
+/// every other key, by its value, and the other keys follow by
+/// [`SortKey`]. So the items of a list precede a boolean key, though
+/// [`SortKey`] ranks a boolean below a number.
 ///
-/// A walk that keeps no reference to each entry refuses a weak table.
-/// Lua's collector takes an entry out of one once nothing else uses the
-/// entry's key or value, whichever the mode names. Such a walk writes to
-/// Lua's heap as it reads, and the collector can run at each write: it
-/// then takes the entries the walk has not read yet, and keeps the one
-/// Rust holds. Which entries those are follows Lua's own order, which
-/// differs from one VM to the next, so what the walk found would too.
-///
-/// # Errors
-/// Returns the `mlua` error of the metatable read.
-pub(crate) fn is_weak(table: &Table) -> mlua::Result<bool> {
-    let Some(metatable) = table.metatable() else {
-        return Ok(false);
-    };
-    Ok(match metatable.raw_get::<Value>("__mode")? {
-        Value::String(mode) => mode
-            .as_bytes()
-            .iter()
-            .take_while(|byte| **byte != 0)
-            .any(|byte| *byte == b'k' || *byte == b'v'),
-        _ => false,
-    })
+/// `pairs`, `next`, and the members of a `tasks.fanout` collection go in
+/// this order, so one table walks one way. The place is the key's own: it
+/// does not follow where the list of its table ends.
+pub(crate) enum WalkPlace {
+    /// An integer key from 1 up.
+    Index(i64),
+    /// Any other key: never an integer from 1 up.
+    Scalar(SortKey),
+}
+
+impl WalkPlace {
+    /// The place of `key`, or the name of its type when the order has no
+    /// place for it.
+    pub(crate) fn of(key: &Value) -> Result<Self, &'static str> {
+        position(key).map(Self::from)
+    }
+
+    /// Orders two places.
+    pub(crate) fn compare(&self, other: &WalkPlace) -> Ordering {
+        match (self, other) {
+            (WalkPlace::Index(left), WalkPlace::Index(right)) => left.cmp(right),
+            (WalkPlace::Index(_), WalkPlace::Scalar(_)) => Ordering::Less,
+            (WalkPlace::Scalar(_), WalkPlace::Index(_)) => Ordering::Greater,
+            (WalkPlace::Scalar(left), WalkPlace::Scalar(right)) => left.compare(right),
+        }
+    }
+}
+
+impl From<SortKey> for WalkPlace {
+    fn from(place: SortKey) -> Self {
+        match place {
+            SortKey::Integer(index) if index >= 1 => WalkPlace::Index(index),
+            place => WalkPlace::Scalar(place),
+        }
+    }
 }
 
 /// Puts the `places.len()` items of the Lua list `list` after its first
@@ -211,7 +227,7 @@ pub(crate) fn is_weak(table: &Table) -> mlua::Result<bool> {
 /// place of the item at `base + slot + 1`.
 ///
 /// For a walk that must hold no Lua reference to each item, of a table
-/// that [`is_weak`] says is not weak. `mlua` gives
+/// that [`is_weak`](crate::weak::is_weak) says is not weak. `mlua` gives
 /// every Lua value a Rust value holds a slot on one stack, and panics when
 /// that stack cannot grow, which near the VM's memory limit it cannot. So
 /// the walk writes each item to a Lua list as it meets it and keeps only

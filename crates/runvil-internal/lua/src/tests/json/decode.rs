@@ -55,6 +55,40 @@ return v.name, v.escaped, #v.tags, v.tags[2], v.meta.ok, v.meta.deep.x, v.flag"#
 }
 
 #[test]
+fn a_key_that_serde_json_keeps_for_itself_decodes_as_a_name() {
+    let vm = json_vm();
+    let key = "$serde_json::private::RawValue";
+    let object = format!(r#"{{"{key}":"[1,2]"}}"#);
+    for (call, expected) in [
+        (format!("json.decode('{object}')"), object.clone()),
+        (
+            format!("json.decode_lines('{object} {object}')"),
+            format!("[{object},{object}]"),
+        ),
+    ] {
+        assert_eq!(
+            encoded(&vm, &format!("json.encode({call})")),
+            expected,
+            "{call}"
+        );
+    }
+    let deep = "[".repeat(127) + &"]".repeat(127);
+    let text = format!(
+        r#"{}{{"{key}":"{deep}"}}{}"#,
+        "[".repeat(126),
+        "]".repeat(126)
+    );
+    let depth = vm.eval::<i64>(&format!(
+        "local value, depth = json.decode('{text}'), 0\n\
+         while type(value) == 'table' and value[1] ~= nil do\n\
+           value, depth = value[1], depth + 1\n\
+         end\n\
+         return depth"
+    ));
+    assert_eq!(depth, 126, "the text under the key stays a string");
+}
+
+#[test]
 fn every_json_null_decodes_to_json_null() {
     let vm = json_vm();
     let (count, second, field, whole): (i64, bool, bool, bool) = vm.eval(

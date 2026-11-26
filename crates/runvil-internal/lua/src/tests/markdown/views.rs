@@ -116,6 +116,37 @@ fn a_list_whose_data_only_a_function_can_read_is_refused() {
 }
 
 #[test]
+fn a_weak_list_and_a_weak_block_are_refused() {
+    let vm = markdown_vm();
+    vm.exec(
+        "local block = { kind = 'section', title = 'A', source = '# A\\n', blocks = {} }\n\
+         weak_list = setmetatable({ block }, { __mode = 'v' })\n\
+         weak_block = { setmetatable(block, { __mode = 'k' }) }\n\
+         weak_view = setmetatable({}, { __mode = 'v', __metatable = false, __index = {} })",
+    );
+    assert_raises(
+        &vm,
+        &[
+            (
+                "markdown.render(weak_list)",
+                "markdown.render: blocks is a weak table, one whose metatable sets __mode: the \
+                 entries the collector leaves in it are not the same in two runs",
+            ),
+            (
+                "markdown.select(weak_block, '*')",
+                "markdown.select: blocks[1] is a weak table, one whose metatable sets __mode: \
+                 the entries the collector leaves in it are not the same in two runs",
+            ),
+            (
+                "markdown.render(weak_view)",
+                "markdown.render: blocks is a weak table, one whose metatable sets __mode: the \
+                 entries the collector leaves in it are not the same in two runs",
+            ),
+        ],
+    );
+}
+
+#[test]
 fn a_list_that_contains_itself_is_refused() {
     let vm = markdown_vm();
     vm.exec(
@@ -184,6 +215,31 @@ fn a_list_nested_past_the_depth_limit_is_refused() {
                 &format!("markdown.render: {name} is nested more than 127 levels deep"),
             ),
         ],
+    );
+}
+
+#[test]
+fn a_shared_mode_scanned_past_the_budget_is_refused() {
+    // Three blocks share a metatable whose `__mode` of 512 KiB makes none
+    // of them weak. The walk scans it for each: 1.5 MiB against the 1 MiB
+    // of text a 1 MiB heap allows. One block is within it.
+    let vm = TestVm::new()
+        .limits(1024 * 1024, DEFAULT_LUA_LOG_EVENTS)
+        .shims()
+        .build();
+    vm.exec(
+        "local meta = { __mode = string.rep('x', 2^19) }\n\
+         local function prose() return setmetatable({ kind = 'prose', source = 'a\\n' }, meta) end\n\
+         one = { prose() }\n\
+         three = { prose(), prose(), prose() }",
+    );
+    assert_eq!(encoded(&vm, "markdown.render(one)"), "a\n");
+    assert_raises(
+        &vm,
+        &[(
+            "markdown.render(three)",
+            "markdown.render: blocks are too large to walk",
+        )],
     );
 }
 

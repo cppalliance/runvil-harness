@@ -97,6 +97,7 @@ mod chunk_line;
 mod collection;
 mod compactors;
 mod coro;
+mod data;
 mod dispatch;
 mod engine_globals;
 mod engine_globals_store;
@@ -109,10 +110,12 @@ mod json;
 mod library_env;
 mod markdown;
 mod messages;
+mod meta_names;
 mod models;
 mod models_loop;
 mod order;
 mod packs;
+mod plain_json;
 mod prelude;
 mod program;
 mod projection;
@@ -129,6 +132,7 @@ mod tools;
 mod var;
 mod vm;
 mod walk_budget;
+mod weak;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

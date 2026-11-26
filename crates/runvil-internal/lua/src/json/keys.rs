@@ -30,11 +30,23 @@ impl Rule {
     pub(super) fn text(&self) -> String {
         match self {
             Rule::MarkedKey(kind) => format!("is marked as a list but has a {kind} key"),
-            Rule::KeyType(kind) => format!("has a {kind} key; object keys must be strings"),
+            Rule::KeyType(kind) => key_type(kind),
             Rule::Mixed => "mixes list items and named keys".to_owned(),
-            Rule::Missing(item) => format!("is missing list item [{item}]"),
+            Rule::Missing(item) => missing_list_item(*item),
         }
     }
+}
+
+/// What a refusal says of a table with a key of the type `kind`, which
+/// no object has, after the table's path.
+pub(crate) fn key_type(kind: &str) -> String {
+    format!("has a {kind} key; object keys must be strings")
+}
+
+/// What a refusal says of a list that lacks the item `item`, after the
+/// list's path.
+pub(crate) fn missing_list_item(item: i64) -> String {
+    format!("is missing list item [{item}]")
 }
 
 /// The shape a table's sorted `keys` give it, checking the rules in order:

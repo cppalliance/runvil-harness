@@ -1,11 +1,16 @@
 //! The guarded `var` proxy that sandboxed author code reads and writes.
 
+#[cfg(test)]
+use std::cell::Cell;
+use std::sync::Arc;
+
 use mlua::{Lua, LuaSerdeExt, Value};
 use serde_json::Value as Json;
 
 use crate::error::{self, Result, author_refusal, make_lua_runtime_error};
-use crate::json::{DEPTH_LIMIT, to_stored_json, too_deep};
-use crate::proxy::{key_path, view_len};
+use crate::json::{NOT_UTF8, to_stored_json};
+use crate::plain_json::json_of;
+use crate::proxy::{index_step, key_path, key_step, name_step, view_len};
 
 /// The registry key holding the `var` proxy's hidden data table.
 ///
@@ -22,11 +27,18 @@ const VAR_PROXY_REGISTRY: &str = "runvil.var_proxy";
 /// Registry map from every guarded proxy table to its hidden data table.
 const VAR_GUARDED_DATA_REGISTRY: &str = "runvil.var_guarded_data";
 
-/// The path of the root `var` table, whose fields are all named.
-const ROOT_PATH: &str = "var";
+/// The step of the root `var` table, whose fields are all named.
+const ROOT_STEP: &str = "var";
 
 /// 2^63, one past the largest integer a Lua table key holds.
 const ABOVE_INTEGERS: f64 = 9_223_372_036_854_775_808.0;
+
+#[cfg(test)]
+thread_local! {
+    /// How many paths [`Place::path`] wrote on this thread. A write that
+    /// is taken writes none, and a test holds it to that.
+    pub(crate) static PATHS_BUILT: Cell<usize> = const { Cell::new(0) };
+}
 
 /// The integer `key` is as a table key: an integer as it is, and a float
 /// with no fractional part as the integer it equals, which is the key a
@@ -48,7 +60,7 @@ fn whole_key(key: &Value) -> Option<i64> {
     }
 }
 
-/// Why the table at `path`, whose data is `data`, cannot take a write
+/// Why the table at `place`, whose data is `data`, cannot take a write
 /// under `key`, or `None` when it can. `removes` says that the write
 /// assigns nil.
 ///
@@ -59,6 +71,7 @@ fn whole_key(key: &Value) -> Option<i64> {
 /// lose a part of it, long after the write:
 ///
 /// - a key that is neither a string nor an integer
+/// - a string key that is not UTF-8
 /// - a named field in a list, and a list item in a table that holds named
 ///   fields
 /// - an index below 1, or past the next item of the list
@@ -67,7 +80,7 @@ fn whole_key(key: &Value) -> Option<i64> {
 /// A nil under any other key removes what the key holds, or nothing.
 fn write_refusal(
     lua: &Lua,
-    path: &str,
+    place: &Place,
     key: &Value,
     removes: bool,
     data: &mlua::Table,
@@ -76,28 +89,35 @@ fn write_refusal(
     let marked = data
         .metatable()
         .is_some_and(|metatable| metatable == lua.array_metatable());
-    if let Value::String(_) = key {
+    if let Value::String(name) = key {
         let is_list = marked || len > 0;
-        return (is_list && !removes).then(|| {
-            format!(
-                "{} is a named field, and {path} is a list",
-                key_path(path, key)
-            )
+        if removes || (!is_list && name.to_str().is_ok()) {
+            return None;
+        }
+        let path = place.path();
+        let field = key_path(&path, key);
+        return Some(if is_list {
+            format!("{field} is a named field, and {path} is a list")
+        } else {
+            format!("{field} {NOT_UTF8}")
         });
     }
-    let index = whole_key(key).filter(|_| path != ROOT_PATH);
+    let index = whole_key(key).filter(|_| !place.is_root());
     let Some(index) = index else {
-        let allowed = if path == ROOT_PATH {
+        let allowed = if place.is_root() {
             "a string"
         } else {
             "a string or a list index"
         };
-        return (!removes)
-            .then(|| format!("a key of {path} must be {allowed}, got {}", key.type_name()));
+        return (!removes).then(|| {
+            let path = place.path();
+            format!("a key of {path} must be {allowed}, got {}", key.type_name())
+        });
     };
     let len = i64::try_from(len).unwrap_or(i64::MAX);
     if removes {
         return (1..len).contains(&index).then(|| {
+            let path = place.path();
             format!(
                 "{path}[{index}] is not the last item of the list, whose length is {len}; \
                  remove it with table.remove"
@@ -105,38 +125,35 @@ fn write_refusal(
         });
     }
     if index < 1 {
+        let path = place.path();
         return Some(format!(
             "a list index of {path} must be 1 or more, got {index}"
         ));
     }
     if !marked && len == 0 && !data.is_empty() {
+        let path = place.path();
         return Some(format!(
             "{path}[{index}] is a list item, and {path} holds named fields"
         ));
     }
-    (index > len.saturating_add(1))
-        .then(|| format!("{path}[{index}] is past the end of the list, whose length is {len}"))
-}
-/// How many tables deep `value` nests, counting `value` itself as one level
-/// when it is a table. This is the count the JSON encoder makes when it
-/// refuses a table past [`DEPTH_LIMIT`].
-fn json_depth(value: &Json) -> usize {
-    match value {
-        Json::Array(items) => 1 + items.iter().map(json_depth).max().unwrap_or(0),
-        Json::Object(fields) => 1 + fields.values().map(json_depth).max().unwrap_or(0),
-        Json::Null | Json::Bool(_) | Json::Number(_) | Json::String(_) => 0,
-    }
+    (index > len.saturating_add(1)).then(|| {
+        let path = place.path();
+        format!("{path}[{index}] is past the end of the list, whose length is {len}")
+    })
 }
 
+/// `value` as guarded data: a guarded table for a list or an object, at
+/// the place that `place` gives, and any other value as it is. `place`
+/// is asked only for a table, so a value that is no table keeps no place.
 fn guarded_json_value(
     lua: &Lua,
     value: &Json,
-    path: &str,
-    level: usize,
+    place: &dyn Fn() -> Arc<Place>,
     guarded_data: &mlua::Table,
 ) -> mlua::Result<Value> {
     match value {
         Json::Array(values) => {
+            let place = place();
             let data = lua.create_table_with_capacity(values.len(), 0)?;
             data.set_metatable(Some(lua.array_metatable()))?;
             for (index, value) in values.iter().enumerate() {
@@ -145,15 +162,15 @@ fn guarded_json_value(
                     guarded_json_value(
                         lua,
                         value,
-                        &format!("{path}[{}]", index + 1),
-                        level + 1,
+                        &|| place.under(index_step(index + 1)),
                         guarded_data,
                     )?,
                 )?;
             }
-            guarded_table(lua, data, path, level, guarded_data).map(Value::Table)
+            guarded_table(lua, data, place, guarded_data).map(Value::Table)
         }
         Json::Object(values) => {
+            let place = place();
             let data = lua.create_table_with_capacity(0, values.len())?;
             for (key, value) in values {
                 data.raw_set(
@@ -161,23 +178,23 @@ fn guarded_json_value(
                     guarded_json_value(
                         lua,
                         value,
-                        &format!("{path}.{key}"),
-                        level + 1,
+                        &|| place.under(name_step(key.as_bytes())),
                         guarded_data,
                     )?,
                 )?;
             }
-            guarded_table(lua, data, path, level, guarded_data).map(Value::Table)
+            guarded_table(lua, data, place, guarded_data).map(Value::Table)
         }
         _ => lua.to_value(value),
     }
 }
 
+/// The guarded table over `data`, which sits at `place`: an empty proxy
+/// that reads `data` and checks every write to it.
 fn guarded_table(
     lua: &Lua,
     data: mlua::Table,
-    path: &str,
-    level: usize,
+    place: Arc<Place>,
     guarded_data: &mlua::Table,
 ) -> mlua::Result<mlua::Table> {
     let proxy = lua.create_table()?;
@@ -188,13 +205,12 @@ fn guarded_table(
 
     let write_data = data;
     let nested_data = guarded_data.clone();
-    let table_path = path.to_owned();
     let newindex = lua.create_function(
         move |lua, (_proxy, key, value): (Value, Value, Value)| -> mlua::Result<()> {
             // A whole float names the item its integer names.
             let key = whole_key(&key).map_or(key, Value::Integer);
             let removes = value.is_nil();
-            if let Some(refusal) = write_refusal(lua, &table_path, &key, removes, &write_data) {
+            if let Some(refusal) = write_refusal(lua, &place, &key, removes, &write_data) {
                 return Err(author_refusal(refusal));
             }
             // A nil removes the key, where the conversion would store a
@@ -202,20 +218,18 @@ fn guarded_table(
             if removes {
                 return write_data.raw_set(key, value);
             }
-            let target = key_path(&table_path, &key);
             // The conversion reads through each view inside the value,
             // refuses what JSON data cannot hold with the path of the
             // failing part, and spends the budget of the VM, so a value
             // that would outgrow the heap is refused before it converts.
-            let json = to_stored_json(lua, &target, &value)?;
-            // The stored value starts one level below this table, so a
-            // chain grown one write at a time meets the limit here rather
-            // than at a read-back that would recurse past the stack.
-            let deepest = level + json_depth(&json);
-            if deepest > DEPTH_LIMIT {
-                return Err(author_refusal(format!("{target} {}", too_deep())));
-            }
-            let rebuilt = guarded_json_value(lua, &json, &target, level + 1, &nested_data)?;
+            // It counts the levels of the value from the level of this
+            // table, so the whole of `var` nests as deep as JSON text
+            // that reads back, however many writes made it. It asks for
+            // the path of the target only when it refuses the value.
+            let target = || key_path(&place.path(), &key);
+            let json = to_stored_json(lua, &target, place.level + 1, &value)?;
+            let rebuilt =
+                guarded_json_value(lua, &json, &|| place.under(key_step(&key)), &nested_data)?;
             write_data.raw_set(key, rebuilt)
         },
     )?;
@@ -292,7 +306,7 @@ pub(crate) fn guarded_var(lua: &Lua, initial: Option<&Json>) -> Result<mlua::Tab
         None => Json::Object(serde_json::Map::new()),
     };
     let guarded_data = lua.create_table().map_err(error::make_lua_error)?;
-    let Value::Table(proxy) = guarded_json_value(lua, &initial, "var", 1, &guarded_data)
+    let Value::Table(proxy) = guarded_json_value(lua, &initial, &Place::root, &guarded_data)
         .map_err(error::make_lua_error)?
     else {
         return Err(error::make_internal_error(
@@ -332,14 +346,19 @@ pub(crate) fn var_snapshot_table(lua: &Lua) -> Result<mlua::Table> {
     let proxy: mlua::Table = lua
         .named_registry_value(VAR_PROXY_REGISTRY)
         .map_err(error::make_lua_error)?;
-    let current: Value = lua.globals().get("var").map_err(error::make_lua_error)?;
-    match current {
-        Value::Table(ref table) if table.equals(&proxy).map_err(error::make_lua_error)? => {}
-        _ => {
-            return Err(make_lua_runtime_error(
-                "the `var` global was reassigned; write `var.<field>` instead".to_owned(),
-            ));
-        }
+    // A raw read: a `var` that a block took out of the globals is
+    // reassigned, whatever an `__index` of the block's on the globals
+    // would answer for it. The comparison is by identity, as `rawequal`
+    // makes it: a table in its place whose `__eq` calls the two equal is
+    // reassigned too, and that `__eq` does not run.
+    let current = lua
+        .globals()
+        .raw_get::<Value>("var")
+        .map_err(error::make_lua_error)?;
+    if current != Value::Table(proxy) {
+        return Err(make_lua_runtime_error(
+            "the `var` global was reassigned; write `var.<field>` instead".to_owned(),
+        ));
     }
     let data: mlua::Table = lua
         .named_registry_value(VAR_DATA_REGISTRY)
@@ -364,6 +383,57 @@ pub(crate) fn var_snapshot_table(lua: &Lua) -> Result<mlua::Table> {
 /// Fails as [`var_snapshot_table`] does, and with a `LuaRuntime` failure if
 /// the data cannot be represented as JSON.
 pub(crate) fn var_to_json(lua: &Lua) -> Result<Json> {
-    lua.from_value(Value::Table(var_snapshot_table(lua)?))
-        .map_err(error::make_lua_error)
+    json_of(lua, Value::Table(var_snapshot_table(lua)?)).map_err(error::make_lua_error)
+}
+
+/// The place of a guarded table in `var`: the step to it from the table
+/// that holds it, and the place of that table. A table keeps its own
+/// step and shares the places above it, so the places of `var` take
+/// memory with the count of its tables and not with their depth. A Pack
+/// prelude's read-only view of such a table keeps its place the same way.
+pub(crate) struct Place {
+    /// The place of the table that holds this one, `None` for the root.
+    above: Option<Arc<Place>>,
+    /// The step to the table: `var` for the root, and `.name` or `[index]`.
+    step: String,
+    /// The level of the table in the JSON form of `var`: 1 for the root,
+    /// and 2 for a table that the root holds.
+    level: usize,
+}
+
+impl Place {
+    /// The place of the root `var` table.
+    pub(crate) fn root() -> Arc<Self> {
+        Arc::new(Self {
+            above: None,
+            step: ROOT_STEP.to_owned(),
+            level: 1,
+        })
+    }
+
+    /// The place of the table that `step` leads to from this one.
+    pub(crate) fn under(self: &Arc<Self>, step: String) -> Arc<Self> {
+        Arc::new(Self {
+            above: Some(Arc::clone(self)),
+            step,
+            level: self.level + 1,
+        })
+    }
+
+    /// The path of the table as a refusal shows it, from `var` down.
+    pub(crate) fn path(&self) -> String {
+        #[cfg(test)]
+        PATHS_BUILT.with(|built| built.set(built.get() + 1));
+        let mut steps = Vec::with_capacity(self.level);
+        let mut place = Some(self);
+        while let Some(current) = place {
+            steps.push(current.step.as_str());
+            place = current.above.as_deref();
+        }
+        steps.into_iter().rev().collect::<String>()
+    }
+
+    fn is_root(&self) -> bool {
+        self.above.is_none()
+    }
 }

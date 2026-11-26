@@ -1,10 +1,10 @@
 //! The tool request parsers: a `tools.call`, the loop's batched
 //! `tool_calls`, and an adhoc tool's `adhoc_tool_done`.
 
-use mlua::{Lua, LuaSerdeExt, MultiValue, Value};
+use mlua::{Lua, MultiValue, Value};
 
+use crate::data::data_of;
 use crate::protocol::{AdhocToolOutcome, ModelCall, Request, ToolCallRecord};
-use crate::proxy::plain;
 use crate::section::scalar_return;
 use crate::tools::{model_tool_name, tool_id};
 
@@ -73,16 +73,14 @@ fn read_tool_call(
     };
     let args = match table.raw_get::<Value>("args") {
         Ok(Value::Nil) => serde_json::Value::Object(serde_json::Map::new()),
-        Ok(value @ Value::Table(_)) => {
-            match plain(lua, value).and_then(|value| lua.from_value(value)) {
-                Ok(args) => args,
-                Err(error) => {
-                    return Err(call_error(format!(
-                        "args must be a JSON-representable table: {error}"
-                    )));
-                }
+        Ok(value @ Value::Table(_)) => match data_of(lua, value) {
+            Ok(args) => args,
+            Err(error) => {
+                return Err(call_error(format!(
+                    "args must be a JSON-representable table: {error}"
+                )));
             }
-        }
+        },
         Ok(other) => {
             return Err(call_error(format!(
                 "args must be a table, got {}",

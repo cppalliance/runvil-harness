@@ -20,16 +20,21 @@ const HOOK_INTERVAL: u32 = 10_000;
 /// `getmetatable` replacements ([`crate::globals`]), then the `pairs` and
 /// `next` that walk in a fixed order ([`crate::iteration`]).
 ///
-/// Last replaces the standard-library functions whose result no run input
+/// Then replaces the standard-library functions whose result no run input
 /// fixes, and wraps `table.concat` ([`crate::stdlib`]), so every chunk the
-/// VM loads later captures the replacements.
+/// VM loads later captures the replacements. The first of them is the
+/// chunk of the error metatable ([`crate::error_value`]), which is built
+/// here, last, and not at the VM's first failure, when a block can have
+/// put a function of its own in place of a global.
 pub(crate) fn harden(lua: &Lua) -> Result<()> {
     // The guard captures the raw functions removed below, and every later
     // chunk, the standard-library replacements included, must capture the
     // guard's replacements rather than the base functions.
     crate::globals::install(lua)?;
-    // The iterator of `pairs` captures `rawget`, which is removed below.
+    // The iterator of `pairs` captures `rawget`, which is removed below,
+    // and so does the chunk of the replacements.
     crate::iteration::install_deterministic_iteration(lua)?;
+    crate::stdlib::install(lua)?;
     let globals = lua.globals();
     for name in [
         "load",
@@ -51,7 +56,7 @@ pub(crate) fn harden(lua: &Lua) -> Result<()> {
             .set(name, Value::Nil)
             .map_err(error::make_lua_error)?;
     }
-    crate::stdlib::install(lua)
+    crate::error_value::install_metatable(lua).map_err(error::make_lua_error)
 }
 
 /// A VM's shared cancellation-hook state.

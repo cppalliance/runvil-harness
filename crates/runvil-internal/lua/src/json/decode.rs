@@ -4,12 +4,12 @@
 //! Lua memory limit, then convert it with mlua's `to_value` under its
 //! default options, which mark every list and turn every null into
 //! `json.null`. A memory-limit failure while converting passes through
-//! unchanged.
+//! unchanged. Every key of an object is a name, whatever its text.
 
 use mlua::{BorrowedBytes, Lua, LuaSerdeExt, Value};
-use serde_json::Value as Json;
 
 use crate::error::author_refusal;
+use crate::plain_json::{json_of_each_text, json_of_text};
 
 /// The most bytes of text a function that parses on the Rust heap takes,
 /// because that parse runs outside the Lua memory limit.
@@ -18,8 +18,8 @@ const INPUT_LIMIT: usize = 8_388_608;
 /// `json.decode(text)`: the one JSON document `text` holds, as Lua values.
 pub(super) fn decode(lua: &Lua, text: Value) -> mlua::Result<Value> {
     let bytes = text_input(text, "json.decode")?;
-    let document: Json = serde_json::from_slice(&bytes)
-        .map_err(|error| author_refusal(format!("json.decode: {error}")))?;
+    let document =
+        json_of_text(&bytes).map_err(|error| author_refusal(format!("json.decode: {error}")))?;
     lua.to_value(&document)
 }
 
@@ -29,9 +29,7 @@ pub(super) fn decode(lua: &Lua, text: Value) -> mlua::Result<Value> {
 /// across the whole text.
 pub(super) fn decode_lines(lua: &Lua, text: Value) -> mlua::Result<Value> {
     let bytes = text_input(text, "json.decode_lines")?;
-    let values = serde_json::Deserializer::from_slice(&bytes)
-        .into_iter::<Json>()
-        .collect::<Result<Vec<Json>, _>>()
+    let values = json_of_each_text(&bytes)
         .map_err(|error| author_refusal(format!("json.decode_lines: {error}")))?;
     lua.to_value(&values)
 }

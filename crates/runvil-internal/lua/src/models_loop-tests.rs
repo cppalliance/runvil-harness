@@ -22,6 +22,7 @@ use crate::models::LuaModelHandle;
 use crate::protocol::{AdhocToolOutcome, Answer, ChatOutcome, ChatResult, Request, YieldParse};
 use crate::test_support::answer_envelope;
 use crate::tests::refused;
+use crate::weak::WEAK_TABLE;
 
 /// A requested call named `echo`, its arguments naming its id.
 pub(super) fn echo_call(id: &str) -> ToolCallEvent {
@@ -228,6 +229,69 @@ fn a_running_loop_refuses_another_until_its_step_ends_or_fails() {
              capped raise=false,restarted=true,false=false"
         )
     );
+}
+
+#[test]
+fn a_loop_refuses_a_read_of_its_own_that_looks_into_a_weak_table() {
+    let lua = Lua::new();
+    install_section_list(&lua);
+    let running = Arc::new(AtomicBool::new(false));
+    let compactors = lua.create_table().unwrap();
+    let begin = loop_begin(
+        &lua,
+        2,
+        compactors.clone(),
+        &running,
+        &CancelHook::default(),
+    )
+    .unwrap();
+    let outcomes: Vec<String> = lua
+        .load(
+            "local begin, compactors = ...
+             local function probe(...)
+               local step, tag, value = begin(...)
+               if step then step(false, 'ended') end
+               return type(step) .. '|' .. tag .. '|' .. tostring(value.op or value)
+             end
+             local function weak(fields) return setmetatable(fields, { __mode = 'v' }) end
+             local seen = {}
+             setmetatable(compactors, { __index = weak({ fail = function() end }) })
+             seen[1] = probe()
+             seen[2] = probe(function() end)
+             setmetatable(compactors, { __index = { fail = function() end } })
+             seen[3] = probe()
+             setmetatable(compactors, nil)
+             sys = setmetatable({}, { __index = weak({ taskid = '4' }) })
+             seen[4] = probe(function() end)
+             sys = { taskid = '4' }
+             seen[5] = probe(function() end)
+             setmetatable(compactors, { __mode = 'v' })
+             seen[6] = probe()
+             return seen",
+        )
+        .call((begin, compactors))
+        .unwrap();
+    let behind = format!("a table whose __index leads to {WEAK_TABLE}");
+    let raise = |read: &str, table: &str, weakness: &str| {
+        let message = format!("models.loop reads {read}, and {table} must not be {weakness}");
+        format!("nil|raise|{}", refused(&message))
+    };
+    let started = "function|yield|chat".to_owned();
+    assert_eq!(
+        outcomes,
+        [
+            // No compactor: the loop reads `compactors.fail`.
+            raise("compactors.fail", "compactors", &behind),
+            // A compactor of the author: the loop does not read it.
+            started.clone(),
+            started.clone(),
+            raise("sys.taskid", "sys", &behind),
+            started,
+            // The table itself is weak.
+            raise("compactors.fail", "compactors", WEAK_TABLE),
+        ]
+    );
+    assert!(!running.load(Ordering::Relaxed));
 }
 
 /// Raises the heap limit from the live heap until the overflow's step

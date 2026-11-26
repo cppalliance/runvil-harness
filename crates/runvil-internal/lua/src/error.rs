@@ -18,7 +18,7 @@ use runvil_types::ids::TaskId;
 
 pub(crate) use runvil_types::error::Error;
 
-use crate::chunk_line::{STRING_CHUNK_OPENING, prompt_line};
+use crate::chunk_line::{STRING_CHUNK_OPENING, prompt_line, without_engine_position};
 
 /// An Engine quota on Lua that a block can exhaust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,19 +228,19 @@ pub(crate) fn root_cause(error: &mlua::Error) -> &mlua::Error {
     }
 }
 
-/// The text `mlua` renders `error` as, with [`without_address`] applied.
-/// Every text of an `mlua` failure that leaves this crate comes from here
-/// or from [`root_text`].
+/// The text `mlua` renders `error` as, with [`raised_text`] applied to
+/// what follows the label `mlua` leads it with. Every text of an `mlua`
+/// failure that leaves this crate comes from here or from [`root_text`].
 pub(crate) fn lua_text(error: &mlua::Error) -> String {
-    without_address(&error.to_string()).into_owned()
+    rendered(error, cfg!(windows))
 }
 
 /// The text of the failure at the root of `error`, without `mlua`'s label
 /// for its kind: what Lua raised, or the message of the universal failure
-/// a callback raised. [`without_address`] applies to what Lua raised.
+/// a callback raised. [`raised_text`] applies to what Lua raised.
 pub(crate) fn root_text(error: &mlua::Error) -> String {
     match root_cause(error) {
-        mlua::Error::RuntimeError(message) => without_address(message).into_owned(),
+        mlua::Error::RuntimeError(message) => raised_text(message).into_owned(),
         mlua::Error::SyntaxError { message, .. } => message.clone(),
         other => other
             .downcast_ref::<Error>()
@@ -248,8 +248,19 @@ pub(crate) fn root_text(error: &mlua::Error) -> String {
     }
 }
 
-/// `text`, a failure as Lua or `mlua` rendered it, with the address of a
-/// raised value taken out.
+/// `text`, a failure as Lua raised it, as it leaves this crate: without
+/// the position of a chunk of the Engine's own in front of it, and then
+/// as [`without_address`] gives it. The text has no label of `mlua` in
+/// front.
+pub(crate) fn raised_text(text: &str) -> Cow<'_, str> {
+    without_address(without_engine_position(text))
+}
+
+/// `text`, a failure as Lua rendered it, with the address of a raised
+/// value taken out. The text has no label of `mlua` in front: the start of
+/// `text` is the start of what Lua raised, so a `__name` that reads
+/// `runtime error: Thing` is a name with a `: ` in it. [`lua_text`] is the
+/// one for a text that `mlua` rendered.
 ///
 /// When Rust runs the author's Lua (a `__pairs` or `__len` metamethod, a
 /// callback) and that Lua raises a value that is not a string, `mlua` turns
@@ -278,7 +289,7 @@ pub(crate) fn root_text(error: &mlua::Error) -> String {
 /// `bad byte: (address)`. On Windows both stay, and a string that ends in
 /// the shape [`is_address`] takes there changes the same way. A number
 /// with more hex digits than a pointer has is no address and stays.
-pub(crate) fn without_address(text: &str) -> Cow<'_, str> {
+fn without_address(text: &str) -> Cow<'_, str> {
     reworded(text, cfg!(windows)).map_or(Cow::Borrowed(text), Cow::Owned)
 }
 
@@ -390,6 +401,37 @@ pub(crate) const TRACEBACK_HEADING: &str = "\nstack traceback:";
 /// The label `mlua` puts in front of the text of a failure Lua raised.
 const RUNTIME_LABEL: &str = "runtime error: ";
 
+/// The text `mlua` renders `error` as, with each address [`reworded`]
+/// finds taken out, in the shape `msvc` selects. Where `mlua` leads the
+/// text with [`RUNTIME_LABEL`], the label stays and the rule reads what
+/// follows it, which is what Lua raised: the position of a chunk of the
+/// Engine's own in front of that goes first.
+fn rendered(error: &mlua::Error, msvc: bool) -> String {
+    let text = error.to_string();
+    let (label, raised) = match text.strip_prefix(RUNTIME_LABEL) {
+        Some(raised) if leads_with_label(error) => (RUNTIME_LABEL, raised),
+        _ => return reworded(&text, msvc).unwrap_or(text),
+    };
+    let raised = without_engine_position(raised);
+    match reworded(raised, msvc) {
+        Some(reworded) => format!("{label}{reworded}"),
+        None => format!("{label}{raised}"),
+    }
+}
+
+/// Whether the text `mlua` renders `error` as starts with the
+/// [`RUNTIME_LABEL`] that `mlua` wrote: `error` is a failure Lua raised, or
+/// a callback's failure whose cause is one, which `mlua` renders as the
+/// cause and then the traceback. The same words at the start of any other
+/// text are the author's.
+fn leads_with_label(error: &mlua::Error) -> bool {
+    match error {
+        mlua::Error::RuntimeError(_) => true,
+        mlua::Error::CallbackError { cause, .. } => leads_with_label(cause),
+        _ => false,
+    }
+}
+
 /// What [`without_address`] puts in the place of an address whose value
 /// it cannot name.
 const ADDRESS_STAND_IN: &str = "(address)";
@@ -415,14 +457,10 @@ fn reworded(text: &str, msvc: bool) -> Option<String> {
         {
             Some((front, _)) => {
                 changed = true;
-                let (label, name) = front
-                    .strip_prefix(RUNTIME_LABEL)
-                    .map_or(("", front), |name| (RUNTIME_LABEL, name));
-                let plain = !name.is_empty() && !name.contains(": ") && !name.contains('\n');
+                let plain = !front.is_empty() && !front.contains(": ") && !front.contains('\n');
                 if start == 0 && plain {
-                    out.push_str(label);
                     out.push_str("error object is a ");
-                    out.push_str(name);
+                    out.push_str(front);
                     out.push_str(" value");
                 } else {
                     out.push_str(front);

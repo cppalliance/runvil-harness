@@ -5,23 +5,29 @@
 //! is any Lua table, and the shim spawns one arm per member in a fixed
 //! order. The list comes first, in order: the indices from 1 up to the
 //! first that holds nothing, which [`listed`] counts. Every other entry
-//! follows as a `{ key, value }` pair table, sorted by key, because Lua's
-//! `pairs` order depends on the string hash seed and a fanout's arm order
-//! must not. A member of the list arrives as the arm's `item` value as
-//! itself; a keyed member arrives as the pair table (`item.key` /
-//! `item.value`), and so does an index past a gap. A collection that is a
-//! sealed view enumerates as the table it stands for.
+//! follows as a `{ key, value }` pair table, in the order of [`WalkPlace`],
+//! because the order of Lua's own walk depends on the string hash seed and
+//! a fanout's arm order must not. That is the order the Engine's `pairs`
+//! visits the keys in, so the arms of a collection come as a `pairs` loop
+//! over it meets its keys. A member of the list arrives as the arm's
+//! `item` value as itself; a keyed member arrives as the pair table
+//! (`item.key` / `item.value`), and so does an index past a gap, which
+//! comes before every key that is no integer from 1 up. A collection that
+//! is a sealed view enumerates as the table it stands for.
 
-use mlua::{Lua, LuaSerdeExt, Table, Value};
+use mlua::{Lua, Table, Value};
 
+use crate::data::data_of;
 use crate::error::{self, Result, make_lua_runtime_error};
-use crate::order::{FirstRefusal, KeyError, SortKey, is_weak, listed, sort_key, sort_list};
-use crate::proxy::{plain, view_data};
+use crate::meta_names::MetaNames;
+use crate::order::{FirstRefusal, KeyError, WalkPlace, listed, sort_key, sort_list};
+use crate::proxy::view_data;
 
 /// Enumerates fanout's collection argument as the sequence of members the
 /// shim spawns arms over: the list in order, then every other entry as a
-/// `{ key = k, value = v }` pair table, sorted by key. Members stay
-/// Lua values; the `spawn` request converts each one at its own boundary.
+/// `{ key = k, value = v }` pair table, in the order of [`WalkPlace`].
+/// Members stay Lua values; the `spawn` request converts each one at its
+/// own boundary.
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure when the value is not a table (the message says
@@ -39,16 +45,15 @@ pub(crate) fn collection_members(lua: &Lua, collection: &Value) -> Result<Table>
             collection.type_name()
         )));
     };
-    let table = &view_data(table).map_err(error::make_lua_error)?;
     // The members go to a Lua list as they are read, so the collector can
     // run in the middle of the read and take a weak table's unread ones.
-    if is_weak(table).map_err(error::make_lua_error)? {
-        return Err(make_lua_runtime_error(
-            "tasks.fanout's collection is a weak table, one whose metatable sets __mode: the \
-             entries the collector leaves in it are not the same in two runs"
-                .to_owned(),
-        ));
-    }
+    // A weak view on the way to the members is refused as well, and so is
+    // a table whose metatable is weak.
+    let table = &view_data(lua, &MetaNames::default(), table)
+        .map_err(error::make_lua_error)?
+        .map_err(|reason| {
+            make_lua_runtime_error(format!("tasks.fanout's collection is {reason}"))
+        })?;
     let border = listed(table).map_err(error::make_lua_error)?;
     let members = lua
         .create_table_with_capacity(border, 0)
@@ -94,17 +99,17 @@ pub(crate) fn collection_members(lua: &Lua, collection: &Value) -> Result<Table>
         }
     }
     refused.into_result()?;
-    sort_list(&members, border, &places, SortKey::compare).map_err(error::make_lua_error)?;
+    sort_list(&members, border, &places, WalkPlace::compare).map_err(error::make_lua_error)?;
     Ok(members)
 }
 
-/// The sort position of `key` in the hash part of a collection, when the
+/// The place of `key` among the keyed members of a collection, when the
 /// key and its `member` can be an arm's item.
 ///
 /// The shared classifier yields each scalar key's sort position and its
 /// diagnostic label; the failure is mapped to fanout's own message here, so
 /// a non-scalar key is rejected before any later code path.
-fn keyed_member(key: &Value, member: &Value) -> Result<SortKey> {
+fn keyed_member(key: &Value, member: &Value) -> Result<WalkPlace> {
     let (position, key_label) = sort_key(key).map_err(|error| match error {
         KeyError::NotFinite => {
             make_lua_runtime_error("fanout collection key is not a finite number".to_owned())
@@ -115,7 +120,7 @@ fn keyed_member(key: &Value, member: &Value) -> Result<SortKey> {
         )),
     })?;
     check_member(member, &key_label)?;
-    Ok(position)
+    Ok(WalkPlace::from(position))
 }
 
 /// Rejects a member that cannot cross into an arm.
@@ -158,17 +163,18 @@ pub fn render_item(item: &serde_json::Value) -> String {
 /// # Errors
 /// Returns a `LuaRuntime` failure when the value has no JSON form.
 pub(crate) fn render_item_value(lua: &Lua, item: Value) -> Result<String> {
-    let json: serde_json::Value = plain(lua, item)
-        .and_then(|item| lua.from_value(item))
-        .map_err(error::make_lua_error)?;
+    let json = data_of(lua, item).map_err(error::make_lua_error)?;
     Ok(render_item(&json))
 }
 
 #[cfg(test)]
 mod tests {
+    use mlua::LuaSerdeExt;
     use serde_json::json;
 
     use super::*;
+    use crate::iteration::install_deterministic_iteration;
+    use crate::walk_budget::HeapCeiling;
 
     fn eval(lua: &mlua::Lua, source: &str) -> Value {
         lua.load(source).eval::<Value>().expect("chunk evaluates")
@@ -236,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn collection_members_orders_mixed_keys_booleans_then_numbers_then_strings() {
+    fn collection_members_orders_mixed_keys_indices_then_booleans_numbers_and_strings() {
         let lua = mlua::Lua::new();
         let items = members_json(
             &lua,
@@ -245,10 +251,10 @@ mod tests {
         assert_eq!(
             items,
             vec![
+                json!({"key": 7, "value": "seven"}),
                 json!({"key": false, "value": "f"}),
                 json!({"key": true, "value": "t"}),
                 json!({"key": 2.5, "value": "half"}),
-                json!({"key": 7, "value": "seven"}),
                 json!({"key": "a", "value": "ay"}),
                 json!({"key": "b", "value": "bee"}),
             ]
@@ -259,24 +265,30 @@ mod tests {
     fn collection_members_orders_large_integer_keys_exactly() {
         // 2^53 and 2^53 + 1 round to the same f64: a float-converting sort
         // would tie them and leave their order to `pairs`. Integer keys
-        // compare as integers, and a float key sorts against them exactly:
-        // one beyond i64's range lands past every integer, one inside it
-        // between its integer neighbors.
+        // compare as integers. The integers from 1 up come first, and a
+        // float key sorts exactly against the integers below 1: one beyond
+        // i64's range lands past every one of them, one inside it between
+        // its integer neighbors.
         let lua = mlua::Lua::new();
         let items = members_json(
             &lua,
             "return {[9007199254740993]='b', [9007199254740992]='a', [1e300]='big', \
-             [-1e300]='small', [2.5]='half', [2]='two', [3]='three'}",
+             [-1e300]='small', [2.5]='half', [2]='two', [3]='three', [-2]='low', \
+             [-1.5]='between', [-1]='near', [0]='zero'}",
         );
         assert_eq!(
             items,
             vec![
-                json!({"key": -1e300, "value": "small"}),
                 json!({"key": 2, "value": "two"}),
-                json!({"key": 2.5, "value": "half"}),
                 json!({"key": 3, "value": "three"}),
                 json!({"key": 9_007_199_254_740_992_i64, "value": "a"}),
                 json!({"key": 9_007_199_254_740_993_i64, "value": "b"}),
+                json!({"key": -1e300, "value": "small"}),
+                json!({"key": -2, "value": "low"}),
+                json!({"key": -1.5, "value": "between"}),
+                json!({"key": -1, "value": "near"}),
+                json!({"key": 0, "value": "zero"}),
+                json!({"key": 2.5, "value": "half"}),
                 json!({"key": 1e300, "value": "big"}),
             ]
         );
@@ -394,11 +406,47 @@ mod tests {
                     json!("a"),
                     json!("b"),
                     json!("c"),
-                    json!({ "key": false, "value": "f" }),
                     json!({ "key": 5, "value": "e" }),
+                    json!({ "key": false, "value": "f" }),
                 ],
                 "state {state}"
             );
+        }
+    }
+
+    #[test]
+    fn collection_members_come_in_the_order_pairs_visits_their_keys() {
+        // The Engine's `pairs` is the other walk of a table an author
+        // has, so it says what the order of the members is: a member of
+        // the list stands for its index, and a pair for its key.
+        let lua = mlua::Lua::new();
+        install_deterministic_iteration(&lua).expect("the walk installs");
+        for collection in [
+            "{ [1] = 'a', [2] = 'b', [3] = 'c', [5] = 'e', [false] = 'f' }",
+            "{ [true] = 't', [7] = 'seven', b = 'bee', [false] = 'f', [2.5] = 'half', a = 'ay' }",
+            "{ 'a', nil, 'c', [0] = 'z', [-1] = 'm', [1.5] = 'h', x = 'x' }",
+            "{ [10] = 'x', [20] = 'y', [15.5] = 'h', [false] = 'f', [-3] = 'n' }",
+        ] {
+            let walked = eval(
+                &lua,
+                &format!(
+                    "local keys = {{}} \
+                     for key in pairs({collection}) do keys[#keys + 1] = key end \
+                     return keys"
+                ),
+            );
+            let walked = lua
+                .from_value::<Vec<serde_json::Value>>(walked)
+                .expect("the keys are JSON data");
+            let members = members_json(&lua, &format!("return {collection}"))
+                .into_iter()
+                .zip(1..)
+                .map(|(member, index)| match member {
+                    serde_json::Value::Object(pair) => pair["key"].clone(),
+                    _ => json!(index),
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(members, walked, "{collection}");
         }
     }
 
@@ -424,6 +472,38 @@ mod tests {
                 "{mode}"
             );
         }
+        // An empty weak table in the shape of a view of a list is refused
+        // too, and not read as that list.
+        let view = eval(
+            &lua,
+            "return setmetatable({}, { __mode = 'v', __metatable = false, __index = { 'a' } })",
+        );
+        assert_eq!(
+            collection_members(&lua, &view)
+                .expect_err("a weak view is refused")
+                .to_string(),
+            "tasks.fanout's collection is a weak table, one whose metatable sets __mode: the \
+             entries the collector leaves in it are not the same in two runs"
+        );
+        // Five views that share one `__mode` of 1 MiB, which makes none of
+        // them weak: one more scan than a heap of 4 MiB allows.
+        lua.set_app_data(HeapCeiling(4 * 1024 * 1024));
+        let chain = eval(
+            &lua,
+            "local mode = string.rep('x', 2^20) \
+             local t = { 'a' } \
+             for _ = 1, 5 do \
+               t = setmetatable({}, { __index = t, __metatable = false, __mode = mode }) \
+             end \
+             return t",
+        );
+        assert_eq!(
+            collection_members(&lua, &chain)
+                .expect_err("a chain past the budget is refused")
+                .to_string(),
+            "tasks.fanout's collection is a table with 5242880 bytes of __mode to scan: one call \
+             scans at most 4194304 bytes"
+        );
     }
 
     #[test]
@@ -534,6 +614,13 @@ mod tests {
         assert_eq!(
             render_item_value(&lua, view).expect("a view renders as its data"),
             "{\"key\":\"alpha\",\"value\":1}"
+        );
+        let gap = eval(&lua, "return { [1] = 'a', [3] = 'c' }");
+        assert_eq!(
+            render_item_value(&lua, gap)
+                .expect_err("a list with a gap has no JSON form")
+                .message,
+            "deserialize error: value is missing list item [2]"
         );
     }
 }

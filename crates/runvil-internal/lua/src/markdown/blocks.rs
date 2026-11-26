@@ -80,7 +80,7 @@ pub(crate) fn block_table(lua: &Lua, block: &Block) -> mlua::Result<Table> {
 /// # Errors
 /// Returns the refusal of a list or a block that cannot be read, and of a
 /// `source` that is not a string of valid UTF-8.
-pub(super) fn write(walk: &mut Walk, value: &Value, writer: &mut Writer) -> mlua::Result<()> {
+pub(super) fn write(walk: &mut Walk<'_>, value: &Value, writer: &mut Writer) -> mlua::Result<()> {
     let list = walk.open(value)?;
     walk.each(&list, &mut |walk, entry| {
         let source = walk.text(&entry.field("source")?, "source")?;

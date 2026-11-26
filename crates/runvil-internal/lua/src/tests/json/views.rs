@@ -51,16 +51,13 @@ fn args_encodes_its_nested_nulls() {
 }
 
 #[test]
-fn a_var_value_127_levels_deep_encodes_because_views_add_no_level() {
-    let mut deep = json!(1);
-    for _ in 0..127 {
-        deep = json!([deep]);
-    }
-    let seed = json!({ "deep": deep });
-    let vm = TestVm::new().var(&seed).shims().build();
+fn var_at_its_127_levels_encodes_because_views_add_no_level() {
+    // `var` itself is the first level, and each table in it is a view.
+    let vm = TestVm::new().shims().build();
+    vm.eval::<()>("local deep = 1 for _ = 1, 126 do deep = { deep } end var.deep = deep");
     assert_eq!(
-        encoded(&vm, "json.encode(var.deep)"),
-        format!("{}1{}", "[".repeat(127), "]".repeat(127))
+        encoded(&vm, "json.encode(var)"),
+        format!(r#"{{"deep":{}1{}}}"#, "[".repeat(126), "]".repeat(126))
     );
 }
 
