@@ -3,9 +3,10 @@
 //! The Engine is a pure state machine, so it polls a flag between chain
 //! steps and from the Lua instruction hook rather than awaiting a
 //! cancellation; the caller sets that flag from whichever thread it likes.
-//! [`CancelHandle`] is that flag, arranged as a tree so a run-level cancel
-//! reaches every task while one task can be canceled without touching its
-//! siblings or its owner.
+//! [`CancelHandle`] is that flag, arranged as a tree so a caller that runs
+//! several runs can give each one a child of a shared parent, and cancel
+//! them together or one at a time. Every task of a run shares the run's
+//! handle; `tasks.cancel` stops a single task.
 //!
 //! This is the handle the Engine's `RunParams` holds. A caller that must
 //! wait on the flag itself awaits [`CancelHandle::canceled`], a std-only
@@ -50,8 +51,8 @@ static NEXT_WAITER: AtomicU64 = AtomicU64::new(0);
 ///   wakers it fires, and a waiter removes its own when it is dropped.
 ///
 /// Reading walks the ancestor chain, one atomic load per level. The chain is
-/// as deep as the run's task nesting, which the Engine caps, so a check from
-/// the Engine's Lua instruction hook stays a handful of loads.
+/// as deep as the caller built it with [`CancelHandle::child`], so a check
+/// from the Engine's Lua instruction hook stays a handful of loads.
 #[derive(Clone, Default)]
 pub struct CancelHandle {
     inner: Arc<Node>,
@@ -181,8 +182,9 @@ impl CancelHandle {
     /// any ancestor is canceled. A cancel on the child reaches only the
     /// child and its descendants.
     ///
-    /// The usual pattern gives a run the root handle and each task a child
-    /// from `root.child()`, so canceling the run cancels every task.
+    /// The usual pattern gives each of several runs a child of one parent
+    /// handle, so canceling the parent stops them all. Every task of a run
+    /// shares that run's handle; `tasks.cancel` stops a single task.
     #[must_use]
     pub fn child(&self) -> CancelHandle {
         CancelHandle {

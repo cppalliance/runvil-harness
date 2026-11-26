@@ -56,10 +56,10 @@ const NONCE_DOMAIN: &[u8] = b"runvil.guard-nonce.v1";
 ///
 /// Constructed by [`GuardNonce::from_seed`], which derives the value from
 /// the run's seed, so a run given the same seed wraps identically; the
-/// Engine itself reads no RNG. The wrapped hex string is a private field so no
-/// caller can substitute an arbitrary, low-entropy, or reused nonce: one
-/// value is minted at run start and shared by every [`GuardNonce::wrap`]
-/// in the run.
+/// Engine itself reads no RNG. The wrapped hex string is a private field,
+/// so the nonce is always the digest of a seed, and its unpredictability
+/// and reuse follow the seed: one value is minted at run start and shared
+/// by every [`GuardNonce::wrap`] in the run.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct GuardNonce(String);
 

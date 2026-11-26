@@ -88,12 +88,13 @@ impl Error {
     /// Returns the self-contained text of the failure: the message, with
     /// its causes, then where the failure happened.
     ///
-    /// A structure, fence, or list failure, the parser's own, ends with its
+    /// A structure or fence failure, the parser's own, ends with its
     /// prompt name, line, and column, each when known, as
     /// `(prompt {name}, line {line}, column {column})`. A frontmatter failure
     /// ends with its line and column alone, each when known, as
     /// `(line {line}, column {column})`: it predates the prompt's name, and
-    /// its `Name` fact, when it has one, is a refused Pack's id. Any other
+    /// its `Name` fact, when it has one, is the refused Pack id or the
+    /// repeated `prompts:` entry. Any other
     /// failure with a location ends with it as `(at {file}:{line})`: its
     /// prompt file and line, or for an internal fault the Rust source file
     /// and line of the broken invariant.

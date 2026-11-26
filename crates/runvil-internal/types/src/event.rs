@@ -1,12 +1,14 @@
 //! The Engine's event vocabulary: everything a run reports, as values.
 //!
 //! An [`Event`] is one thing that happened during a run, returned to the
-//! caller from `Run::step` beside the effects the run wants performed. It is
+//! caller from `Run::step` beside the effects the run wants performed, and
+//! from `Run::deliver` beside the events a delivered message caused. It is
 //! the one report-only vocabulary: lifecycle boundaries, content the model,
 //! tools, and user produced, and the opt-in debug capture, in one
 //! serializable enum. The Engine emits through an
-//! [`Emitter`](crate::emitter::Emitter), the caller receives it from `step`,
-//! and nothing is ever read back into the Engine by this path: recording every
+//! [`Emitter`](crate::emitter::Emitter), the caller receives it from `step`
+//! and from `deliver`, and nothing is ever read back into the Engine by this
+//! path: recording every
 //! event or dropping them all leaves a run's outputs, errors, and ordering
 //! unchanged. The payload-free lifecycle variants have named constructors
 //! in [`event_lifecycle`](crate::event_lifecycle) for the Engine's emit
