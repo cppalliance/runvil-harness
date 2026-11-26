@@ -5,8 +5,10 @@
 //! their ancestor directories (no `mkdir` needed before a write), and
 //! strict removals (absent is `NotFound`; a non-empty directory without
 //! `recursive` is an error). `ExecId` attribution is accepted as a no-op:
-//! every session shares the one map. It owns only memory and drops with
-//! the run.
+//! every session shares the one map. The storage lives until the last clone
+//! of the backend and the last session are dropped, and listings and globs
+//! come back sorted, through a `BTreeSet` for a listing and an explicit sort
+//! for a glob.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
