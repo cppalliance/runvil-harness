@@ -5,7 +5,7 @@
 //! every live task it owns is abandoned - its entry moves to `Abandoned`,
 //! its terminal observation names how the owner ended, and its backing
 //! chain aborts with everything it owns in turn. A task left running is
-//! the author's bug, so the owner's own outcome becomes `make_tasks_live_error` naming
+//! the author's bug, so the owner's own outcome becomes the `tasks_live` code naming
 //! the leaked ids; an idle task already handed its owner a reply, so it
 //! ends without counting as leaked. Tasks survive a section's fall-through
 //! and a `jump` - those move the walk within one chain - and end with the
@@ -208,7 +208,7 @@ impl Scheduler {
     /// the wait's detail, not a task the author started, and an idle task
     /// ends the same way but never counts as leaked either: it already
     /// replied. Returns the abandoned running ids in spawn order, for the
-    /// owner's `make_tasks_live_error` outcome; the caller discards them for an owner
+    /// owner's the `tasks_live` code outcome; the caller discards them for an owner
     /// that is itself being aborted, whose outcome no one receives.
     pub(super) fn abandon_owned_tasks(
         &mut self,

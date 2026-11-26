@@ -29,8 +29,8 @@ use crate::model::{ModelInfo, ModelRole};
 ///
 /// The params hold only the Engine's input. The observer, client, tool
 /// implementations, broker, and capture belong to the caller. The Engine
-/// reports events and issues effects as values, and returns each one to
-/// the caller from `step`.
+/// reports events and issues effects as values: each effect comes back from
+/// `step`, and each event comes back from `step` or from `deliver`.
 ///
 /// The caller supplies the run's clock and randomness through `new`.
 pub struct RunParams {

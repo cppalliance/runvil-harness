@@ -140,7 +140,7 @@ fn fatal_arm_aborts_an_in_flight_sibling() {
     // cancels the live sibling before it re-raises, so the cancel orphans
     // the sibling's effect, drops its round, and fires the
     // sibling's TaskCanceled BEFORE the parent's chunk failure - a shim
-    // that raised first would leak the sibling into `make_tasks_live_error`. The
+    // that raised first would leak the sibling into the `tasks_live` code. The
     // sibling's round is never answered, so the run cannot have waited
     // on it.
     let gateway = ScriptedChat::new(vec![text("boom-answer")]);

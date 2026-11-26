@@ -5,7 +5,8 @@
 //! first when the prompt has one. It issues each model round, Pack render, Pack tool call,
 //! file operation, and timer as an [`Effect`] the
 //! Harness performs and answers, and reports every boundary as an event
-//! returned from `step`. A file operation is a `store` call of the
+//! returned from `step` and from `deliver`. A file operation is a `store`
+//! call of the
 //! prompt's Lua, or a request of an open tool call that the caller
 //! reports with [`Run::request_file`]. A tool call's file request has no
 //! event: its effect and the answer are its whole report. Other crates

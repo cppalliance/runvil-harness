@@ -152,7 +152,7 @@ pub(super) struct TaskEntry {
     /// the task, reported by `tasks.status`.
     pub(super) note: Option<String>,
     /// The prompt line of the author's call that spawned the task, which a
-    /// `make_tasks_live_error` failure that names it first is placed on: `None` for
+    /// the `tasks_live` code failure that names it first is placed on: `None` for
     /// an internal timer, and for a spawn whose yield found no author
     /// frame.
     pub(super) spawn_line: Option<NonZeroU32>,
