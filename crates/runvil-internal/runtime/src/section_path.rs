@@ -256,7 +256,7 @@ fn from_top(given: &str, titles: &[String], prompt: &Prompt) -> Result<Lookup> {
     }
     reached
         .map(Lookup::Found)
-        .ok_or(error::make_internal_error("a section path has no step"))
+        .ok_or_else(|| error::make_internal_error("a section path has no step"))
 }
 
 /// The error for a path that names no section: the path as it was given,
