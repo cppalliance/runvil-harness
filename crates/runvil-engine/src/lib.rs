@@ -9,6 +9,10 @@
 //! A tool whose call is open asks the caller for each file operation it
 //! needs, and the caller reports the request with [`Run::request_file`],
 //! so the run issues that operation as an effect too.
+//! A [`Step::Pending`] with no effects and `waiting_for_input` set means only
+//! [`Run::deliver`] or a cancel can move the run: the main chain is waiting on
+//! a `tasks.receive()`. Every other pending step returns the effects the run
+//! waits on.
 //! The run ends at [`Step::Done`] with its result: the final text, or the
 //! [`Error`] that ended it. A cancel is the error whose code
 //! is [`ErrorCode::Canceled`].
@@ -22,7 +26,8 @@
 //! [`RequirementsUnmet`](ErrorCode::RequirementsUnmet) failure that names
 //! every gap.
 //!
-//! The crate's `greeter` example is that whole loop in one program.
+//! The crate's `greeter` example is the loop for a prompt that never waits on
+//! a message, so it takes no `waiting_for_input` arm.
 
 pub use runvil_prompt::Prompt;
 pub use runvil_prompt::PromptFinder;

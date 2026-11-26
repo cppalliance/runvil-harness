@@ -12,8 +12,12 @@
 //! templates.
 //!
 //! VM construction and the Lua limits install stay with the frame
-//! constructor. A construction or limits failure propagates as a bare
-//! `?` - routing it through teardown would emit
+//! constructor. A `SectionVm::new` failure after the struct exists - the
+//! hardening, the untrusted install, or the cancel hook - reports the
+//! teardown pair through `construction_failed`. The heap-limit step runs
+//! before the struct exists and returns bare, as does a failure of the
+//! seeding or the limits install, so none of those reports teardown: routing
+//! them through it would emit
 //! `LUA_TEARDOWN_STARTED`/`SUCCEEDED` events the walk never emitted. Setup
 //! consumes the uninjected VM, so a setup failure tears it down here, the
 //! one place a VM that never reached its frame is torn down.
