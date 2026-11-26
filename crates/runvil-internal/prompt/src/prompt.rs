@@ -161,8 +161,9 @@ pub struct Prompt {
 }
 
 impl Prompt {
-    /// Returns the file the source came from, such as
-    /// `agents/research.md`, or `prompt` when it came from no file.
+    /// Returns the name the prompt was found under: the `name` given to
+    /// [`parse`](Prompt::parse), or the `prompts:` entry that listed it.
+    /// A failure uses it as the file of its location.
     #[must_use]
     pub fn file(&self) -> &str {
         &self.file
