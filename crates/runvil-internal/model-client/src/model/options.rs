@@ -1,5 +1,6 @@
-//! Model value types: validated temperature, bind/invocation options,
-//! prompt-local bindings, and completion options.
+//! Model value types: the validated temperature, a binding's request
+//! settings, the binding, per-round completion options, and a prompt's
+//! model set.
 
 use std::num::NonZeroU32;
 
@@ -358,8 +359,8 @@ impl CompletionOptions {
     }
 }
 
-/// The run's model set: the five role bindings the run builds once,
-/// shared unchanged by every section VM.
+/// One prompt's model set: the five role bindings that prompt builds, shared
+/// unchanged by its section VMs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModelSet {
     /// The bindings in the order they were pushed.
