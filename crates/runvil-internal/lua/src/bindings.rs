@@ -189,10 +189,10 @@ impl RosterEntry {
     }
 }
 
-/// The run's tool set: the declared Packs, the run's roster, and the run
-/// catalog. Nothing changes it during a run, so the run and every section
-/// VM share one `Arc<ToolSet>`. Nothing in it is bound: each section entry
-/// binds the tools it offers when it freezes its sets.
+/// One prompt's tool set: the Packs that prompt declares, the run's roster,
+/// and the run catalog. Nothing changes it during a run, so that prompt's
+/// section VMs share one `Arc<ToolSet>`. Nothing in it is bound: each section
+/// entry binds the tools it offers when it freezes its sets.
 #[derive(Debug, Clone, Default)]
 pub struct ToolSet {
     /// The Packs the frontmatter declares, in declaration order.
@@ -207,7 +207,7 @@ pub struct ToolSet {
 }
 
 impl ToolSet {
-    /// Builds the run's tool set from the declared Packs in declaration
+    /// Builds one prompt's tool set from the declared Packs in declaration
     /// order, the roster, and the run catalog.
     #[must_use]
     pub fn new(

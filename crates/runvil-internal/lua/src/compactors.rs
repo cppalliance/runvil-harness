@@ -132,10 +132,11 @@ impl Compactor {
 
 /// Rough characters-per-token divisor for the pre-dispatch estimate.
 ///
-/// The estimate only ever gates the compactor invocation, so a conservative
-/// heuristic suffices: four characters per token tracks prose and code
-/// closely enough that a conversation well under the window passes and one
-/// well over it compacts.
+/// The estimate has two uses, so a conservative heuristic serves both: the
+/// precheck that decides when a compactor runs, and the shrink rule that
+/// measures a compaction after an overflow. Four characters per token tracks
+/// prose and code closely enough that a conversation well under the window
+/// passes and one well over it compacts.
 const CHARS_PER_TOKEN: u64 = 4;
 
 /// Per-message framing overhead, in tokens: the role, separators, and
