@@ -3,8 +3,8 @@
 //! The `runvil-engine` facade never re-exports this module, so only Engine
 //! crates reach it. Each function reaches a field or a construction step
 //! the facade-visible type keeps private. [`completion_into_result`] is the
-//! one that splits a completion into the result the tool loop consumes and
-//! the metadata the round reports.
+//! one that takes the result out of a completion, so a caller reads the
+//! metadata it still needs through the accessors first.
 
 use runvil_types::error::{Error, ErrorCode, ErrorFact};
 use runvil_types::names::is_alias;
@@ -52,9 +52,10 @@ pub fn message_raw_tool_calls(message: &Message) -> Option<&[Value]> {
 /// Builds a tool schema, validating the wire name and that the parameters
 /// are a JSON object.
 ///
-/// The raw [`serde_json::Value`] schema enters here only from the
-/// executor's internal tool contract, so the raw JSON never appears in a
-/// facade-visible constructor.
+/// Only Engine crates build a `ToolSchema`, because a public constructor
+/// would widen the facade only for tests. `parameters` is the schema a
+/// Pack, a render, or a prompt author supplied, and it is checked here only
+/// for being an object.
 ///
 /// # Errors
 /// Returns a [`ToolSchemaInvalid`](ErrorCode::ToolSchemaInvalid) error
