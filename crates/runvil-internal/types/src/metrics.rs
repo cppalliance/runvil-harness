@@ -3,8 +3,9 @@
 //! Everything measured about one model call - token accounting, backend
 //! timings, and the calling client's own clock - plus the tool-call record
 //! a model's request includes. The [`Event`](crate::event::Event) content
-//! variants embed these values and the model client parses response bodies
-//! into them; they cross every boundary as plain serde data.
+//! variants embed these values, and the caller fills them from the backend's
+//! response and from its own clock; they cross every boundary as plain serde
+//! data.
 //!
 //! # Serialized form
 //! Every type here serializes with serde; absent optional fields are
@@ -472,7 +473,7 @@ mod tests {
     /// producers reject non-finite values at the source instead of letting
     /// the serializer erase them: a request temperature through
     /// `Temperature::new`, and a timer's seconds through the task timeout
-    /// parse with the scheduler's defensive repeat.
+    /// parse, which hands on a `Duration`.
     #[test]
     fn a_non_finite_f64_serializes_to_null() {
         for non_finite in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {

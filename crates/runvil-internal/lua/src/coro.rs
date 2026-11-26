@@ -4,8 +4,11 @@
 //! Yield cannot cross the C boundary, so `models.infer`, `call`,
 //! `execute`, `tools.call`, the `tasks` namespace, and `tasks.fanout` are
 //! Lua shims (source in the `__impl_*.lua` files beside this one) that
-//! `coroutine.yield` a request table and interpret the resume values as the
-//! `(ok, result)` envelope; coroutine driving itself
+//! `coroutine.yield` a request table. The driver validates the yield into a
+//! `Request`, dispatches it, and resumes the coroutine with an `(ok, result)`
+//! envelope rendered from a `Result` over an `Answer`: a success renders the
+//! answer, and a failure, a refused argument included, renders the error's
+//! table. Coroutine driving itself
 //! (`Thread::create`/`resume`) is pure Rust in the scheduler. Every shim
 //! yields through one wrapper, which first records the author's line as the
 //! VM's call line. Each chunk compiles through
