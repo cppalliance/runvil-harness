@@ -1,4 +1,4 @@
-//! The capability's machinery: spawning, joining, and the gate, the
+//! The capability's machinery: spawning and the gate, the
 //! admission, and the event every operation passes through.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

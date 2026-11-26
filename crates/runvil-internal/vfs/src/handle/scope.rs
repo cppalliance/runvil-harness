@@ -287,9 +287,9 @@ impl Scope {
     }
 
     /// Merges `child`'s final clock into `owner`'s: everything the child
-    /// did is ordered before the owner's next step. A missing identity is
-    /// a join after the scope purged it, when no live access could still
-    /// join, so it merges nothing.
+    /// did is ordered before the owner's next step. An identity this scope
+    /// never registered, such as a timer's or another scope's, merges
+    /// nothing, and a live child contributes the clock it has reached so far.
     pub(super) fn join(&self, owner: ExecId, child: ExecId) {
         self.lock().merge(owner, child);
     }

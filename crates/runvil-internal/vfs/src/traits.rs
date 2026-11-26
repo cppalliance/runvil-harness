@@ -2,7 +2,8 @@
 //!
 //! `Vfs` is one backend behind the virtual namespace; `VfsAccess` is one
 //! identity's session with it and declares every filesystem operation.
-//! `Policy` is the per-handle hook consulted before the claims check, and
+//! `Policy` is the per-handle hook consulted before an operation is
+//! admitted, and
 //! `ExecId` is the identity every operation is attributed to.
 
 mod backend;

@@ -52,8 +52,7 @@ pub trait Vfs: Send {
 ///
 /// Every operation on a session is attributed to the identity it was
 /// acquired for. Storage is reachable only through a session. Paths
-/// arrive validated, canonicalized, and interned, so a backend uses
-/// them as given.
+/// arrive validated and canonicalized, so a backend uses them as given.
 pub trait VfsAccess: Send {
     /// Reads the file at `path` as stored.
     ///
