@@ -58,8 +58,8 @@ pub(crate) struct SectionVmSetup<'a> {
     pub(crate) args: &'a serde_json::Value,
     /// The `sys` JSON the frame constructor built for this section entry.
     pub(crate) sys: &'a serde_json::Value,
-    /// The section's current-model selection: it starts on the `default`
-    /// binding, or on nothing when the caller supplied no model, and
+    /// The chain's current-model selection: it starts on the chain's
+    /// starting model, or on nothing when the caller supplied no model, and
     /// `models.use` rewrites it.
     pub(crate) selection: &'a Arc<Mutex<Option<ModelBinding>>>,
     /// The frame constructor's seed: the chain's `var`, plus the item
@@ -70,11 +70,12 @@ pub(crate) struct SectionVmSetup<'a> {
     pub(crate) emitter: &'a Emitter,
     /// The section name used in observations and error messages.
     pub(crate) section_name: &'a str,
-    /// The file the run's prompt came from, which the VM's Lua failures
-    /// are placed in.
+    /// The name the chain's prompt was found under, which the VM's Lua
+    /// failures are placed in.
     pub(crate) file: &'a str,
-    /// The run's tool-loop cap, as `ChainState::max_tool_iterations`
-    /// resolves it, captured by the `models.loop` shim as its round cap.
+    /// The cap on model rounds one `models.loop` call may start, as
+    /// `PromptState::max_tool_iterations` resolves it, captured by the
+    /// `models.loop` shim as its round cap.
     pub(crate) max_tool_iterations: usize,
     /// The preludes of the Packs the section's prompt declares, installed
     /// in order after the coroutine shims and before `require`.
