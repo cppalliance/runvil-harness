@@ -93,8 +93,9 @@ fn settle_block(
 impl Scheduler {
     /// Runs one ready chain to its next suspension point: resume a
     /// suspended coroutine with its delivered answer, or advance the walk.
-    /// The step never awaits: every dispatch either issues its leaf effect
-    /// or answers on the spot.
+    /// The step never awaits: each dispatch issues its leaf effect, answers
+    /// at once, or parks the chain until a child, a task, or a message
+    /// answers it.
     ///
     /// The driver owns the chunk observation boundaries: STARTED at a
     /// block's start, SUCCEEDED or FAILED when its coroutine finally
