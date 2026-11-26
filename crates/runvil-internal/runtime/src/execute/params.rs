@@ -152,9 +152,10 @@ impl RunParams {
 
     /// Sets the run's tool catalog: the `ToolInfo` values of every tool of
     /// every Pack the caller can serve this run, declared by the prompt or
-    /// not. The catalog lists every tool the run can use: Lua calls one by id,
-    /// and a section offers one to its model with `tools.offer`. The caller
-    /// performs every call.
+    /// not. Lua calls a catalog tool by id, and a section offers one to its
+    /// model with `tools.offer`. A run uses more than the catalog holds: a
+    /// section's adhoc tools, the two discovery tools, and the model-only
+    /// tools a Pack's render adds. The caller performs every call.
     #[must_use]
     pub fn with_tools(mut self, tools: ToolCatalog) -> RunParams {
         self.tools = tools;
