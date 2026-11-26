@@ -36,7 +36,7 @@ pub struct Frontmatter {
     /// file is not one.
     #[serde(default)]
     runvil: Option<u32>,
-    /// Maximum model round trips a section's tool-call loop may take.
+    /// Maximum model rounds one `models.loop` call may start.
     ///
     /// An absent value leaves the runtime's own cap in force. A declared
     /// value is a positive, bounded count: deserialization rejects `0`,

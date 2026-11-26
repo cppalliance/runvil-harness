@@ -78,7 +78,8 @@ impl ContractKey for ModelRole {
     }
 }
 
-/// Deserializes a contract map (`models`, `args`): keys of type `K` checked
+/// Deserializes a contract map (`models`, and each `properties` map under
+/// `args`): keys of type `K` checked
 /// by [`ContractKey`], values deserialized as `T`, duplicates rejected. `what`
 /// names the keys in every error.
 fn deserialize_contract_map<'de, D, K, T>(
