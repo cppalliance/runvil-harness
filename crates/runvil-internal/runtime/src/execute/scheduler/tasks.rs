@@ -539,8 +539,8 @@ impl Scheduler {
     /// Dispatches a `spawn` request: constructs the task's chain, registers
     /// its entry, and resumes the spawner with the task's id; the child is
     /// enqueued behind the spawner, so `spawn` returns before the child
-    /// runs. Its preparation fails on the depth cap, target resolution,
-    /// the worker check, or chain construction.
+    /// runs. Its preparation fails on the depth cap, target resolution, the
+    /// resolved worker's lookup, the access fork, or chain construction.
     pub(in crate::execute::scheduler) fn dispatch_spawn(
         &mut self,
         id: ChainIndex,

@@ -78,8 +78,8 @@ use runvil_vfs::{Access, VfsError, VfsOp, VfsOutcome};
 /// for it.
 ///
 /// # Errors
-/// Returns the operation's own structured failure (path validation,
-/// not-found, anchor, range, or conflict).
+/// Returns the [`VfsError`] that [`Access::perform`] returns for the
+/// operation.
 /// When the caller resumes the run with that answer to a `store` call,
 /// the Engine raises the failure at the prompt author's call site,
 /// except a conflict, which ends the run with a determinism error that

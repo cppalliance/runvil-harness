@@ -187,8 +187,10 @@ impl CallDepth {
 /// answer resumes it. A wait keeps its data until the wake: the
 /// `join_any` set until a member's end answers it, the `tool_calls` slots
 /// until the last one lands, the inbox wait until a message answers it.
-/// From that answer to the resume, the chain reports what it was parked
-/// on, unless the wake requeued it for a slot.
+/// The `parked` field keeps naming that wait from the answer until the
+/// resume clears it, which `leaf_of` reads, while `Chain::blocked` reports
+/// `None` for a chain that holds its answer unless the wake requeued it for
+/// a slot.
 #[derive(Debug)]
 pub(super) enum Parked {
     /// A `chat` or `infer` round.
