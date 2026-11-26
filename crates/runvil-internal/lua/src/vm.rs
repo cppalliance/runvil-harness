@@ -86,7 +86,7 @@ pub struct Injected {
 ///
 /// The underlying [`Lua`] is reachable through `lua`, on the injected VM
 /// only, for the section setup's installers and the driver's yield
-/// parsing; hardening, Engine injection, instruction accounting, and
+/// parsing; hardening, Engine injection, the cancel hook, and
 /// report delivery stay on the VM's own path. Each section must receive a
 /// new instance; dropping it destroys all Lua memory belonging to that
 /// section. Once Lua allocation succeeds, construction failures cross the
@@ -94,12 +94,12 @@ pub struct Injected {
 #[derive(Debug)]
 pub struct SectionVm<S = Injected> {
     lua: Lua,
-    /// The run's shared tool set: the declared Packs, the roster, and the
-    /// run catalog. Shared with the run, not snapshotted; nothing writes
-    /// it during a run.
+    /// The tool set of the prompt the chain runs: the Packs that prompt
+    /// declares, the run's roster, and the run catalog. Shared by that
+    /// prompt's section VMs, not snapshotted; nothing writes it during a run.
     pub(crate) tool_set: Arc<ToolSet>,
-    /// The run's shared model set: the five filled roles, built once with
-    /// the run and never written during it.
+    /// The model set of the prompt the chain runs: the five filled roles,
+    /// built once for that prompt and never written during the run.
     pub(crate) bound_models: Arc<ModelSet>,
     /// The section's offers, read by the executor's scope path.
     offers: Arc<Mutex<Offers>>,
@@ -198,9 +198,10 @@ impl SectionVm<Uninjected> {
         Ok(vm)
     }
 
-    /// Creates a section VM sharing the run's tool and model sets.
+    /// Creates a section VM sharing the tool set and the model set of the
+    /// prompt the chain runs.
     ///
-    /// The sets are the run's own handles, not snapshots: the run catalog
+    /// The sets are that prompt's own handles, not snapshots: the run catalog
     /// and the filled roles back the validating `tools`/`models` tables that
     /// [`inject_values`](Self::inject_values) installs.
     /// Nothing writes either set during a run.
@@ -220,8 +221,8 @@ impl SectionVm<Uninjected> {
         Ok(vm)
     }
 
-    /// Records `file`, the file the run's prompt came from, as the file
-    /// this VM's Lua failures are placed in; a VM given none places them
+    /// Records `file`, the name of the prompt this VM's chain runs, as the
+    /// file its Lua failures are placed in; a VM given none places them
     /// in `prompt`.
     pub fn set_prompt_file(&self, file: &str) {
         crate::error::set_prompt_file(&self.lua, file);

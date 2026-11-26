@@ -23,8 +23,7 @@
 //!
 //! `pairs` captures that order once and advances it by position, so a key
 //! whose value becomes `nil` mid-traversal is skipped rather than visited with
-//! a nil value, whatever its type: a cleared key is skipped without a lookup
-//! that would need it to be sortable. `next` stays stateless and reads the
+//! a nil value. `next` stays stateless and reads the
 //! live table on each call: its answer is the least key after the one it was
 //! given, whether the table still holds that one or the block cleared it.
 //! So a loop of `next` that clears keys as it goes meets every key left

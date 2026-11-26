@@ -1,8 +1,8 @@
 //! The Lua `models` Engine global: `use` / `get` / `current`.
 //!
-//! The run builds the shared [`ModelSet`] once, holding all five roles or,
-//! when the caller supplied no model, none, and the table selects among them
-//! by role name; a role read from the empty set fails saying so. `models.use`
+//! Each prompt of a run builds its own [`ModelSet`], holding all five roles
+//! or, when the caller supplied no model, none, and the table selects among
+//! them by role name; a role read from the empty set fails saying so. `models.use`
 //! takes a role name or a model handle and stores the binding it selects,
 //! with its optional sampling options applied, as the section's current
 //! model. `models.get` inspects a role without selecting it, and
@@ -179,7 +179,8 @@ fn role_binding(set: &ModelSet, role: ModelRole) -> mlua::Result<ModelBinding> {
     })
 }
 /// The sampling options a `models.use` call sets on its selection. An
-/// omitted field keeps the role's own value.
+/// omitted field keeps the value of the binding the call starts from: the
+/// role's for a role name, the handle's for a handle.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct UseOptions {
     temperature: Option<Temperature>,
