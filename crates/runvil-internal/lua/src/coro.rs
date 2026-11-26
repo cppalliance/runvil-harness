@@ -42,9 +42,9 @@ const SHIM_SOURCE: &str = include_str!("__impl_coro.lua");
 /// The `tasks` namespace chunk's name.
 const TASKS_CHUNK_NAME: &str = "@crates/runvil-internal/lua/src/__impl_tasks.lua";
 
-/// The `tasks` namespace source: spawn, the waits, the checks, note, and
-/// cancel, in a chunk of its own beside the shim chunk. It runs over the
-/// shim chunk's failure helpers.
+/// The `tasks` namespace source, in a chunk of its own beside the shim
+/// chunk, and running over the shim chunk's failure helpers. Its header
+/// lists what it defines.
 const TASKS_SOURCE: &str = include_str!("__impl_tasks.lua");
 
 /// The `fanout` chunk's name.
