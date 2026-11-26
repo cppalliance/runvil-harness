@@ -544,11 +544,11 @@ pub enum EffectAnswer {
     /// offered into left empty. Every rendered tool's id starts with its
     /// Pack's id, and a run catalog tool may appear only in a set the
     /// section offered it in; an answer that breaks either rule, or the
-    /// order, fails the round. A catalog tool keeps the catalog's output
-    /// kind, listing flag, and stop flag, so a render changes only its
-    /// wire name, description, and schema, and any other tool is one only
-    /// the model can call, with the flags the render gave it. A tool
-    /// repeated within a set keeps its first copy.
+    /// order, fails the round. A catalog tool keeps the catalog's flags and
+    /// output kind, so a render changes only its wire name, description, and
+    /// schema, and any other tool is one only the model can call, with the
+    /// flags the render gave it. A tool repeated within a set keeps its first
+    /// copy.
     Render(Vec<PackToolSets<ToolInfo>>),
     /// The tool's own output or its own failure, before the Engine applies
     /// its trust rule.
