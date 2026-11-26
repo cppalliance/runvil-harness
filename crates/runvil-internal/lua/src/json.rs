@@ -15,7 +15,7 @@ mod encode;
 mod keys;
 
 pub(crate) use decode::text_input;
-pub(crate) use encode::{to_json, to_stored_json};
+pub(crate) use encode::{DEPTH_LIMIT, to_json, to_stored_json, too_deep};
 
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 

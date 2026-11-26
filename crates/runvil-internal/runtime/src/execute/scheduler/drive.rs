@@ -257,7 +257,18 @@ impl Scheduler {
             };
             let step = match self.step_chain(id) {
                 Ok(step) => step,
-                Err(error) => self.finish(id, Err(error)),
+                Err(error) => {
+                    // A flag set while the step ran makes the run canceled,
+                    // as it does at the top of the round: the failure may
+                    // have come from the hook that the flag aborts, and
+                    // `finish` files the failing chain's tasks as failed
+                    // where a cancel files them as run-terminated.
+                    if self.ctx.cancel().is_canceled() {
+                        self.end(Err(Error::canceled()));
+                        return;
+                    }
+                    self.finish(id, Err(error))
+                }
             };
             if let ChainStep::RunEnded(result) = step {
                 self.end(result);
