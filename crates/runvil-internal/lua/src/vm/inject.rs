@@ -61,8 +61,8 @@ impl SectionVm<Uninjected> {
     ///
     /// # Errors
     /// Returns the [`InjectFailure`] holding the bridging failure if Engine
-    /// values cannot be bridged, or holding an `Internal` failure if `args`
-    /// or the `var` seed is not a JSON object.
+    /// values cannot be bridged, or holding an `Internal` failure if `args`,
+    /// `sys`, or the `var` seed is not a JSON object.
     pub fn inject_values(
         self,
         args: &Json,

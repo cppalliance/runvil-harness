@@ -52,8 +52,9 @@ fn log_checkpoint(
             "log message must not contain newline or control characters",
         ));
     }
-    // Enforce a cumulative byte ceiling in addition to the event count,
-    // so many small events cannot emit unbounded total log volume.
+    // The per-message ceiling counts characters and a character can take
+    // four bytes, so the total bytes are bounded too: 256 for each budgeted
+    // event.
     if log_byte_budget
         .try_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
             remaining.checked_sub(message.len())
