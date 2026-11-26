@@ -233,7 +233,8 @@ pub enum Request {
         /// resolves the section's current model.
         binding: Option<ModelBinding>,
     },
-    /// `store.*(...)`: one run-scoped store operation as a leaf yield.
+    /// `store.*(...)`: one operation on the calling chain's store, as a leaf
+    /// yield.
     /// Every operation takes this path, with no inline fast path.
     Store {
         /// The validated operation and its author-supplied arguments: one

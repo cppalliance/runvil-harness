@@ -292,7 +292,7 @@ fn adhoc_params_schema_rejects_an_unsupported_type_under_the_adhoc_prefix() {
 #[test]
 fn the_tools_namespace_exposes_its_verbs_without_call() {
     // `call` is absent here on purpose: it suspends, so the coroutine shim
-    // prelude installs it - this table exposes exactly the non-suspending
+    // chunk installs it - this table exposes exactly the non-suspending
     // operations.
     let vm = TestVm::new().build();
     let shapes: (bool, bool, bool, bool, bool) = vm.eval(
@@ -306,7 +306,7 @@ fn the_tools_namespace_exposes_its_verbs_without_call() {
 }
 
 #[test]
-fn the_shim_prelude_installs_tools_call() {
+fn the_shim_chunk_installs_tools_call() {
     let vm = TestVm::new().shims().build();
     let call_is_function: bool = vm.eval("return type(tools.call) == 'function'");
     assert!(call_is_function, "tools.call installs on the tools table");
