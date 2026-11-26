@@ -218,8 +218,8 @@ impl<V: Clone> Machine<V> {
     }
 
     /// Applies one input, pushes the records it settles, and returns what
-    /// runs next. A reply is read as the renderer reads it, an empty
-    /// string as no reply. An input other than the one
+    /// runs next. An empty reply string is read as no reply. An input other
+    /// than the one
     /// [`Machine::phase`] names is a crate bug and raises an `internal`
     /// error.
     pub(super) fn step(&mut self, input: Input<V>) -> Then<V> {
