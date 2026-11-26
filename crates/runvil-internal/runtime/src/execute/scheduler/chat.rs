@@ -63,7 +63,7 @@ impl ChainOps<'_> {
     /// author's message list. An issued round parks the chain in the
     /// effect table; a precheck overflow answers the round on the spot
     /// with the overflow flag. Its preparation fails on the empty list,
-    /// the binding, the scope, the projection, or the client.
+    /// the binding, the scope, or the projection.
     pub(super) fn dispatch_chat(
         &mut self,
         list: &MessageList,

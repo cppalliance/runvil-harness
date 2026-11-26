@@ -71,8 +71,7 @@ struct SharedState {
     /// The run's resource limits.
     limits: RunLimits,
     /// The run's event buffer, shared by every chain's emitter, spawned
-    /// task chains' included, and drained once per `step` into the batch
-    /// returned to the caller.
+    /// task chains' included, and drained through [`take_events`].
     events: EventSink,
     /// The run's cancel flag: polled between chain steps and installed on
     /// every section VM's instruction hook. It is the one handle the params
