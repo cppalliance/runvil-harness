@@ -354,3 +354,81 @@ fn an_atomic_write_addressing_only_a_root_is_a_backend_failure() {
         "a root-only destination is not a path-validation failure: {err:?}"
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn a_drive_prefixed_segment_cannot_replace_a_rooted_mounts_root() -> Result<(), VfsError> {
+    // A virtual path segment that Windows reads as a drive replaces the
+    // whole path when it is pushed, so a rooted mount could be made to
+    // name a file on another drive, or a file relative to that drive's
+    // current directory. The segment must be refused rather than pushed.
+    let temp = TempRoot::new("a_drive_prefixed_segment_cannot_replace_a_rooted_mounts_root");
+    let root = temp.path();
+    // `/C:/x` splits into the segments `C:` and `x`. Pushing `C:` onto a
+    // root replaces it with the drive-relative path `C:`, so the join must
+    // refuse instead of answering a path outside the root.
+    let err = super::resolve::join_virtual(root, "/C:/x", &path("/C:/x")?)
+        .expect_err("a drive-prefixed segment replaces the root when pushed");
+    assert!(
+        matches!(
+            err,
+            VfsError::OutsideRoot { .. } | VfsError::InvalidPath { .. }
+        ),
+        "the segment is refused as a path that leaves the mount: {err:?}"
+    );
+    // The same spelling through the capability, so the refusal reaches a
+    // caller rather than only the helper.
+    let mut access = rooted_access(root)?;
+    let err = access
+        .write(&path("/C:/runvil-escape-probe.txt")?, b"1")
+        .expect_err("a drive-prefixed segment must be refused");
+    assert!(
+        matches!(
+            err,
+            VfsError::OutsideRoot { .. } | VfsError::InvalidPath { .. }
+        ),
+        "the write is refused as a path that leaves the mount: {err:?}"
+    );
+    // The refused write must leave the root empty: a pre-fix attempt would
+    // have landed in the drive's current directory, wherever that is.
+    let entries: Vec<String> = fs::read_dir(root)
+        .map_err(|err| map_io(root.to_str().unwrap_or_default(), &err))?
+        .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+        .collect::<Result<_, _>>()
+        .map_err(|err| map_io(root.to_str().unwrap_or_default(), &err))?;
+    assert!(
+        entries.is_empty(),
+        "the refused write must create nothing under the root, found {entries:?}"
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn a_segment_that_is_not_one_plain_name_is_refused_by_the_join() -> Result<(), VfsError> {
+    // A segment carrying a separator would push more than one component,
+    // and a drive prefix replaces the whole path. Both are refused, so the
+    // rooted join never answers a path it did not build from plain names.
+    // The join is called with the raw segment text, because `path()`
+    // canonicalizes dot spellings away before a `VfsPath` exists.
+    let temp = TempRoot::new("a_segment_that_is_not_one_plain_name_is_refused_by_the_join");
+    let root = temp.path();
+    let original = path("/C:/x")?;
+    for segment_text in ["C:", "C:x", "C:D:Users"] {
+        let err = super::resolve::join_virtual(root, segment_text, &original)
+            .expect_err("a drive prefix must not be pushed onto a root");
+        assert!(
+            matches!(
+                err,
+                VfsError::OutsideRoot { .. } | VfsError::InvalidPath { .. }
+            ),
+            "{segment_text} is refused as a path that leaves the mount: {err:?}"
+        );
+    }
+    // A plain name still joins, so the refusal is not blanket.
+    let plain = path("/plain/name")?;
+    let joined =
+        super::resolve::join_virtual(root, "/plain/name", &plain).expect("plain names join");
+    assert_eq!(joined, root.join("plain").join("name"));
+    Ok(())
+}
