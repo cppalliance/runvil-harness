@@ -88,6 +88,9 @@
 //!   polled outside any particular runtime.
 //! - [`Pack::ready`] is cancellation-safe, and after its first
 //!   resolution it answers at once unless the Pack's state has changed.
+//! - [`Pack::ready`] must not panic. A panic is caught at the run's
+//!   snapshot, the panic is logged, and the Pack is unavailable to that
+//!   run rather than the panic unwinding through the run's setup.
 //! - [`Pack::call`] must not block while polled. Every effect of a run
 //!   is polled on the same task, so blocking or CPU-heavy work goes to the
 //!   Host's runtime. A file operation is the exception: it is synchronous
@@ -101,6 +104,9 @@
 //!   [`ToolInfo`]. The Engine then issues each of its calls alone, in the
 //!   order the model listed them, so the changes of one model reply
 //!   apply one at a time.
+//! - [`Pack::tools`] must not panic. A panic is caught at the run's
+//!   snapshot, the panic is logged, and the Pack is unavailable to that
+//!   run rather than the panic unwinding through the run's setup.
 //! - [`Pack::call`] must not panic. A panicking call's effect is
 //!   answered `Dropped`, and the panic is logged.
 //! - [`Pack::call`] marks the trust of every output correctly: output

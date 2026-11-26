@@ -1,4 +1,4 @@
-//! The Host's installed Packs: [`Packs`], which keeps the factory of
+﻿//! The Host's installed Packs: [`Packs`], which keeps the factory of
 //! every Pack a [`PackRegistry`] holds and of the two built-in Packs,
 //! the pick of each run's Packs, the
 //! instance each run makes of each of them, and the snapshot each run
@@ -50,6 +50,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::pin;
 use std::sync::Arc;
 
+use futures_util::FutureExt as _;
 use futures_util::future::{Either, join_all, select};
 use runvil_engine::Prompt;
 use runvil_engine::cancel::CancelHandle;
@@ -72,6 +73,12 @@ const RUNVIL: &str = "runvil";
 /// The reason a Pack is unavailable to a run whose call of its factory
 /// panicked.
 const FACTORY_PANICKED: &str = "the Pack's factory panicked";
+
+/// The reason a Pack is unavailable to a run whose `tools` panicked.
+const TOOLS_PANICKED: &str = "the Pack panicked in tools";
+
+/// The reason a Pack is unavailable to a run whose `ready` panicked.
+const READY_PANICKED: &str = "the Pack panicked in ready";
 
 /// The built-in a run holds only when a user answers its main chain.
 const USER: &str = "runvil/user";
@@ -430,7 +437,28 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
 async fn wait_ready(made: &[Made<'_>], cancel: &CancelHandle) -> BTreeMap<&'static str, String> {
     let waits = made.iter().filter_map(|made| {
         let pack = made.pack.as_ref().ok()?;
-        Some(async move { (made.fqn, pack.ready().await) })
+        // A Pack's `ready` must not panic, and one that does leaves only
+        // its own Pack unavailable rather than unwinding through the run's
+        // setup future. The call is inside the guarded future, because
+        // `ready` can panic either while it builds the future or while the
+        // future is polled.
+        Some(async move {
+            let ready = AssertUnwindSafe(async { pack.ready().await })
+                .catch_unwind()
+                .await;
+            let result = match ready {
+                Ok(result) => result,
+                Err(panic) => {
+                    tracing::error!(
+                        fqn = made.fqn,
+                        panic = panic_message(&*panic),
+                        "Pack panicked in ready; the Pack is unavailable to this run"
+                    );
+                    Err(make_tool_error(ErrorCode::ToolOther, READY_PANICKED))
+                }
+            };
+            (made.fqn, result)
+        })
     });
     let joined = pin!(join_all(waits));
     // The cancel arm is polled first, so a run canceled already does not
@@ -449,6 +477,23 @@ async fn wait_ready(made: &[Made<'_>], cancel: &CancelHandle) -> BTreeMap<&'stat
                 Some((fqn, error.to_string()))
             })
             .collect(),
+    }
+}
+
+/// The tool list `pack` offers, or the reason the run has none when
+/// `tools` panics. A Pack's `tools` must not panic, and one that does
+/// leaves only its own Pack unavailable rather than unwinding through the
+/// run's setup future.
+fn tools_of(pack: &Arc<dyn Pack>) -> std::result::Result<Vec<ToolInfo>, String> {
+    match catch_unwind(AssertUnwindSafe(|| pack.tools())) {
+        Ok(tools) => Ok(tools),
+        Err(panic) => {
+            tracing::error!(
+                panic = panic_message(&*panic),
+                "Pack panicked in tools; the Pack is unavailable to this run"
+            );
+            Err(TOOLS_PANICKED.to_owned())
+        }
     }
 }
 
@@ -500,13 +545,16 @@ impl RunPacks {
             .map(|made| {
                 let state = match (made.pack, failures.remove(made.fqn)) {
                     (Err(reason), _) | (Ok(_), Some(reason)) => PackState::Unavailable(reason),
-                    (Ok(pack), None) => {
-                        usable_tools.insert(made.id, validated(made.id, pack.tools(), &mut seen));
-                        PackState::Usable {
-                            info: made.info,
-                            pack,
+                    (Ok(pack), None) => match tools_of(&pack) {
+                        Ok(tools) => {
+                            usable_tools.insert(made.id, validated(made.id, tools, &mut seen));
+                            PackState::Usable {
+                                info: made.info,
+                                pack,
+                            }
                         }
-                    }
+                        Err(reason) => PackState::Unavailable(reason),
+                    },
                 };
                 (made.id.clone(), state)
             })

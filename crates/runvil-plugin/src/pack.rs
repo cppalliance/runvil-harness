@@ -35,6 +35,9 @@ pub trait Pack: Send + Sync {
     /// A tool whose calls change files sets `changes_files` in its info,
     /// so the calls of one model reply run it alone, in the order the
     /// model listed them.
+    /// - `tools` must not panic. The Harness catches the panic at the
+    ///   run's snapshot, logs it, and treats the Pack as unavailable to
+    ///   that run.
     fn tools(&self) -> Vec<ToolInfo>;
 
     /// Resolves once the Pack's tool list is complete, or with the
@@ -58,6 +61,9 @@ pub trait Pack: Send + Sync {
     /// - `ready` is cancellation-safe: a cancel drops it unresolved. After
     ///   its first resolution it answers at once unless the Pack's state
     ///   has changed.
+    /// - `ready` must not panic. The Harness catches the panic at the
+    ///   run's snapshot, logs it, and treats the Pack as unavailable to
+    ///   that run.
     ///
     /// # Errors
     /// Returns an [`Error`], whose prose is safe to show the model, when the
