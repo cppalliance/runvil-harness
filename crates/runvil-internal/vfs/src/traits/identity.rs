@@ -27,7 +27,8 @@ impl ExecId {
 /// The context that [`Vfs::acquire`](crate::Vfs::acquire) receives: the
 /// identity being acquired and the scope it belongs to.
 ///
-/// A `VfsRef` or one of its `Access` capabilities builds each context.
+/// A `VfsRef`, one of its `Access` capabilities, or a `Store` making a view
+/// builds each context.
 /// A backend that wraps another [`Vfs`](crate::Vfs) must pass it the
 /// context exactly as received. A wrapped `VfsRef` then joins the outer
 /// session's scope, so one scope orders the identities of both.
