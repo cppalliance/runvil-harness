@@ -32,7 +32,7 @@ use crate::error::{self, Result};
 use crate::json::to_json;
 use crate::messages::MessageList;
 use crate::packs::{ADHOC_PACK, install_pack_list, install_pack_objects};
-use crate::proxy::key_text;
+use crate::proxy::{key_text, view_data};
 use crate::scope::{OfferMode, Offers};
 
 mod decode;
@@ -183,6 +183,12 @@ fn install_adhoc(lua: &Lua, tools: &Table, adhoc_tools: &AdhocTools) -> Result<(
 /// and that neither the name nor the id is taken, a discovery tool's wire
 /// name included.
 fn adhoc_info(lua: &Lua, attrs: &Table, adhoc: &AdhocTools) -> mlua::Result<(String, ToolInfo)> {
+    // A view is an empty proxy with its data behind `__index`, so the raw
+    // walk below and the raw `attr_text` reads would both see nothing and
+    // `tools.adhoc(var.tool, f)` would report a missing `name` for a table
+    // Lua reads fine.
+    let attrs = view_data(attrs)?;
+    let attrs = &attrs;
     let mut unknown: Vec<String> = Vec::new();
     for pair in attrs.pairs::<Value, Value>() {
         let (key, _) = pair?;
@@ -266,15 +272,18 @@ fn attr_text(attrs: &Table, key: &str) -> mlua::Result<String> {
 /// The schema a `parameters` table declares: a JSON Schema object when
 /// its `type` is `"object"`, as `json.encode` converts it, else the short
 /// form, one type name or `{type, description}` per parameter.
+///
+/// The table is resolved through a sealed view first: a view is an empty
+/// proxy whose data sits behind `__index`, so the raw `type` read and the
+/// raw `pairs` walk in the short form would both see nothing, and a schema
+/// that came from `args` or `var` would define a tool with no parameters.
 fn parameters_schema(lua: &Lua, parameters: &Table) -> mlua::Result<Json> {
+    let parameters = view_data(parameters)?;
     match parameters.raw_get::<Value>("type")? {
-        Value::String(kind) if kind == "object" => to_json(
-            lua,
-            PARAMETERS_NOT_JSON,
-            false,
-            &Value::Table(parameters.clone()),
-        ),
-        _ => adhoc_params_schema(lua, parameters),
+        Value::String(kind) if kind == "object" => {
+            to_json(lua, PARAMETERS_NOT_JSON, false, &Value::Table(parameters))
+        }
+        _ => adhoc_params_schema(lua, &parameters),
     }
 }
 
