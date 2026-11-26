@@ -791,3 +791,82 @@ async fn a_call_to_a_pack_the_run_cannot_use_fails_naming_the_tool() {
         .expect_err("the Pack's factory refused the run");
     assert!(error.to_string().contains("backed/use"), "{error}");
 }
+
+/// A Pack whose `tools` or `ready` panics, so a test can prove the Harness
+/// contains a panicking Pack method the way it contains a panicking
+/// factory.
+struct Panicking {
+    /// Which method panics: `"tools"`, `"ready"` when `ready` is called,
+    /// or `"ready-polled"` when the future `ready` returned is polled.
+    method: &'static str,
+}
+
+impl Pack for Panicking {
+    fn tools(&self) -> Vec<ToolInfo> {
+        assert_ne!(self.method, "tools", "the tools method breaks");
+        Vec::new()
+    }
+
+    fn ready(&self) -> BoxFuture<'_, Result<(), Error>> {
+        if self.method == "ready-polled" {
+            // A panic while the future is polled, after `ready` returned it.
+            return Box::pin(async { panic!("the ready future breaks") });
+        }
+        assert_ne!(self.method, "ready", "the ready method breaks");
+        Box::pin(async { Ok(()) })
+    }
+
+    fn call<'a>(
+        &'a self,
+        _cx: ToolContext<'a>,
+        _args: Value,
+    ) -> BoxFuture<'a, Result<ToolOutput, Error>> {
+        Box::pin(async move { Ok(ToolOutput::trusted("unused")) })
+    }
+}
+
+#[test]
+fn a_panicking_tools_leaves_its_pack_unavailable_rather_than_unwinding() {
+    let mut registry = PackRegistry::new();
+    registry
+        .insert(info("acme/broken"), {
+            |_id: &PackId| -> Result<Arc<dyn Pack>, Error> {
+                Ok(Arc::new(Panicking { method: "tools" }))
+            }
+        })
+        .unwrap();
+    let host = Packs::new(registry);
+    let declares = prompt("uses:\n  - acme/broken\n");
+    // The snapshot must return, with the Pack unavailable, rather than
+    // unwinding out of the run's setup future.
+    let run = snapshot(&host, &declares).expect("the snapshot returns");
+    assert_eq!(
+        run.roster().get(&name("broken")),
+        Some(&unavailable_for("the Pack panicked in tools")),
+        "the panicking Pack is unavailable for its own reason"
+    );
+}
+
+#[test]
+fn a_panicking_ready_leaves_its_pack_unavailable_rather_than_unwinding() {
+    // `ready` can panic while it builds the future or while that future is
+    // polled, and both must leave only the Pack unavailable.
+    for method in ["ready", "ready-polled"] {
+        let mut registry = PackRegistry::new();
+        registry
+            .insert(info("acme/pending"), {
+                move |_id: &PackId| -> Result<Arc<dyn Pack>, Error> {
+                    Ok(Arc::new(Panicking { method }))
+                }
+            })
+            .unwrap();
+        let host = Packs::new(registry);
+        let declares = prompt("uses:\n  - acme/pending\n");
+        let run = snapshot(&host, &declares).expect("the snapshot returns");
+        assert_eq!(
+            run.roster().get(&name("pending")),
+            Some(&unavailable_for("the Pack panicked in ready")),
+            "a panic in `{method}` leaves only the Pack unavailable"
+        );
+    }
+}
