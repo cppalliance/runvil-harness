@@ -293,8 +293,8 @@ impl SectionContext {
 
     /// The frame's tool-call counts for a tool call, a script's or a
     /// model's: the section's first call runs the first-call install (the
-    /// counts and the Lua `tools.stats` table, the model freeze, the
-    /// `sys.model` enrichment), a later call runs it again when it failed,
+    /// counts and the Lua `tools.stats` table, and the `sys.model`
+    /// enrichment), a later call runs it again when it failed,
     /// and every call then seeds any of `ids` not seeded yet. `ids` is
     /// what Lua can see in the section's two sets, from its live offers
     /// before it freezes them and from its frozen sets after, with the
