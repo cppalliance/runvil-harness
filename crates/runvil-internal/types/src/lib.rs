@@ -3,7 +3,8 @@
 //! [`untrusted`] wraps untrusted external data in a nonce-guarded envelope
 //! and [`cancel`] is the polled `AtomicBool` cancellation tree the Engine
 //! observes. [`event`] is the value form of a run's reports, the
-//! [`Event`](event::Event) enum a run returns from `step`, with the
+//! [`Event`](event::Event) enum a run returns from `step` and from
+//! `deliver`, with the
 //! payload-free boundaries' constructors in [`event_lifecycle`];
 //! [`emitter`] is the provenance-stamping [`Emitter`](emitter::Emitter)
 //! every Engine crate reports through and the [`EventSink`](emitter::EventSink)
@@ -43,8 +44,8 @@
 //!   `make_internal_at_error` writes Rust locations.
 //! - A located failure's
 //!   [`located_message`](error::Error::located_message) ends with
-//!   ` (at file:line)`, except that a structure, fence, or list failure,
-//!   the parser's own, ends with ` (prompt ..., line ..., column ...)`,
+//!   ` (at file:line)`, except that a structure or fence failure, the
+//!   parser's own, ends with ` (prompt ..., line ..., column ...)`,
 //!   and a frontmatter failure with ` (line ..., column ...)`.
 
 pub mod cancel;

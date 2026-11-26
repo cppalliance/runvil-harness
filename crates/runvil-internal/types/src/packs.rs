@@ -64,9 +64,8 @@ impl PackId {
 
     /// Builds an identity from the first segment of a validated tool id.
     ///
-    /// Crate-internal: backs [`crate::tools::ToolId::pack`]. The source
-    /// tool id was validated at parse, so its first segment is already a
-    /// valid Pack id.
+    /// The source tool id was validated at parse, so its first segment is
+    /// already a valid Pack id.
     pub(crate) fn from_segment(segment: &str) -> PackId {
         PackId(GlobalName::from_validated_segment(segment))
     }

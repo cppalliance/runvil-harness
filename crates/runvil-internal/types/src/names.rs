@@ -76,8 +76,6 @@ impl GlobalName {
 
     /// Builds a one-segment name from a segment already validated as part
     /// of another name.
-    ///
-    /// Crate-internal: backs [`crate::tools::ToolId::pack`].
     pub(crate) fn from_validated_segment(segment: &str) -> GlobalName {
         GlobalName {
             segments: vec![segment.to_owned()],
@@ -85,16 +83,11 @@ impl GlobalName {
     }
 
     /// Returns the segments (one or more by construction).
-    ///
-    /// Crate-internal: the id newtypes count and index segments.
     pub(crate) fn segments(&self) -> &[String] {
         &self.segments
     }
 
-    /// Returns the first segment.
-    ///
-    /// Crate-internal: backs [`crate::tools::ToolId::pack`] and
-    /// [`crate::packs::PackId::contains`].
+    /// Returns the first segment, which every name has.
     pub(crate) fn first(&self) -> &str {
         &self.segments[0]
     }
