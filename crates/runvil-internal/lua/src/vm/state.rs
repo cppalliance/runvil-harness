@@ -35,8 +35,11 @@ impl SectionVm {
     /// Sets a global in the VM to the Lua form of a JSON value, overwriting
     /// any existing value.
     ///
-    /// Used by fanout to inject `item` after Engine injection; the conversion
-    /// is the same `LuaSerdeExt` bridge that seeds `var`.
+    /// Used to install a spawned task's `item`, a fanout arm's member
+    /// included. The value becomes plain Lua data through
+    /// `LuaSerdeExt::to_value`: ordinary writable tables, marked lists, and
+    /// `json.null` for a JSON null. The global is the author's to change
+    /// afterwards, and `{{ item }}` reads the Engine's own copy.
     ///
     /// # Errors
     /// Returns a `LuaRuntime` failure if the value cannot convert or the global
