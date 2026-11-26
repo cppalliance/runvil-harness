@@ -106,8 +106,8 @@ pub trait Pack: Send + Sync {
     /// # Errors
     /// Returns an [`Error`] with a tool code, built with
     /// [`make_tool_error`](crate::make_tool_error) so its prose is safe to show the
-    /// model, when the call rejects the arguments, its backend refuses, its
-    /// transport fails, or the run is canceled.
+    /// model, when the call rejects the arguments, its backend refuses, or its
+    /// transport fails.
     fn call<'a>(
         &'a self,
         cx: ToolContext<'a>,
