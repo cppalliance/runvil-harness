@@ -42,8 +42,9 @@ use super::ChainIndex;
 /// the chain awaiting it.
 #[derive(Debug)]
 pub(super) enum Continuation {
-    /// A nested `models.infer`: the completion becomes the round's text
-    /// under the single-prose-round reporting rules. The round's id waits
+    /// A nested `models.infer`: the completion becomes the round's text,
+    /// reported through `turn::report_model_turn` with `origin = infer`. The
+    /// round's id waits
     /// here for the answer, whose events it stamps.
     Infer(RoundId),
     /// A `chat` round: the completion is classified against the frozen

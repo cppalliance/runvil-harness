@@ -27,10 +27,11 @@
 //! `Internal` failure from a scheduler method marks a state the
 //! scheduler's own invariants rule out: a scheduler or shim bug.
 //!
-//! [`ChainState`] stays the ambient shared read-mostly context, cloned into
-//! chains and callbacks; the scheduler owns the root chain's copy and is
+//! [`ChainState`] stays the ambient shared read-mostly context, which the
+//! chains hold; the scheduler owns the root chain's copy and is
 //! the exclusively owned mutable counterpart. The two are deliberately not
-//! merged: `ChainState` is cloned into callbacks, while the scheduler must
+//! merged: the callbacks capture `Arc` handles of the prompt and the
+//! emitter rather than a `ChainState`, while the scheduler must
 //! stay unreachable from the callback layer. The tree of the prompt a
 //! chain runs is shared through the chain's context's `Arc`, so a chain
 //! names its position in it by path

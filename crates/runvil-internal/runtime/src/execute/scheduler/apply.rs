@@ -240,9 +240,10 @@ impl Scheduler {
 }
 
 impl ChainOps<'_> {
-    /// Applies a nested infer round's completion: the single-prose-round
-    /// reporting through the chain's own emitter, stamped with `round`,
-    /// then the round's text.
+    /// Applies a nested infer round's completion: the round is reported
+    /// through `turn::report_model_turn` with `origin = infer`, on the
+    /// chain's own emitter, stamped with `round`, then comes the round's
+    /// text.
     fn accept_infer(
         &self,
         round: RoundId,

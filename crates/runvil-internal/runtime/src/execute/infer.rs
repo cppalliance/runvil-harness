@@ -4,7 +4,7 @@
 //! fresh conversation. `models.infer(model, prompt)` runs it with the
 //! handle's frozen binding; `models.infer(prompt)` resolves the section's
 //! current model and runs the same path. Neither form sends tools, reads or
-//! changes the section's `messages`, sets `reply`, or touches `sys`, and
+//! changes the section's `messages`, or touches `sys`, and
 //! both work inside a loop's tool handlers and compactors, where a loop
 //! raises. A Lua block that needs tools uses `call` on a section. The
 //! scheduler's leaf dispatch issues the round as a `Chat` effect over one
@@ -65,9 +65,9 @@ fn make_malformed_reply_error(specific: &str) -> Error {
 }
 
 /// Applies one infer round's answer, the completion the caller obtained
-/// or its failure: it reports the round exactly like a prose round,
-/// through `turn::report_model_turn` on the chain's reporting handles
-/// under `section`, and renders its text.
+/// or its failure: it reports the round through
+/// `turn::report_model_turn` on the chain's reporting handles under
+/// `section`, with `origin = infer`, and renders its text.
 ///
 /// A failed completion is a failed turn and the call's error. A round the
 /// caller drops never reaches here: the drop resumes the chain with a
