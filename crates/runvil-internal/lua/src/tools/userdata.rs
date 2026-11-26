@@ -8,8 +8,8 @@
 //! methodless, so `description` is always the text the Pack or the
 //! `tools.adhoc` attrs declared, and each `parameters` read is a fresh
 //! table of the schema as declared. Neither is ever in the untrusted
-//! envelope. Unlike a model handle, which carries `infer` and `loop`, it
-//! is invoked only through `tools.call(tool, arguments)`.
+//! envelope. Like a model handle, it is a value with fields:
+//! `tools.call(tool, arguments)` is the one way to invoke it.
 
 use mlua::{LuaSerdeExt, UserData, UserDataFields, UserDataMethods};
 use runvil_types::tools::{ToolId, ToolInfo};

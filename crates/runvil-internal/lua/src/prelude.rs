@@ -76,8 +76,10 @@ const VISIBLE_GLOBALS: [&str; 21] = [
 ///
 /// # Errors
 /// Returns a `LuaRuntime` failure naming the Pack when a prelude fails to
-/// load, or naming the Pack, the global, and what it collides with when a
-/// global collides or is not named by a string.
+/// load, when the prelude made its environment weak, or when a global it
+/// defines collides with a reserved name, a name already bound in `_G`, or an
+/// earlier prelude's global. A global whose key is not a string is refused
+/// with the Pack and the key's type named.
 pub fn install_preludes(lua: &Lua, preludes: &[Prelude]) -> Result<()> {
     let globals = lua.globals();
     let mut installed: BTreeMap<String, &PackId> = BTreeMap::new();

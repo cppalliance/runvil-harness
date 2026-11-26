@@ -29,7 +29,8 @@ use crate::protocol::ModelCall;
 /// event belongs to.
 #[derive(Debug, Clone, Copy)]
 pub struct ScriptReport {
-    /// The section's completed model-turn count at dispatch.
+    /// The turn the call reports under: the requesting round's turn for a
+    /// call a model issued, or the task's model-turn counter at dispatch.
     pub turn: u32,
 }
 
