@@ -96,7 +96,8 @@ impl ChainOps<'_> {
     /// Markdown buffer
     /// resets: a previous section's unconsumed prose never crosses the
     /// boundary. `Ok(false)` means the
-    /// slice is exhausted and the chain ends.
+    /// slice is exhausted, which lets the caller resume a jump-suspended
+    /// parent position or end the chain; this function ends nothing itself.
     ///
     /// # Errors
     /// Returns the failure of frame construction, as documented on
