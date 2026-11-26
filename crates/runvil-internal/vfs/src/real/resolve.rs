@@ -19,15 +19,36 @@ pub(super) enum RealRoot {
     Rooted(PathBuf),
 }
 
-/// Joins a canonical virtual path onto a real directory. The virtual path is
-/// canonical (dot segments resolved at receipt, forward slashes), so
-/// the join cannot escape lexically.
-pub(super) fn join_virtual(root: &Path, virtual_path: &str) -> PathBuf {
+/// Joins a canonical virtual path onto a real directory.
+///
+/// # Errors
+/// Returns `OutsideRoot` for a segment that is not one normal path
+/// component. On Windows a segment such as `C:` is a drive prefix, and
+/// `PathBuf::push` replaces the whole path with it, so a rooted mount could
+/// otherwise name a file on another drive or relative to one. A segment
+/// with a separator in it is refused for the same reason: it would carry
+/// more than one component into the join.
+pub(super) fn join_virtual(
+    root: &Path,
+    virtual_path: &str,
+    original: &VfsPath,
+) -> Result<PathBuf, VfsError> {
     let mut real = root.to_path_buf();
     for segment in virtual_path.split('/').filter(|s| !s.is_empty()) {
+        let mut components = Path::new(segment).components();
+        let one_normal = matches!(
+            (components.next(), components.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        );
+        if !one_normal {
+            return Err(outside(
+                original,
+                format!("{original} has a path segment that is not one plain name"),
+            ));
+        }
         real.push(segment);
     }
-    real
+    Ok(real)
 }
 
 /// The refusal of `original`, which leaves the root as `detail` says.
@@ -62,6 +83,13 @@ pub(super) fn contain(
             let mut resolved = canonical;
             for component in tail.iter().rev() {
                 resolved.push(component);
+            }
+            // The canonical ancestor sat under the root, but the tail is
+            // appended after that check, so the finished path is verified
+            // too: a tail component that Windows reads as a drive prefix
+            // would otherwise replace everything pushed before it.
+            if !resolved.starts_with(root) {
+                return Err(escapes());
             }
             return Ok(resolved);
         }
@@ -103,5 +131,11 @@ pub(super) fn contain_no_follow(
     };
     let mut resolved = contain(root, parent, original)?;
     resolved.push(name);
+    if !resolved.starts_with(root) {
+        return Err(outside(
+            original,
+            format!("{original} escapes the mounted root"),
+        ));
+    }
     Ok(resolved)
 }

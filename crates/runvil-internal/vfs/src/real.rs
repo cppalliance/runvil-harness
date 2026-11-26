@@ -212,7 +212,7 @@ impl RealAccess {
         match &self.root {
             RealRoot::Identity => Ok(platform::identity_to_real(path.as_str())),
             RealRoot::Rooted(root) => {
-                let candidate = join_virtual(root, path.as_str());
+                let candidate = join_virtual(root, path.as_str(), path)?;
                 contain(root, &candidate, path)
             }
         }
@@ -225,7 +225,7 @@ impl RealAccess {
         match &self.root {
             RealRoot::Identity => Ok(platform::identity_to_real(path.as_str())),
             RealRoot::Rooted(root) => {
-                let candidate = join_virtual(root, path.as_str());
+                let candidate = join_virtual(root, path.as_str(), path)?;
                 contain_no_follow(root, &candidate, path)
             }
         }
