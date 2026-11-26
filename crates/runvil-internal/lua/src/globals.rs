@@ -21,7 +21,9 @@
 //! guard, copying its other fields onto the guard, and `getmetatable(_G)`
 //! returns the author's metatable (or its `__metatable` field), never the
 //! guard. For every other value both behave as the base functions,
-//! argument errors and `__metatable` protection included. With no debug
+//! argument errors and `__metatable` protection included, except that
+//! `setmetatable` refuses, on every target, a metatable with a `__gc`
+//! field: finalizers are not available in the sandbox. With no debug
 //! library, `rawset`, or code loading in the sandbox, author code has no
 //! route to the guard or to a raw `args`, `prose`, or `messages` global.
 //!

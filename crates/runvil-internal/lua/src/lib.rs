@@ -11,7 +11,9 @@
 //! Four standard functions are replaced so that a run with the same seed
 //! repeats: `math.randomseed` seeds from the VM's own generator,
 //! `table.sort` is a stable merge sort, and `tostring` and `string.format`
-//! print a table, function, thread, or userdata by its name. The executor
+//! print a table, function, thread, or userdata by its name. `pairs` and
+//! `next` are replaced too, for a different reason: each walks a table's keys
+//! in the fixed order above. The executor
 //! seeds each VM's `math.random` generator.
 //! Direct `print` and `warn` are unavailable. A persistent `log(message)`
 //! callback accepts one bounded, single-line UTF-8 string and reports it

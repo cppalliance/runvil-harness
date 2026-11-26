@@ -1,13 +1,14 @@
 //! The shared ordering of a Lua table's hash keys.
 //!
-//! Lua leaves a table's hash traversal order unspecified, so every path that
-//! turns a table into an ordered sequence imposes the same order: booleans
-//! first (`false` before `true`), then numbers by value, then strings
+//! Lua leaves a table's hash traversal order unspecified, so this module
+//! orders the keys a reader sorts, and each reader chooses what comes before
+//! them: fanout puts the list first, and `pairs` and `next` put every integer
+//! from 1 up first (see `iteration::WalkPlace`). The key order itself:
+//! booleans first (`false` before `true`), then numbers by value, then strings
 //! bytewise. [`sort_key`] classifies one Lua key into its [`SortKey`];
-//! [`SortKey::compare`] orders two of them. Fanout's member enumeration, the
-//! deterministic `pairs`/`next` installer, and `json.encode`'s key order
-//! share both, so a table's order is a function of its contents wherever it
-//! is read. [`FirstRefusal`] gives the same order to a check that refuses a
+//! [`SortKey::compare`] orders two of them, and `json.encode` uses both for
+//! its own key order. [`FirstRefusal`] gives the same order to a check that
+//! refuses a
 //! table for one of its entries, and [`sort_list`] to a Lua list of a
 //! table's entries. [`is_weak`] tells a table that no such list is made
 //! of, and [`listed`] counts the items that come before the keys.
