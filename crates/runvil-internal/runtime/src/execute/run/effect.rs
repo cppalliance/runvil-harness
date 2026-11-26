@@ -20,7 +20,8 @@
 //! the effect minus its handles, which round-trips exactly: a run log
 //! stores records, and a later replay compares a re-executed run's records
 //! against them. An [`EffectAnswer`] likewise contains values a log cannot
-//! hold whole (a completion's bodies, an error's boxed cause);
+//! hold whole (a completion's bodies, and a failure's full message,
+//! location, and facts);
 //! [`EffectAnswer::record`] projects it onto the answer's outcome as a log
 //! stores it. Both values serialize the crate-private record types,
 //! [`EffectRecord`] and [`AnswerRecord`].
@@ -263,7 +264,7 @@ pub enum Effect {
         alias: String,
         /// The call's arguments.
         args: Value,
-        /// Who made the call: the run, the section and its entry, and the
+        /// Who made the call: the section and its entry, and the
         /// section's script or the model whose round asked for it.
         origin: ToolCallOrigin,
         /// Whether a stop leaves the call in flight, from the binding the
@@ -491,7 +492,7 @@ pub(crate) enum EffectRecord {
         alias: String,
         /// The call's arguments.
         args: Value,
-        /// Who made the call: the run, the section and its entry, and the
+        /// Who made the call: the section and its entry, and the
         /// section's script or the model whose round asked for it.
         origin: ToolCallOrigin,
     },
