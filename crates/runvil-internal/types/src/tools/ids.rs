@@ -9,14 +9,17 @@ use crate::packs::PackId;
 /// Identifies a tool by its Pack's local name and the Pack's own segments.
 ///
 /// A tool id is a [`GlobalName`] of two or more segments, such as
-/// `web/fetch`. The first segment is the id of the Pack that contributed
-/// the tool, and the last is the tool's own name. For example, `web/fetch`
+/// `web/fetch`. The first segment is a Pack's id, or `adhoc` or `dynamic` for
+/// a tool the Engine holds, which are the [`RESERVED_PACK_IDS`] no Pack may
+/// take. The last segment is the tool's own name. For example, `web/fetch`
 /// comes from `web`.
 ///
-/// The tool id stays its identity under any name a model request uses for
-/// it. When a Pack is bound to a prompt, a selected tool can be offered
-/// under a prompt-local alias. Calls under that alias still reach the same
-/// tool.
+/// The tool id stays its identity under whatever wire name a model request
+/// uses for it. A model calls a tool by its wire name, which the Pack or a
+/// render sets and which otherwise comes from the id, and a call under any
+/// wire name reaches the tool this id names.
+///
+/// [`RESERVED_PACK_IDS`]: crate::packs::RESERVED_PACK_IDS
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub struct ToolId(GlobalName);
@@ -50,7 +53,8 @@ impl ToolId {
         &segments[segments.len() - 1]
     }
 
-    /// Returns the id of the Pack that contributed this tool.
+    /// Returns the id of the Pack that contributed this tool, or the
+    /// `adhoc` or `dynamic` id of a tool the Engine holds.
     ///
     /// It is the tool id's first segment, validated when the tool id was
     /// parsed. This method reuses that validation and builds the

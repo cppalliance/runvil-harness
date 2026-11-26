@@ -12,9 +12,13 @@ use crate::names::make_invalid_id_error;
 ///
 /// The caller builds the catalog from every Pack it can serve, declared
 /// by the prompt or not, and keeps the tool implementations itself. The
-/// catalog lists every tool the run can use: the prompt's Lua calls one by
-/// its [`ToolId`], and a section offers one to its model with
-/// `tools.offer`.
+/// catalog lists the tools of those Packs: the prompt's Lua calls one by
+/// its [`ToolId`] unless the tool sets `model_only_call`, and a section
+/// offers one to its model with `tools.offer`.
+///
+/// A run also uses tools outside the catalog: a section's adhoc tools, the
+/// Engine's two discovery tools, and the model-only tools a Pack's render
+/// adds.
 ///
 /// Every tool in a catalog has a unique [`ToolId`]. Construction checks it,
 /// and the [`get`](Self::get) lookup relies on that check.
