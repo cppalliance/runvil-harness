@@ -10,7 +10,9 @@
 //! through [`resolve_jump_target`]. The `prompt` reads take a path from
 //! the top as well, which names any section, and [`read_section`]
 //! resolves them. A relative path in a library's code starts at the
-//! library, whose position [`library_position`] reads back from its key.
+//! library, whose position [`library_position`] reads back from its key,
+//! `jump` included: the library stands in for the running section, whatever
+//! section that is.
 //! `require` takes only a path from the
 //! top, and [`resolve_library`] turns the section it names into a
 //! [`Library`] keyed by the section's position.

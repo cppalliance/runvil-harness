@@ -46,8 +46,9 @@
 //! which wait there until the run's concurrency limits admit them) and the
 //! slots held, and reads the chain tree through a read-only view - the one
 //! cross-read. A request that touches only its own chain runs
-//! in a view of that chain, which borrows the chain, the effect table, and
-//! the run context and nothing else, and holds the one `issue` path every
+//! in a view of that chain, which borrows the chain and the effect table,
+//! reads the run's scope handle, and nothing else, and holds the one `issue`
+//! path every
 //! leaf arm hands its effect through; the core keeps every request that
 //! coordinates more than one owner. The submodules hold the rest:
 //! `effects` the effect table and its entries (the `Continuation` an

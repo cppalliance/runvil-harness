@@ -47,8 +47,9 @@ pub enum Step {
         /// The effects issued since the previous step, in issue order,
         /// each with the provenance of the task that built it, for the
         /// caller to perform and answer through [`Run::resume`]: those
-        /// [`Run::request_file`] issued for a tool's file requests, then
-        /// those this step issued. An empty list means the run waits on
+        /// [`Run::request_file`] issued for a tool's file requests, those a
+        /// render's answer issued when `Run::resume` took it, then those
+        /// this step issued. An empty list means the run waits on
         /// effects an earlier step issued, or, when `waiting_for_input`
         /// is set, on the main chain's next message.
         effects: Vec<IssuedEffect>,

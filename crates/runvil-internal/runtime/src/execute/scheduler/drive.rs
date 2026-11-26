@@ -4,7 +4,8 @@
 //! checks that the run can start and starts its first chain on its first
 //! call, drains the ready queue, and returns the effects issued since the
 //! last step, those `Run::request_file` issued for a tool's file requests
-//! and then those the drain issued, with the events it reported.
+//! and those a render's answer started when `Run::resume` took it, and then
+//! those the drain issued, with the events it reported.
 //! An empty ready queue with no parked effect and no queued chain that can
 //! be admitted is a stall, which ends the run rather than hangs, unless the
 //! main chain waits on its inbox: then the step reports `waiting_for_input`,
