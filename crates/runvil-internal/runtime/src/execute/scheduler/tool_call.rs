@@ -294,8 +294,7 @@ impl ChainOps<'_> {
         let Some(info) = tool.and_then(|tool| tool_set.catalog().get(&tool)) else {
             return Err(make_unbound_tool_call_error(tool_set, name));
         };
-        // A script cannot know the arguments a render shapes for a model,
-        // so a model-only tool refuses the call while the catalog keeps
+        // A model-only tool refuses a script's call while the catalog keeps
         // naming it.
         if info.model_only_call {
             return Err(error::make_model_only_tool_error(

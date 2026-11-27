@@ -109,15 +109,14 @@ pub(crate) fn make_unbound_tool_error(name: &str, ids: &[String]) -> Error {
 }
 
 /// A `tools.call` that named `name`, the catalog tool `id`, which only a
-/// model may call: a Pack marks a tool model-only when a render gives its
-/// arguments a script cannot know.
+/// model may call: a Pack marks a tool model-only when a script has no
+/// business making its calls.
 pub(crate) fn make_model_only_tool_error(name: &str, id: &str) -> Error {
     make_refusal_error(
         ErrorCode::ModelOnlyTool,
         format!(
-            "tool {name:?} ({id}) is model-only: a render shapes its arguments for the model \
-             that receives them, so a script cannot call it; offer it with tools.offer and let \
-             the model call it"
+            "tool {name:?} ({id}) is model-only: only a model may call it, so a script cannot; \
+             offer it with tools.offer and let the model call it"
         ),
         name,
     )

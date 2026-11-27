@@ -355,6 +355,31 @@ fn a_dropped_render_answers_its_round_as_canceled_and_fixes_no_tools() {
 }
 
 #[test]
+fn a_render_answer_that_changes_a_catalog_tools_parameters_fails_its_round() {
+    let source = one_section(
+        "tools.offer('tools/echo')
+         messages:user('asked')
+         local ok, err = pcall(models.loop)
+         return err.kind .. ':' .. tostring(err)",
+    );
+    let run = loop_scenario(source).offer("echo", echo_tool()).into_run();
+    let (result, _) = drive(run, |_, effect| match effect {
+        Effect::Render { offered, .. } => {
+            let mut answer = offered.clone();
+            answer[0].static_set[0].parameters_schema =
+                json!({ "type": "object", "properties": { "value": { "type": "string" } } });
+            EffectAnswer::Render(answer)
+        }
+        other => panic!("only the render is issued: {other:?}"),
+    });
+    assert_eq!(
+        text_of(result),
+        format!("internal:prompt:12: {}", ErrorCode::ToolSetsInvalid.prose()),
+        "the round fails as any broken render rule does, and no chat goes out"
+    );
+}
+
+#[test]
 fn a_render_answer_that_breaks_the_merge_fails_its_round_and_fixes_no_tools() {
     let source = one_section(
         "tools.offer('tools/echo')

@@ -68,12 +68,15 @@ pub struct ToolInfo {
     /// Whether only a model may call the tool, so a script's `tools.call`
     /// refuses it.
     ///
-    /// A Pack sets it when a render gives the tool arguments a script
-    /// cannot know: a script names a tool by id and passes JSON it wrote,
-    /// while the arguments a model sends follow whatever schema the
-    /// section's render answered for that model. The tool stays in the
-    /// catalog, so Lua names it and a section offers it with
-    /// `tools.offer`; only the call is refused.
+    /// A Pack sets it for a catalog tool whose calls a script has no
+    /// business making. The tool stays in the catalog, so Lua names it and
+    /// a section offers it with `tools.offer`; only the call is refused.
+    ///
+    /// It is not the way to show a model other parameters than the
+    /// catalog's. A render cannot give a catalog tool other parameters, so
+    /// the arguments of a call to it always fit the schema the catalog
+    /// lists. A tool with other parameters is a tool only the model sees,
+    /// which a render lists under a name of its own.
     pub model_only_call: bool,
     /// Whether a call to the tool changes files.
     ///

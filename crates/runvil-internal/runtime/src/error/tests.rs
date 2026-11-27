@@ -347,10 +347,10 @@ fn a_refused_tool_call_names_the_tool_and_its_text_is_its_prose() {
         unbound.message,
         "tool \"web/gone\" is not a tool in this run; catalog tools: [\"web/fetch\"]"
     );
-    assert!(
-        model_only
-            .message
-            .starts_with("tool \"web/render\" (web/render) is model-only")
+    assert_eq!(
+        model_only.message,
+        "tool \"web/render\" (web/render) is model-only: only a model may call it, so a script \
+         cannot; offer it with tools.offer and let the model call it"
     );
 }
 

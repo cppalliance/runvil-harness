@@ -67,9 +67,8 @@ impl UserData for LuaToolHandle {
         // marker, so `json.encode` gives back `[]`, and nulls read
         // `json.null`.
         fields.add_field_method_get("parameters", |lua, this| lua.to_value(&this.parameters));
-        // A script reads this before offering a tool whose call it cannot
-        // make: the model's arguments, not the script's, fit the schema a
-        // render gave it.
+        // A script reads this before it calls a tool: a script's call of a
+        // model-only tool is refused.
         fields.add_field_method_get("model_only_call", |_, this| Ok(this.model_only_call));
         fields.add_field_method_get("pack", |lua, this| {
             pack_object(lua, &this.id.pack().to_string())

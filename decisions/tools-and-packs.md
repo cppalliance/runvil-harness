@@ -124,7 +124,9 @@ Two tools that share a wire name across the Static Set and the Dynamic Set fail 
 
 ### `Pack::render` lets a Pack shape its tools for each model
 
-At the first loop round, the Harness calls `render` on each Pack the section offered from. The Pack receives the offered tools and the round's model, and returns the tools the model will see. It may rename a tool, rewrite its description and schema, drop it, or add model-only tools. Each shipped Pack uses the default, which returns the tools unchanged. The contract lacks a render verb, so the loader gives each library Pack the same default, and a render for a library Pack is still to be built.
+At the first loop round, the Harness calls `render` on each Pack the section offered from. The Pack receives the offered tools and the round's model, and returns the tools the model will see. It may rename a tool, rewrite its description, drop it, or add tools only the model sees. Each shipped Pack uses the default, which returns the tools unchanged. The contract lacks a render verb, so the loader gives each library Pack the same default, and a render for a library Pack is still to be built.
+
+A tool the section offered keeps its parameters, so one catalog name always means one parameter schema. A render that lists an offered tool with other parameters fails the round, the same way a render that lists a tool the section did not offer does. A model that needs other parameters gets a tool only the model sees, under a name of its own, such as a patch tool in place of a replace tool. Lua can call a catalog tool by its id, and it cannot name a tool only the model sees.
 
 One hook covers every Pack, so the Engine treats all tools the same way. The Engine requests the render as an effect: the Harness performs it, so the Engine is still pure, and the run log records it.
 

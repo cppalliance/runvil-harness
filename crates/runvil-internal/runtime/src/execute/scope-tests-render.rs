@@ -1,7 +1,7 @@
 //! Rule one's checks of a render's answer, one test per check and
 //! table-driven where the shape allows, and the order each set keeps
 //! around a render that reorders its Pack's tools and adds model-only
-//! ones.
+//! ones. A catalog tool keeps the parameters it was offered with.
 
 use super::*;
 
@@ -129,6 +129,57 @@ fn rule_one_refuses_a_rendered_tool_outside_what_its_pack_was_asked() {
             "{case}"
         );
     }
+}
+
+#[test]
+fn rule_one_refuses_an_offered_tool_listed_with_other_parameters() {
+    let tools = catalog([info("web/fetch")]);
+    let offers = SectionOffers::static_first(&[listed("web/fetch")], &[]);
+    let other = json!({ "type": "object", "properties": { "url": { "type": "string" } } });
+    let reshaped = || {
+        let mut tool = info("web/fetch");
+        tool.parameters_schema = other.clone();
+        tool
+    };
+    for (case, answered) in [
+        ("the offered tool alone", vec![reshaped()]),
+        (
+            "a repeat of it after a copy that matches",
+            vec![info("web/fetch"), reshaped()],
+        ),
+    ] {
+        let error = merge_tool_sets(&offers, web(answered, Vec::new()), &tools).expect_err(case);
+        assert_eq!(
+            (error.code, error.to_string()),
+            (
+                ErrorCode::ToolSetsInvalid,
+                "the web Pack's render returned web/fetch of the web Pack in the Static Set with \
+                 other parameters than the section offered it with; a render keeps a catalog \
+                 tool's parameters, so it returns other parameters as a tool under a name of \
+                 its own"
+                    .to_owned()
+            ),
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn rule_one_accepts_an_offered_tool_renamed_and_described_anew_beside_a_tool_with_other_parameters()
+{
+    let tools = catalog([info("web/fetch")]);
+    let offers = SectionOffers::static_first(&[listed("web/fetch")], &[]);
+    let mut renamed = info("web/fetch").wire_name("Fetch");
+    renamed.description = "Fetch one page.".to_owned();
+    let mut lite = info("web/fetch_lite");
+    lite.parameters_schema =
+        json!({ "type": "object", "properties": { "url": { "type": "string" } } });
+    let frozen = merge_tool_sets(&offers, web(vec![renamed, lite], Vec::new()), &tools)
+        .expect("a new name and description, and a tool only the model sees, are allowed");
+    assert_eq!(
+        sited(&frozen.static_set),
+        ["Fetch=web/fetch", "web_fetch_lite=web/fetch_lite"]
+    );
 }
 
 #[test]

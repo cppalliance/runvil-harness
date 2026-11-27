@@ -170,12 +170,12 @@ struct Laid {
 /// - The render answered what [`offered_packs`] asks of these offers: the
 ///   same Packs in the same order, with no tool for a set a Pack was not
 ///   offered into. Every rendered tool's id starts with its Pack's id, a
-///   rendered run catalog tool is one the section offered in that set, and
-///   a tool repeated within a set keeps its first copy. Each tool binds
-///   under its wire name, and a catalog id keeps the catalog's flags and
-///   output kind, so a render changes only a catalog tool's wire name,
-///   description, and schema, while a model-only tool binds with the flags
-///   its render gave it.
+///   rendered run catalog tool is one the section offered in that set and
+///   keeps the parameters it was offered with, and a tool repeated within
+///   a set keeps its first copy. Each tool binds under its wire name, and
+///   a catalog id keeps the catalog's flags and output kind, so a render
+///   changes only a catalog tool's wire name and description, while a
+///   model-only tool binds with the flags its render gave it.
 /// - Within a set, a Pack tool whose wire name an adhoc tool of that set
 ///   takes is dropped.
 /// - A Dynamic Set tool whose id the Static Set holds is dropped.
@@ -263,8 +263,9 @@ fn check_render(
 ///
 /// # Errors
 /// Returns a `ToolSetsInvalid` failure naming the first tool that sits in
-/// a set the Pack was not offered into, under another Pack's id, or is a
-/// run catalog tool the section did not offer in `set`.
+/// a set the Pack was not offered into, under another Pack's id, is a
+/// run catalog tool the section did not offer in `set`, or is an offered
+/// tool whose parameters differ from the ones it was offered with.
 fn check_set(
     pack: &PackId,
     set: OfferMode,
@@ -289,11 +290,21 @@ fn check_set(
                 error::tool_in_set(&tool.id, set)
             )));
         }
-        let unoffered = !offered.iter().any(|held| held.id == tool.id);
-        if unoffered && catalog.get(&tool.id).is_some() {
+        let held = offered.iter().find(|held| held.id == tool.id);
+        if held.is_none() && catalog.get(&tool.id).is_some() {
             return Err(error::make_tool_sets_error(format!(
                 "the render returned {}, a run catalog tool the section did not offer in that \
                  set; a render returns a catalog tool only into a set the section offered it in",
+                error::tool_in_set(&tool.id, set)
+            )));
+        }
+        if let Some(held) = held
+            && held.parameters_schema != tool.parameters_schema
+        {
+            return Err(error::make_tool_sets_error(format!(
+                "the {pack} Pack's render returned {} with other parameters than the section \
+                 offered it with; a render keeps a catalog tool's parameters, so it returns \
+                 other parameters as a tool under a name of its own",
                 error::tool_in_set(&tool.id, set)
             )));
         }

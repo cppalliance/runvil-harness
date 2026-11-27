@@ -78,8 +78,7 @@ pub enum ErrorKind {
     /// catalog tool in the run; includes `name`.
     UnboundTool,
     /// A script `tools.call` named a catalog tool that only a model may
-    /// call, because a render shapes its arguments for the model; includes
-    /// `name`.
+    /// call; includes `name`.
     ModelOnlyTool,
     /// A dispatched tool's own failure.
     Tool,
