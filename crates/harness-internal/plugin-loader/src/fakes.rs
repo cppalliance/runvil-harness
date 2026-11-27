@@ -26,11 +26,11 @@ pub(crate) use runvil_plugin_sys::{
     PluginEntry, RV_ERR_FILE, RV_ERR_MISUSE, RV_ERR_REFUSED, RV_ERR_UNSUPPORTED,
     RV_FILE_ERROR_IS_A_DIRECTORY, RV_FILE_ERROR_NOT_A_DIRECTORY, RV_FILE_ERROR_NOT_FOUND,
     RV_FILE_ERROR_OTHER, RV_FILE_TYPE_DIRECTORY, RV_FILE_TYPE_FILE, RV_OK, RV_PACK_DELETE,
-    RV_PACK_NEW, RV_PENDING, RV_PLUGIN_LOAD, RV_PLUGIN_UNLOAD, RV_RESULT_BACKEND,
+    RV_PACK_NEW, RV_PACK_RENDER, RV_PENDING, RV_PLUGIN_LOAD, RV_PLUGIN_UNLOAD, RV_RESULT_BACKEND,
     RV_RESULT_INVALID_ARGUMENTS, RV_RESULT_OTHER, RV_RESULT_TRANSPORT, RV_RESULT_TRUSTED,
     RV_RESULT_UNTRUSTED, RV_TOOL_CALL, RV_TOOL_CANCEL, RV_TOOL_CHANGES_FILES, RvBytes, RvCall,
-    RvFileAnswer, RvHost, RvLoadArgs, RvPackInfo, RvPackNewArgs, RvPluginInfo, RvResultKind,
-    RvStatus, RvStr, RvToolCallArgs, RvToolInfo, RvToolResult, RvVerb, RvWaker,
+    RvFileAnswer, RvHost, RvLoadArgs, RvPackInfo, RvPackNewArgs, RvPackRenderArgs, RvPluginInfo,
+    RvResultKind, RvStatus, RvStr, RvToolCallArgs, RvToolInfo, RvToolResult, RvVerb, RvWaker,
 };
 use serde_json::Value;
 
@@ -128,6 +128,7 @@ macro_rules! pack_fake {
         step: |$step_call:ident| $step:expr
         $(, cancel: |$cancel_call:ident| $cancel:expr)?
         $(, unload: |$unload_call:ident| $unload:expr)?
+        $(, render: |$render_call:ident| $render:expr)?
     ) => {
         mod $name {
             use std::ffi::c_void;
@@ -185,6 +186,9 @@ macro_rules! pack_fake {
                         note(RV_PACK_DELETE);
                         RV_OK
                     }
+                    RV_PACK_RENDER => {
+                        $crate::fakes::render_arm!(call $(, $render_call, $render)?)
+                    }
                     RV_TOOL_CALL => {
                         let $step_call = call;
                         $step
@@ -206,6 +210,20 @@ macro_rules! pack_fake {
     };
 }
 pub(crate) use pack_fake;
+
+/// What a `pack_fake!` Plugin does with RV_PACK_RENDER: the body it was
+/// given, which sees the call as the name it gave, or else it answers
+/// RV_ERR_UNSUPPORTED, as a Plugin that does not render does.
+macro_rules! render_arm {
+    ($call:ident) => {
+        RV_ERR_UNSUPPORTED
+    };
+    ($call:ident, $render_call:ident, $render:expr) => {{
+        let $render_call = $call;
+        $render
+    }};
+}
+pub(crate) use render_arm;
 
 /// The instance a `pack_fake!` Plugin sets.
 pub(crate) const PLUGIN_TAG: usize = 0x100;
@@ -444,12 +462,16 @@ pub(crate) fn contract_holds(call: *mut RvCall, verb: RvVerb) -> bool {
     // the loader's live `RvCall` and its table is the loader's static.
     let (call, table) = unsafe { (&*call, &*(*call).host) };
     let has_plugin = verb != RV_PLUGIN_LOAD;
-    let has_pack = matches!(verb, RV_PACK_DELETE | RV_TOOL_CALL | RV_TOOL_CANCEL);
+    let has_pack = matches!(
+        verb,
+        RV_PACK_DELETE | RV_PACK_RENDER | RV_TOOL_CALL | RV_TOOL_CANCEL
+    );
     // The first field of each arguments struct is its size, then a zero
     // `reserved`, then the `ctx`, as `RvLoadArgs` lays them out.
     let args_size = match verb {
         RV_PLUGIN_LOAD => Some(size_u32::<RvLoadArgs>()),
         RV_PACK_NEW => Some(size_u32::<RvPackNewArgs>()),
+        RV_PACK_RENDER => Some(size_u32::<RvPackRenderArgs>()),
         RV_TOOL_CALL => Some(size_u32::<RvToolCallArgs>()),
         _ => None,
     };
@@ -536,6 +558,12 @@ fn args<'call>(call: *mut RvCall) -> &'call RvLoadArgs {
 pub(crate) fn pack_args<'call>(call: *mut RvCall) -> &'call RvPackNewArgs {
     // SAFETY: as in `args`, for the verb's own arguments struct.
     unsafe { &*(*call).args.cast::<RvPackNewArgs>() }
+}
+
+/// The `RvPackRenderArgs` an RV_PACK_RENDER call carries.
+pub(crate) fn render_args<'call>(call: *mut RvCall) -> &'call RvPackRenderArgs {
+    // SAFETY: as in `args`, for the verb's own arguments struct.
+    unsafe { &*(*call).args.cast::<RvPackRenderArgs>() }
 }
 
 /// The `RvToolCallArgs` an RV_TOOL_CALL step carries.
@@ -751,6 +779,82 @@ pub(crate) fn add_tool_info(call: *mut RvCall, info: &RvToolInfo) -> RvStatus {
 /// Adds the tool `name` to the instance being made.
 pub(crate) fn add_tool(call: *mut RvCall, name: &str) -> RvStatus {
     add_tool_info(call, &tool_info(name))
+}
+
+/// A tool an RV_PACK_RENDER call lends, as a fake reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OfferedTool {
+    pub(crate) name: String,
+    pub(crate) wire_name: String,
+    pub(crate) description: String,
+    pub(crate) parameters: String,
+    pub(crate) flags: u32,
+}
+
+/// The tools an RV_PACK_RENDER call lends, in order.
+pub(crate) fn offered_tools(call: *mut RvCall) -> Vec<OfferedTool> {
+    let args = render_args(call);
+    if args.offered_len == 0 {
+        return Vec::new();
+    }
+    // SAFETY: the loader lends `offered_len` readable values at `offered`
+    // for the call, and a fake reads them only during it.
+    let infos = unsafe { slice::from_raw_parts(args.offered, args.offered_len) };
+    infos
+        .iter()
+        .map(|info| OfferedTool {
+            name: text(info.name),
+            wire_name: text(info.wire_name),
+            description: text(info.description),
+            parameters: text(info.parameters),
+            flags: info.flags,
+        })
+        .collect()
+}
+
+/// Calls the `add_tool` of an RV_PACK_RENDER call, handing it `as_ctx`.
+pub(crate) fn render_add_tool_as(
+    call: *mut RvCall,
+    as_ctx: *mut c_void,
+    info: &RvToolInfo,
+) -> RvStatus {
+    // SAFETY: `info` is a live `RvToolInfo` whose strings outlive the
+    // call, and the function reads through `as_ctx` only when it is the
+    // `ctx` of the call open on this thread.
+    unsafe { (render_args(call).add_tool)(as_ctx, info) }
+}
+
+/// Calls the render call's `add_tool` with its own `ctx` and `info`.
+pub(crate) fn render_add_tool_info(call: *mut RvCall, info: &RvToolInfo) -> RvStatus {
+    render_add_tool_as(call, render_args(call).ctx, info)
+}
+
+/// Lists the tool `name` in the render, as a well-formed tool of
+/// [`NO_PARAMETERS`].
+pub(crate) fn render_add_tool(call: *mut RvCall, name: &str) -> RvStatus {
+    render_add_tool_info(call, &tool_info(name))
+}
+
+/// Lists the offered tool `tool` in the render as it was lent.
+pub(crate) fn list_as_offered(call: *mut RvCall, tool: &OfferedTool) -> RvStatus {
+    render_add_tool_info(
+        call,
+        &RvToolInfo {
+            size: size_u32::<RvToolInfo>(),
+            flags: tool.flags,
+            name: rv_str(&tool.name),
+            wire_name: rv_str(&tool.wire_name),
+            description: rv_str(&tool.description),
+            parameters: rv_str(&tool.parameters),
+        },
+    )
+}
+
+/// Declines the RV_PACK_RENDER call with `reason`.
+pub(crate) fn render_refuse(call: *mut RvCall, reason: &str) -> RvStatus {
+    let args = render_args(call);
+    // SAFETY: `reason` outlives the call, and `ctx` is the open call's.
+    unsafe { (args.refuse)(args.ctx, rv_str(reason)) }
 }
 
 /// Declines the RV_PACK_NEW call with `reason`.

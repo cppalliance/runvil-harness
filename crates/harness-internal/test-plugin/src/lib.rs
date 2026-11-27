@@ -7,7 +7,12 @@
 //! request each, one for each file function of the contract: `stat`,
 //! `list`, and `read` read, and `write`, `append`, `mkdir`, `remove`,
 //! `rename`, and `copy` change files. The last, `read_many`, reads many
-//! files in one call.
+//! files in one call. Its render shapes the Pack's tools by the name of
+//! the model it is asked for: `shape` shows `hello` under another wire
+//! name and adds `lite`, a tool only the model sees, `refuse` declines,
+//! `misuse` lists a tool the loader rejects, `unsupported` answers that
+//! it does not render, and any other model is shown the offered tools as
+//! they were lent.
 //!
 //! ## Invariants
 //!
@@ -32,6 +37,10 @@
 //!   at `0.1.0`, inserts its one Pack, and sets the instance pointer only
 //!   when both succeed. A failing load frees what it made, and so does a
 //!   failing `RV_PACK_NEW`.
+//! - `RV_PACK_RENDER` keeps nothing and frees nothing: it lists each tool
+//!   through the call's `ctx` and leaves the instance as it was. It
+//!   checks the instance and its arguments first, and picks its shape
+//!   from the model's name without indexing or arithmetic that can panic.
 //! - A tool call's state is freed by the step that ends the call or by
 //!   `RV_TOOL_CANCEL`, never by both.
 //! - A step that returns `RV_PENDING` with no file request parks its
@@ -100,6 +109,9 @@ const RV_PACK_DELETE: RvVerb = 4;
 const RV_TOOL_CALL: RvVerb = 5;
 /// Free the state of a tool call the Host has abandoned.
 const RV_TOOL_CANCEL: RvVerb = 6;
+/// List the tools a model is shown, given the tools a section offered
+/// from a Pack instance.
+const RV_PACK_RENDER: RvVerb = 7;
 
 /// How a tool call ended.
 type RvResultKind = u32;
@@ -193,6 +205,15 @@ const COPY: &str = "copy";
 /// The tool that reads `count` files of the directory at its `path`, the
 /// ones named `0`, `1`, and so on, one in each step.
 const READ_MANY: &str = "read_many";
+/// The tool only a model sees: the `shape` render lists it, and it ends
+/// in one step with `lite ` and its arguments. It is no catalog tool.
+const LITE: &str = "lite";
+/// What the `shape` render says `lite` does.
+const LITE_DESCRIPTION: &str = "Answers lite and its arguments in one step.";
+/// The wire name the `shape` render gives the catalog tool `hello`.
+const SHOWN_HELLO: &str = "shown_hello";
+/// What the `shape` render says the renamed `hello` does.
+const SHOWN_HELLO_DESCRIPTION: &str = "Answers hello under another name.";
 
 /// A UTF-8 string that is not NUL-terminated.
 #[repr(C)]
@@ -388,6 +409,32 @@ struct RvPackNewArgs {
     /// Declines to make the instance. This Plugin never calls it.
     refuse: unsafe extern "C" fn(ctx: *mut c_void, reason: RvStr) -> RvStatus,
     /// Adds one tool to the instance.
+    add_tool: unsafe extern "C" fn(ctx: *mut c_void, info: *const RvToolInfo) -> RvStatus,
+}
+
+/// The arguments of `RV_PACK_RENDER`: the section entry, the model as JSON
+/// text, the tools the section offered from the Pack, and the functions
+/// the Plugin may call while it renders.
+#[repr(C)]
+#[derive(Debug)]
+struct RvPackRenderArgs {
+    /// `size_of::<RvPackRenderArgs>()`.
+    size: u32,
+    /// Zero.
+    reserved: u32,
+    /// The loader's context for this call.
+    ctx: *mut c_void,
+    /// The section entry.
+    entry: RvStr,
+    /// The JSON text of an object that describes the model.
+    model: RvStr,
+    /// The first of `offered_len` offered tools, or NULL.
+    offered: *const RvToolInfo,
+    /// How many tools `offered` points at.
+    offered_len: usize,
+    /// Declines to render.
+    refuse: unsafe extern "C" fn(ctx: *mut c_void, reason: RvStr) -> RvStatus,
+    /// Lists one tool the model is shown.
     add_tool: unsafe extern "C" fn(ctx: *mut c_void, info: *const RvToolInfo) -> RvStatus,
 }
 
@@ -757,6 +804,7 @@ pub unsafe extern "C" fn runvil_plugin(call: *mut RvCall) -> RvStatus {
             RV_PLUGIN_UNLOAD => unload(call),
             RV_PACK_NEW => pack_new(call),
             RV_PACK_DELETE => pack_delete(call),
+            RV_PACK_RENDER => pack_render(call),
             RV_TOOL_CALL => tool_call(call),
             RV_TOOL_CANCEL => tool_cancel(call),
             _ => RV_ERR_UNSUPPORTED,
@@ -956,6 +1004,127 @@ unsafe fn pack_new(call: *mut RvCall) -> RvStatus {
     RV_OK
 }
 
+/// The name in the JSON text of a model, or the empty string when the
+/// text has none. The loader sorts the keys of that text and escapes a
+/// quote in a string, so the first `"name":"` is the model's name.
+fn model_name(model: &str) -> &str {
+    model
+        .split_once("\"name\":\"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map_or("", |(name, _)| name)
+}
+
+/// Handles `RV_PACK_RENDER`: lists the tools the model is shown, chosen
+/// by the model's name. `unsupported` answers `RV_ERR_UNSUPPORTED`,
+/// `refuse` declines, `misuse` lists a tool whose name the loader
+/// rejects, and `shape` lists the offered `hello` under another wire name
+/// and description, leaves out every other offered tool, and adds the
+/// tool only the model sees, `lite`. Any other model is shown the offered
+/// tools as they were lent.
+///
+/// # Safety
+/// `call` points to a valid `RvCall` whose `pack_run` is NULL or the
+/// pointer `RV_PACK_NEW` set, and whose `args` is NULL or an
+/// `RvPackRenderArgs` as long as its `size` says, with `offered` NULL or
+/// pointing at `offered_len` readable tools.
+unsafe fn pack_render(call: *mut RvCall) -> RvStatus {
+    // SAFETY: for this verb `args` is NULL or an `RvPackRenderArgs`.
+    let args = match unsafe { args::<RvPackRenderArgs>(call) } {
+        Ok(args) => args,
+        Err(status) => return status,
+    };
+    // SAFETY: the caller guarantees `call` is valid.
+    if unsafe { (*call).pack_run }.is_null() {
+        return RV_ERR_MISUSE;
+    }
+    // SAFETY: the loader keeps the model text valid for the call.
+    let model = unsafe { text(args.model) };
+    match model_name(model) {
+        "unsupported" => RV_ERR_UNSUPPORTED,
+        "refuse" => {
+            let reason = rv_str("no tools for this model");
+            // SAFETY: `refuse` and `ctx` are the call's own arguments.
+            unsafe { (args.refuse)(args.ctx, reason) }
+        }
+        "misuse" => {
+            let info = render_info(0, "Not A Segment", "", "A tool.", NO_PARAMETERS);
+            // SAFETY: as above, and `info` and its strings outlive the call.
+            unsafe { (args.add_tool)(args.ctx, &raw const info) }
+        }
+        "shape" => {
+            // SAFETY: the caller guarantees `offered` holds `offered_len`
+            // readable tools for the call.
+            let offered = unsafe { lent(args.offered, args.offered_len) };
+            // SAFETY: as above, and each offered string is valid for the call.
+            unsafe { shape(args, offered) }
+        }
+        _ => {
+            // SAFETY: as above.
+            let offered = unsafe { lent(args.offered, args.offered_len) };
+            for info in offered {
+                // SAFETY: `add_tool` and `ctx` are the call's own arguments,
+                // and `info` is the loader's, valid for the call.
+                let status = unsafe { (args.add_tool)(args.ctx, std::ptr::from_ref(info)) };
+                if status != RV_OK {
+                    return status;
+                }
+            }
+            RV_OK
+        }
+    }
+}
+
+/// An `RvToolInfo` of `flags` for the tool `name` with the given wire
+/// name, description, and parameters.
+fn render_info(
+    flags: RvToolFlags,
+    name: &str,
+    wire_name: &str,
+    description: &str,
+    parameters: &str,
+) -> RvToolInfo {
+    RvToolInfo {
+        size: size_of_u32::<RvToolInfo>(),
+        flags,
+        name: rv_str(name),
+        wire_name: rv_str(wire_name),
+        description: rv_str(description),
+        parameters: rv_str(parameters),
+    }
+}
+
+/// Lists, for the `shape` model, the offered `hello` under another wire
+/// name and description, and then `lite`.
+///
+/// # Safety
+/// `args` belongs to the `RV_PACK_RENDER` call open on this thread, and
+/// each string of `offered` is valid for the call.
+unsafe fn shape(args: &RvPackRenderArgs, offered: &[RvToolInfo]) -> RvStatus {
+    for info in offered {
+        // SAFETY: the caller guarantees the offered strings are valid.
+        if unsafe { text(info.name) } != HELLO {
+            continue;
+        }
+        let shown = RvToolInfo {
+            size: size_of_u32::<RvToolInfo>(),
+            flags: info.flags,
+            name: info.name,
+            wire_name: rv_str(SHOWN_HELLO),
+            description: rv_str(SHOWN_HELLO_DESCRIPTION),
+            parameters: info.parameters,
+        };
+        // SAFETY: `add_tool` and `ctx` are the call's own arguments, and
+        // `shown` and its strings outlive the call.
+        let status = unsafe { (args.add_tool)(args.ctx, &raw const shown) };
+        if status != RV_OK {
+            return status;
+        }
+    }
+    let lite = render_info(0, LITE, "", LITE_DESCRIPTION, NO_PARAMETERS);
+    // SAFETY: as above.
+    unsafe { (args.add_tool)(args.ctx, &raw const lite) }
+}
+
 /// Handles `RV_PACK_DELETE`: frees the instance `RV_PACK_NEW` set.
 ///
 /// # Safety
@@ -1007,6 +1176,7 @@ unsafe fn tool_call(call: *mut RvCall) -> RvStatus {
     // that goes on.
     let ended = match tool {
         HELLO => Some((RV_RESULT_TRUSTED, format!("hello {arguments}"))),
+        LITE => Some((RV_RESULT_TRUSTED, format!("lite {arguments}"))),
         STEPS if state.steps == 3 => Some((RV_RESULT_TRUSTED, "3 steps".to_owned())),
         RESOURCES if state.steps == 2 => Some((RV_RESULT_TRUSTED, resources.to_owned())),
         STEPS | RESOURCES => {

@@ -16,5 +16,6 @@
 mod host;
 mod insert;
 mod lifecycle;
+mod render;
 mod run;
 mod support;

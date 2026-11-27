@@ -13,6 +13,9 @@ use crate::fakes::*;
 use crate::plugin::insert_plugin;
 use crate::resources::HostResources;
 
+#[path = "pack-tests-render.rs"]
+mod render;
+
 /// The reason a run goes without a Pack whose Plugin misused the Pack
 /// functions.
 macro_rules! misuse_reason {

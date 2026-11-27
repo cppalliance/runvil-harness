@@ -1,27 +1,31 @@
 //! The Packs a Plugin's entry point inserts: the factory the registry
 //! holds for each one, one run's instance of it, the functions an
-//! RV_PACK_NEW's `RvPackNewArgs` carries, and the senders of RV_PACK_NEW
-//! and RV_PACK_DELETE.
+//! RV_PACK_NEW's `RvPackNewArgs` and an RV_PACK_RENDER's `RvPackRenderArgs`
+//! carry, and the senders of RV_PACK_NEW, RV_PACK_RENDER, and
+//! RV_PACK_DELETE.
 
 use std::ffi::c_void;
 use std::mem;
+use std::ptr;
 use std::sync::Arc;
 
 use runvil_plugin::{
-    BoxFuture, Error, ErrorCode, Pack, PackFactory, PackId, ToolContext, ToolId, ToolInfo,
-    ToolOutput, make_tool_error,
+    BoxFuture, Error, ErrorCode, ModelInfo, Pack, PackFactory, PackId, RenderContext, ThinkingMode,
+    ToolContext, ToolId, ToolInfo, ToolOutput, make_tool_error,
 };
 use runvil_plugin_sys::{
-    RV_MAX_NAME, RV_MAX_TOOL_TEXT, RV_OK, RV_PACK_DELETE, RV_PACK_NEW, RV_TOOL_CHANGES_FILES,
-    RvCall, RvPackNewArgs, RvStatus, RvStr, RvToolInfo,
+    RV_ERR_UNSUPPORTED, RV_MAX_NAME, RV_MAX_TOOL_TEXT, RV_OK, RV_PACK_DELETE, RV_PACK_NEW,
+    RV_PACK_RENDER, RV_TOOL_CHANGES_FILES, RvCall, RvPackNewArgs, RvPackRenderArgs, RvStatus,
+    RvStr, RvToolInfo,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::call::Steps;
 use crate::host::{is_segment, new_call};
 use crate::plugin::Plugin;
 use crate::session::{
-    self, AddedTool, Field, PACK_NEW, Shape, Verb, answer, field, rv_str, shape, size_field,
+    self, AddedTool, Family, Field, PACK_NEW, PACK_RENDER, Shape, Verb, answer, field, rv_str,
+    shape, size_field,
 };
 
 #[cfg(test)]
@@ -65,6 +69,7 @@ impl PackFactory for EntryFactory {
         // named below still gets its RV_PACK_DELETE.
         let mut pack = EntryPack {
             plugin: Arc::clone(&self.plugin),
+            id: id.clone(),
             instance,
             tools: Vec::new(),
         };
@@ -102,6 +107,8 @@ fn tool_info(id: &PackId, added: AddedTool) -> Result<ToolInfo, Error> {
 /// it sends RV_PACK_DELETE once.
 pub(crate) struct EntryPack {
     plugin: Arc<Plugin>,
+    /// The Pack's id, which the ids of its tools start with.
+    id: PackId,
     /// The pointer RV_PACK_NEW set, which each of the instance's calls
     /// passes back and the loader never reads through.
     instance: *mut c_void,
@@ -146,11 +153,12 @@ impl Drop for EntryPack {
 }
 
 // SAFETY: the `# Threads and lifetime` section of `runvil-plugin-sys` lets
-// RV_PACK_DELETE and each tool call come on any thread, and the loader
-// never reads through `instance`.
+// RV_PACK_DELETE, each render, and each tool call come on any thread, and
+// the loader never reads through `instance`.
 unsafe impl Send for EntryPack {}
-// SAFETY: the same section lets tool calls of one Pack instance run at the
-// same time, and `&self` only hands out the pointer those calls pass back.
+// SAFETY: the same section lets tool calls and renders of one Pack instance
+// run at the same time, and `&self` only hands out the pointer those calls
+// pass back.
 unsafe impl Sync for EntryPack {}
 
 impl Pack for EntryPack {
@@ -165,6 +173,151 @@ impl Pack for EntryPack {
     ) -> BoxFuture<'a, Result<ToolOutput, Error>> {
         Box::pin(Steps::new(self, cx.tool().name(), &args, cx.files()))
     }
+
+    /// Sends RV_PACK_RENDER with the offered tools and the model as JSON
+    /// text, and returns the tools the Plugin lists. The verb comes and
+    /// goes in one call, so the future is ready at once.
+    fn render<'a>(
+        &'a self,
+        cx: RenderContext<'a>,
+        offered: Vec<ToolInfo>,
+    ) -> BoxFuture<'a, Result<Vec<ToolInfo>, Error>> {
+        Box::pin(std::future::ready(self.send_render(&cx, offered)))
+    }
+}
+
+/// An offered tool in the form the contract lends it, with the text of
+/// each field owned, so the `RvToolInfo` built from it can point at them.
+struct Offered {
+    name: String,
+    wire_name: Option<String>,
+    description: String,
+    parameters: String,
+    flags: u32,
+}
+
+impl Offered {
+    /// The offered tool `tool`: its name without the Pack id, its wire
+    /// name when it has one, its description, its parameters as compact
+    /// JSON, and the one flag the contract carries.
+    fn of(tool: &ToolInfo) -> Offered {
+        Offered {
+            name: tool.id.name().to_owned(),
+            wire_name: tool.wire_name.clone(),
+            description: tool.description.clone(),
+            parameters: tool.parameters_schema.to_string(),
+            flags: if tool.changes_files {
+                RV_TOOL_CHANGES_FILES
+            } else {
+                0
+            },
+        }
+    }
+
+    /// The `RvToolInfo` of this tool, valid while the tool is.
+    fn raw(&self) -> RvToolInfo {
+        RvToolInfo {
+            size: size_field::<RvToolInfo>(),
+            flags: self.flags,
+            name: rv_str(&self.name),
+            wire_name: rv_str(self.wire_name.as_deref().unwrap_or("")),
+            description: rv_str(&self.description),
+            parameters: rv_str(&self.parameters),
+        }
+    }
+}
+
+/// The JSON text of an object that describes `model`, as the contract
+/// lends it to a render: `context`, `description`, `name`, `provider` when
+/// the catalog names one, `server`, and `thinking`, with the keys sorted.
+/// A model of a mode this loader does not know reads `never`, the claim
+/// that asks least of the model.
+fn model_text(model: &ModelInfo) -> String {
+    let thinking = match model.thinking() {
+        ThinkingMode::Always => "always",
+        ThinkingMode::Switchable => "switchable",
+        _ => "never",
+    };
+    let mut object = serde_json::Map::new();
+    object.insert("context".to_owned(), json!(model.context().get()));
+    object.insert("description".to_owned(), json!(model.description()));
+    object.insert("name".to_owned(), json!(model.id().name()));
+    if let Some(provider) = model.provider() {
+        object.insert("provider".to_owned(), json!(provider));
+    }
+    object.insert("server".to_owned(), json!(model.id().server()));
+    object.insert("thinking".to_owned(), json!(thinking));
+    Value::Object(object).to_string()
+}
+
+impl EntryPack {
+    /// Sends RV_PACK_RENDER and reads what the Plugin lists. A Plugin that
+    /// answers RV_ERR_UNSUPPORTED does not render, so the model is shown
+    /// the offered tools as they are. A refusal, a misuse, and any other
+    /// status fail the render with a message that says which.
+    fn send_render(
+        &self,
+        cx: &RenderContext<'_>,
+        offered: Vec<ToolInfo>,
+    ) -> Result<Vec<ToolInfo>, Error> {
+        let model = model_text(cx.model);
+        let lent: Vec<Offered> = offered.iter().map(Offered::of).collect();
+        let infos: Vec<RvToolInfo> = lent.iter().map(Offered::raw).collect();
+        let mut call = self.new_call(RV_PACK_RENDER);
+        let (status, mut session) = session::open(Verb::PackRender, |ctx| {
+            let args = RvPackRenderArgs {
+                size: size_field::<RvPackRenderArgs>(),
+                reserved: 0,
+                ctx,
+                entry: rv_str(cx.entry),
+                model: rv_str(&model),
+                offered: if infos.is_empty() {
+                    ptr::null()
+                } else {
+                    infos.as_ptr()
+                },
+                offered_len: infos.len(),
+                refuse: render_refuse,
+                add_tool: render_add_tool,
+            };
+            call.args = (&raw const args).cast();
+            // SAFETY: inserting the Plugin required its entry point to
+            // follow the contract and not unwind, `call` is a live
+            // `RvCall` of this instance that nothing else uses, and its
+            // `args` and everything they point at are live for the call.
+            unsafe { self.send(&mut call) }
+        });
+        let failed = |message: String| make_tool_error(ErrorCode::ToolOther, message);
+        if let Some(reason) = session.refusal.take() {
+            return Err(failed(format!(
+                "the Plugin {} declined to render the Pack {}: {reason}",
+                self.plugin.name(),
+                self.id
+            )));
+        }
+        if let Some(misuse) = session.misuse.take() {
+            return Err(failed(format!(
+                "the Plugin {} misused the render functions for the Pack {}: {misuse}",
+                self.plugin.name(),
+                self.id
+            )));
+        }
+        match status {
+            RV_OK => {}
+            RV_ERR_UNSUPPORTED => return Ok(offered),
+            other => {
+                return Err(failed(format!(
+                    "the Plugin {} answered RV_PACK_RENDER for the Pack {} with status {other}",
+                    self.plugin.name(),
+                    self.id
+                )));
+            }
+        }
+        mem::take(&mut session.tools)
+            .into_iter()
+            .map(|tool| tool_info(&self.id, tool))
+            .collect()
+    }
 }
 
 /// Records the Plugin's refusal to make a Pack instance, validated;
@@ -177,9 +330,59 @@ pub(crate) unsafe extern "C" fn refuse(ctx: *mut c_void, reason: RvStr) -> RvSta
 /// Records one tool the instance adds, validated; returns RV_OK or
 /// RV_ERR_MISUSE.
 pub(crate) unsafe extern "C" fn add_tool(ctx: *mut c_void, info: *const RvToolInfo) -> RvStatus {
-    answer(ctx, &PACK_NEW, |session| {
-        // SAFETY: the contract makes `info` point at a readable
-        // `RvToolInfo` during this call.
+    // SAFETY: the contract makes `info` point at a readable `RvToolInfo`
+    // with valid strings during this call.
+    unsafe {
+        add(
+            ctx,
+            &PACK_NEW,
+            info,
+            "two tools of one Pack instance share a name",
+        )
+    }
+}
+
+/// Records the Plugin's refusal to render, validated; returns
+/// RV_ERR_REFUSED, or RV_ERR_MISUSE for a `ctx` it doesn't answer or a
+/// second refusal.
+pub(crate) unsafe extern "C" fn render_refuse(ctx: *mut c_void, reason: RvStr) -> RvStatus {
+    session::refuse(ctx, &PACK_RENDER, reason)
+}
+
+/// Records one tool the render lists, validated; returns RV_OK or
+/// RV_ERR_MISUSE.
+pub(crate) unsafe extern "C" fn render_add_tool(
+    ctx: *mut c_void,
+    info: *const RvToolInfo,
+) -> RvStatus {
+    // SAFETY: the contract makes `info` point at a readable `RvToolInfo`
+    // with valid strings during this call.
+    unsafe {
+        add(
+            ctx,
+            &PACK_RENDER,
+            info,
+            "two tools of one render share a name",
+        )
+    }
+}
+
+/// Records one tool that the open call of `family` is given, validated:
+/// the rules of a tool's fields are the same for RV_PACK_NEW and
+/// RV_PACK_RENDER. `twice` names a repeated name. Returns RV_OK or
+/// RV_ERR_MISUSE.
+///
+/// # Safety
+/// `info` must be NULL, or point at a readable `RvToolInfo` whose strings
+/// are valid for their lengths, for the duration of the call.
+unsafe fn add(
+    ctx: *mut c_void,
+    family: &Family,
+    info: *const RvToolInfo,
+    twice: &'static str,
+) -> RvStatus {
+    answer(ctx, family, |session| {
+        // SAFETY: the caller makes `info` readable if it is not NULL.
         let info = unsafe { TOOL_INFO.read(info) }?;
         if info.flags & !RV_TOOL_CHANGES_FILES != 0 {
             return Err("the tool's flags set a bit that is not one of the RV_TOOL constants");
@@ -190,7 +393,7 @@ pub(crate) unsafe extern "C" fn add_tool(ctx: *mut c_void, info: *const RvToolIn
             return Err("the tool's name is not one name segment, such as `fetch`");
         }
         if session.tools.iter().any(|tool| tool.name == name) {
-            return Err("two tools of one Pack instance share a name");
+            return Err(twice);
         }
         // SAFETY: as above.
         let wire_name = unsafe { WIRE_NAME.read(info.wire_name) }?;

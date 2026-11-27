@@ -453,6 +453,7 @@ pub fn runvil_engine::model::ModelCatalog::new(models: impl core::iter::traits::
 pub fn runvil_engine::model::ModelId::gateway(name: impl core::convert::Into<alloc::string::String>) -> core::result::Result<runvil_engine::model::ModelId, runvil_engine::Error>
 pub fn runvil_engine::model::ModelId::name(&self) -> &str
 pub fn runvil_engine::model::ModelId::new(server: impl core::convert::Into<alloc::string::String>, name: impl core::convert::Into<alloc::string::String>) -> core::result::Result<runvil_engine::model::ModelId, runvil_engine::Error>
+pub fn runvil_engine::model::ModelId::server(&self) -> &str
 pub fn runvil_engine::model::ModelInfo::context(&self) -> core::num::nonzero::NonZeroU32
 pub fn runvil_engine::model::ModelInfo::description(&self) -> &str
 pub fn runvil_engine::model::ModelInfo::id(&self) -> &runvil_engine::model::ModelId

@@ -27,6 +27,16 @@
 //!   borrows its instance, so the delete comes after every call of the
 //!   instance has ended. An `RV_PACK_NEW` that fails gets no
 //!   `RV_PACK_DELETE`.
+//! - A render of a Pack instance sends one `RV_PACK_RENDER`, which is
+//!   ready when the call returns, and it leaves the instance as it was.
+//!   It lends the section entry, the model as the JSON text of an object
+//!   with sorted keys, and the offered tools with each name as it is
+//!   within its Pack, each parameter schema as compact JSON text, and the
+//!   one flag the contract carries; `offered` is NULL for no tool. An
+//!   `RV_ERR_UNSUPPORTED` answer lists the offered tools as they are. A
+//!   refusal, a misuse, and any other status fail the render with a
+//!   message that names the Plugin and the Pack. What the Plugin lists
+//!   becomes the render's answer, and the Engine's merge checks it.
 //! - Each poll of a tool call's future sends one `RV_TOOL_CALL` at most.
 //!   A call whose last step returned `RV_PENDING` gets one
 //!   `RV_TOOL_CANCEL` when it fails or its future is dropped, and no

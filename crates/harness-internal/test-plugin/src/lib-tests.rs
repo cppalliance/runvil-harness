@@ -385,6 +385,27 @@ fn pack_args(size: u32, pack: &str) -> RvPackNewArgs {
     }
 }
 
+/// Render arguments that report `size`, for the section entry `0.1`, the
+/// model text `model`, and the tools `offered`, which are NULL when none
+/// are.
+fn render_args(size: u32, model: &str, offered: &[RvToolInfo]) -> RvPackRenderArgs {
+    RvPackRenderArgs {
+        size,
+        reserved: 0,
+        ctx: test_ctx(),
+        entry: rv_str("0.1"),
+        model: rv_str(model),
+        offered: if offered.is_empty() {
+            ptr::null()
+        } else {
+            offered.as_ptr()
+        },
+        offered_len: offered.len(),
+        refuse,
+        add_tool,
+    }
+}
+
 /// Step arguments that report `size`, for the tool `tool` with
 /// `arguments`, which lend the step `answer`, the resources `resources`,
 /// and the tests' waker.
@@ -485,6 +506,21 @@ fn new_pack(call: &mut RvCall) -> RvStatus {
     call.verb = RV_PACK_NEW;
     call.args = (&raw const args).cast();
     send(call)
+}
+
+/// Sends `RV_PACK_RENDER` on the Pack instance `call` carries, for the
+/// model text `model` and the tools `offered`.
+fn render(call: &mut RvCall, model: &str, offered: &[RvToolInfo]) -> RvStatus {
+    let args = render_args(size_of_u32::<RvPackRenderArgs>(), model, offered);
+    call.verb = RV_PACK_RENDER;
+    call.args = (&raw const args).cast();
+    send(call)
+}
+
+/// Every tool this test's thread has added, as the name, the wire name,
+/// the parameters, and the flags.
+fn added() -> Vec<(String, String, String, RvToolFlags)> {
+    ADDED.with_borrow(Clone::clone)
 }
 
 /// Sends `RV_PACK_DELETE` for the Pack instance `call` carries.
@@ -661,6 +697,17 @@ fn the_arguments_structs_keep_the_layout_the_contract_pins() {
     assert_eq!(offset_of!(RvPackNewArgs, refuse), 32);
     assert_eq!(offset_of!(RvPackNewArgs, add_tool), 40);
 
+    assert_eq!(size_of::<RvPackRenderArgs>(), 80);
+    assert_eq!(offset_of!(RvPackRenderArgs, size), 0);
+    assert_eq!(offset_of!(RvPackRenderArgs, reserved), 4);
+    assert_eq!(offset_of!(RvPackRenderArgs, ctx), 8);
+    assert_eq!(offset_of!(RvPackRenderArgs, entry), 16);
+    assert_eq!(offset_of!(RvPackRenderArgs, model), 32);
+    assert_eq!(offset_of!(RvPackRenderArgs, offered), 48);
+    assert_eq!(offset_of!(RvPackRenderArgs, offered_len), 56);
+    assert_eq!(offset_of!(RvPackRenderArgs, refuse), 64);
+    assert_eq!(offset_of!(RvPackRenderArgs, add_tool), 72);
+
     assert_eq!(size_of::<RvWaker>(), 16);
     assert_eq!(offset_of!(RvWaker, ctx), 0);
     assert_eq!(offset_of!(RvWaker, wake), 8);
@@ -725,6 +772,7 @@ fn the_verbs_and_the_version_keep_their_numbers() {
     assert_eq!(RV_PACK_DELETE, 4);
     assert_eq!(RV_TOOL_CALL, 5);
     assert_eq!(RV_TOOL_CANCEL, 6);
+    assert_eq!(RV_PACK_RENDER, 7);
     assert_eq!(RV_API_MAJOR, 0);
     assert_eq!(RV_API_MINOR, 7);
 }
@@ -795,7 +843,7 @@ fn an_unload_with_no_instance_is_misuse() {
 
 #[test]
 fn the_reserved_and_unknown_verbs_are_unsupported() {
-    for verb in [0, 7, 8, u32::MAX] {
+    for verb in [0, 8, u32::MAX] {
         let (status, call) = send_verb(verb, &host(), ptr::null());
         assert_eq!(status, RV_ERR_UNSUPPORTED, "verb {verb}");
         assert!(call.plugin.is_null(), "verb {verb} sets no instance");
@@ -995,6 +1043,198 @@ fn a_pack_verb_with_the_wrong_arguments_or_no_instance_makes_nothing() {
     assert!(call.pack_run.is_null());
     assert_eq!(delete_pack(&mut call), RV_ERR_MISUSE, "nothing to delete");
     assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn a_render_for_a_model_with_no_special_name_lists_the_offered_tools_as_lent() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    ADDED.with_borrow_mut(Vec::clear);
+    let offered = [
+        render_info(0, HELLO, "Hi", "Says hello.", NO_PARAMETERS),
+        render_info(RV_TOOL_CHANGES_FILES, WRITE, "", "Writes.", TEXT_PARAMETERS),
+    ];
+    assert_eq!(render(&mut call, r#"{"name":"m"}"#, &offered), RV_OK);
+    assert_eq!(
+        added(),
+        [
+            (
+                "hello".to_owned(),
+                "Hi".to_owned(),
+                NO_PARAMETERS.to_owned(),
+                0
+            ),
+            (
+                "write".to_owned(),
+                String::new(),
+                TEXT_PARAMETERS.to_owned(),
+                RV_TOOL_CHANGES_FILES
+            ),
+        ],
+        "each tool comes back as it was lent"
+    );
+    assert_eq!(REFUSALS.get(), 0);
+    assert!(!call.pack_run.is_null(), "a render leaves the instance");
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn the_shape_model_is_shown_hello_under_another_name_and_the_tool_only_it_sees() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    ADDED.with_borrow_mut(Vec::clear);
+    let offered = [
+        render_info(0, HELLO, "", "Says hello.", NO_PARAMETERS),
+        render_info(0, STEPS, "", "Takes steps.", NO_PARAMETERS),
+    ];
+    assert_eq!(render(&mut call, r#"{"name":"shape"}"#, &offered), RV_OK);
+    assert_eq!(
+        added(),
+        [
+            (
+                "hello".to_owned(),
+                "shown_hello".to_owned(),
+                NO_PARAMETERS.to_owned(),
+                0
+            ),
+            (
+                "lite".to_owned(),
+                String::new(),
+                NO_PARAMETERS.to_owned(),
+                0
+            ),
+        ],
+        "hello is renamed and keeps its parameters, steps is left out, and lite is added"
+    );
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn a_render_for_the_models_that_decline_or_do_not_render_says_so() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    ADDED.with_borrow_mut(Vec::clear);
+    let offered = [render_info(0, HELLO, "", "Says hello.", NO_PARAMETERS)];
+    assert_eq!(
+        render(&mut call, r#"{"name":"refuse"}"#, &offered),
+        RV_ERR_REFUSED
+    );
+    assert_eq!(REFUSALS.get(), 1, "the Plugin declined once");
+    assert_eq!(
+        render(&mut call, r#"{"name":"unsupported"}"#, &offered),
+        RV_ERR_UNSUPPORTED
+    );
+    assert_eq!(
+        render(&mut call, r#"{"name":"misuse"}"#, &offered),
+        RV_OK,
+        "this host takes any name; the loader is the one that rejects it"
+    );
+    assert_eq!(
+        added(),
+        [(
+            "Not A Segment".to_owned(),
+            String::new(),
+            NO_PARAMETERS.to_owned(),
+            0
+        )]
+    );
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn a_render_with_no_offered_tool_lists_none_and_a_failing_add_stops_the_render() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    ADDED.with_borrow_mut(Vec::clear);
+    assert_eq!(render(&mut call, r#"{"name":"m"}"#, &[]), RV_OK);
+    assert_eq!(added(), []);
+
+    let offered = [
+        render_info(0, HELLO, "", "Says hello.", NO_PARAMETERS),
+        render_info(0, STEPS, "", "Takes steps.", NO_PARAMETERS),
+    ];
+    ADDS_ALLOWED.set(1);
+    assert_eq!(
+        render(&mut call, r#"{"name":"m"}"#, &offered),
+        RV_ERR_MISUSE,
+        "the status of the add that failed is the render's"
+    );
+    assert_eq!(
+        added().len(),
+        1,
+        "the render stops at the first failing add"
+    );
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn a_render_with_the_wrong_arguments_or_no_instance_lists_nothing() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    ADDED.with_borrow_mut(Vec::clear);
+    call.verb = RV_PACK_RENDER;
+    call.args = ptr::null();
+    assert_eq!(
+        send(&mut call),
+        RV_ERR_MISUSE,
+        "RV_PACK_RENDER needs its arguments"
+    );
+
+    let short = render_args(
+        size_of_u32::<RvPackRenderArgs>() - 1,
+        r#"{"name":"m"}"#,
+        &[],
+    );
+    call.args = (&raw const short).cast();
+    assert_eq!(send(&mut call), RV_ERR_UNSUPPORTED, "short arguments");
+
+    let args = render_args(size_of_u32::<RvPackRenderArgs>(), r#"{"name":"m"}"#, &[]);
+    let pack_run = call.pack_run;
+    call.pack_run = ptr::null_mut();
+    call.args = (&raw const args).cast();
+    assert_eq!(send(&mut call), RV_ERR_MISUSE, "no instance");
+    call.pack_run = pack_run;
+    assert_eq!(added(), []);
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn the_lite_tool_a_render_lists_finishes_in_one_step_with_its_arguments() {
+    let host = host();
+    let mut call = loaded(&host);
+    assert_eq!(new_pack(&mut call), RV_OK);
+    assert_eq!(step(&mut call, "lite", r#"{"a":1}"#), RV_OK);
+    assert_eq!(
+        finished(),
+        [(RV_RESULT_TRUSTED, r#"lite {"a":1}"#.to_owned())]
+    );
+    assert_eq!(delete_pack(&mut call), RV_OK);
+    assert_eq!(unload(&mut call), RV_OK);
+}
+
+#[test]
+fn the_name_of_a_model_is_the_first_name_key_of_its_json_text() {
+    assert_eq!(
+        model_name(r#"{"context":8,"name":"shape","server":"s"}"#),
+        "shape"
+    );
+    assert_eq!(
+        model_name(r#"{"description":"a \"name\":\"x\"","name":"real"}"#),
+        "real",
+        "a quoted name inside a string is escaped, so it is not the key"
+    );
+    assert_eq!(model_name("{}"), "");
+    assert_eq!(model_name(r#"{"name":"unterminated"#), "");
 }
 
 #[test]

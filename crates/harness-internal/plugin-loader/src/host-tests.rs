@@ -465,7 +465,7 @@ fn the_load_call_carries_the_contract_fields() {
 }
 
 #[test]
-fn the_table_reports_version_0_6_in_16_bytes() {
+fn the_table_reports_version_0_7_in_16_bytes() {
     assert_eq!(HOST.api_major, 0);
     assert_eq!(HOST.api_minor, 7);
     assert_eq!(HOST.reserved, 0);

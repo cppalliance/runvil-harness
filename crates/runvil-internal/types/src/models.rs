@@ -82,7 +82,7 @@ impl ModelId {
 
     /// Returns the server namespace.
     #[must_use]
-    pub(crate) fn server(&self) -> &str {
+    pub fn server(&self) -> &str {
         &self.server
     }
 
