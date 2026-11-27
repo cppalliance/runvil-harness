@@ -132,6 +132,12 @@ pub trait Pack: Send + Sync {
     /// set the Pack was not offered into is not rendered. The default
     /// returns `offered` unchanged.
     ///
+    /// # Errors
+    /// Returns an [`Error`], whose prose is safe to show the model, when the
+    /// Pack cannot render for this model. The Harness logs it, and the round
+    /// that asked for the render ends as canceled, as it does when the
+    /// render panics or is dropped.
+    ///
     /// # Invariants
     ///
     /// - `render` runs in the effect loop with [`call`](Pack::call)'s
@@ -141,8 +147,8 @@ pub trait Pack: Send + Sync {
         &'a self,
         _cx: RenderContext<'a>,
         offered: Vec<ToolInfo>,
-    ) -> BoxFuture<'a, Vec<ToolInfo>> {
-        Box::pin(async move { offered })
+    ) -> BoxFuture<'a, Result<Vec<ToolInfo>, Error>> {
+        Box::pin(async move { Ok(offered) })
     }
 }
 

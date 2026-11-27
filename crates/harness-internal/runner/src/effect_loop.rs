@@ -131,6 +131,7 @@ use runvil_engine::{Run, Step};
 use runvil_plugin::ToolFiles;
 use tracing::Instrument as _;
 
+use crate::display_chain::display_chain;
 use crate::harness::{RunControl, SendQueue, StopSignal};
 use crate::performers::{InferenceBroker, PieceSink, Timer, ToolPerformer};
 use crate::recorder::{Record, RecordKind, RunId, RunRecorder, make_recorder_error, refused};
@@ -624,7 +625,16 @@ impl Driver {
                 let performer = Arc::clone(&self.tool);
                 let model = binding.render_info();
                 let render = async move {
-                    EffectAnswer::Render(performer.render(entry, model, offered).await)
+                    match performer.render(entry, model, offered).await {
+                        Ok(rendered) => EffectAnswer::Render(rendered),
+                        Err(error) => {
+                            tracing::error!(
+                                error = %display_chain(&error),
+                                "a render failed; its effect is dropped"
+                            );
+                            EffectAnswer::Dropped
+                        }
+                    }
                 };
                 (Kind::Other, Box::pin(render))
             }

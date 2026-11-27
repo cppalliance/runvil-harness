@@ -92,6 +92,49 @@ async fn a_panicking_render_answers_dropped_and_the_log_holds_the_render_and_its
 }
 
 #[tokio::test]
+async fn a_failing_render_answers_dropped_like_a_panicking_one_and_the_log_holds_the_render() {
+    let seen = Seen::new();
+    let source = prompt(&[(
+        "Only",
+        "tools.offer('render/echo')\nmessages:user('go')\n\
+         local ok, err = pcall(models.loop)\n\
+         return sys.id .. ' ' .. tostring(ok) .. ':' .. err.kind",
+    )]);
+    let (text, records) = run(
+        &source,
+        ScriptedBroker::replying(),
+        &seen,
+        json!({ "fails": true }),
+    )
+    .await;
+    let (entry, ended) = text.split_once(' ').expect("the run returns its entry");
+    assert_eq!(
+        ended, "false:canceled",
+        "the failed render ends its round canceled, and the pcall catches it"
+    );
+    assert_eq!(
+        answered(&records, "Render"),
+        [(
+            json!({
+                "alias": "default",
+                "entry": entry,
+                "offered": [{ "pack": "render", "static_set": [ECHO], "dynamic_set": [] }],
+            }),
+            json!("Dropped"),
+        )]
+    );
+    assert_eq!(
+        seen.renders().len(),
+        1,
+        "the Pack was asked once and failed"
+    );
+    assert!(
+        answered(&records, "Chat").is_empty(),
+        "the failed render sends no round"
+    );
+}
+
+#[tokio::test]
 async fn the_model_calls_both_rendered_tools_and_each_origin_names_the_entry_and_the_model() {
     let seen = Seen::new();
     let broker = calling(vec![(

@@ -14,8 +14,8 @@ use harness_runner::recorder::{MemoryRecorder, Record, RecordKind};
 use runvil_engine::Error;
 use runvil_engine::model::{Completion, CompletionResult, ToolCall};
 use runvil_plugin::{
-    BoxFuture, ModelInfo, Pack, PackFactory, PackId, PackInfo, PackRegistry, RenderContext,
-    ToolContext, ToolId, ToolInfo, ToolOutput,
+    BoxFuture, ErrorCode, ModelInfo, Pack, PackFactory, PackId, PackInfo, PackRegistry,
+    RenderContext, ToolContext, ToolId, ToolInfo, ToolOutput, make_tool_error,
 };
 use serde_json::{Value, json};
 use tokio::sync::Semaphore;
@@ -121,11 +121,13 @@ struct RenderPack {
     surviving: Vec<String>,
     /// Whether every render panics.
     panics: bool,
+    /// Whether every render fails, after it logs what it was asked.
+    fails: bool,
 }
 
 /// The render Pack's factory over the test's `seen`, from a configuration
-/// whose `surviving` lists model names and whose `panics` makes every
-/// render panic.
+/// whose `surviving` lists model names, whose `panics` makes every render
+/// panic, and whose `fails` makes every render fail.
 fn renderer(seen: &Arc<Seen>, config: Value) -> impl PackFactory + use<> {
     let seen = Arc::clone(seen);
     move |_name: &PackId| -> Result<Arc<dyn Pack>, Error> {
@@ -140,6 +142,7 @@ fn renderer(seen: &Arc<Seen>, config: Value) -> impl PackFactory + use<> {
             seen: Arc::clone(&seen),
             surviving,
             panics: config["panics"] == true,
+            fails: config["fails"] == true,
         }))
     }
 }
@@ -218,7 +221,7 @@ impl Pack for RenderPack {
         &'a self,
         cx: RenderContext<'a>,
         offered: Vec<ToolInfo>,
-    ) -> BoxFuture<'a, Vec<ToolInfo>> {
+    ) -> BoxFuture<'a, Result<Vec<ToolInfo>, Error>> {
         assert!(!self.panics, "the render Pack's render panics");
         let model = cx.model.id().name();
         self.seen.renders.lock().unwrap().push(Rendered {
@@ -226,9 +229,17 @@ impl Pack for RenderPack {
             model: cx.model.clone(),
             offered: offered.iter().map(|tool| tool.id.to_string()).collect(),
         });
+        if self.fails {
+            return Box::pin(async {
+                Err(make_tool_error(
+                    ErrorCode::ToolOther,
+                    "no tools for this model",
+                ))
+            });
+        }
         let surviving = self.surviving.iter().any(|name| name == model);
         let shown = shown(offered, model, surviving);
-        Box::pin(async move { shown })
+        Box::pin(async move { Ok(shown) })
     }
 }
 

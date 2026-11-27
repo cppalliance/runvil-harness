@@ -26,6 +26,8 @@ struct Rendering {
     name: PackId,
     listed: Arc<dyn Pack>,
     renders: Arc<Mutex<Vec<Rendered>>>,
+    /// Whether the render fails, after it logs what it was asked.
+    fails: bool,
 }
 
 /// The factory of a [`Rendering`] Pack made from a [`listed`]
@@ -37,6 +39,7 @@ fn rendering(config: Value, renders: Arc<Mutex<Vec<Rendered>>>) -> Factory {
             name: name.clone(),
             listed: new_listed(name, &config),
             renders: Arc::clone(&renders),
+            fails: config["fails"] == true,
         }))
     })
 }
@@ -58,15 +61,23 @@ impl Pack for Rendering {
         &'a self,
         cx: RenderContext<'a>,
         mut offered: Vec<ToolInfo>,
-    ) -> BoxFuture<'a, Vec<ToolInfo>> {
+    ) -> BoxFuture<'a, Result<Vec<ToolInfo>, Error>> {
         self.renders.lock().unwrap().push(Rendered {
             pack: self.name.to_string(),
             entry: cx.entry.to_owned(),
             model: cx.model.clone(),
             offered: offered.iter().map(|tool| tool.id.to_string()).collect(),
         });
+        if self.fails {
+            return Box::pin(async {
+                Err(make_tool_error(
+                    ErrorCode::ToolOther,
+                    "no tools for this model",
+                ))
+            });
+        }
         offered.push(listed_tool(&format!("{}/extra", self.name)));
-        Box::pin(async move { offered })
+        Box::pin(async move { Ok(offered) })
     }
 }
 
@@ -126,7 +137,10 @@ async fn a_render_asks_each_usable_pack_once_per_set_it_was_offered_into_and_ans
         sets("one", &["one/a"], &["one/b"]),
         sets("backed", &[], &["backed/a"]),
     ];
-    let answer = run.render("0.1".to_owned(), model(), offered).await;
+    let answer = run
+        .render("0.1".to_owned(), model(), offered)
+        .await
+        .expect("no Pack's render fails");
 
     let asked = |pack: &str, offered: &[&str]| Rendered {
         pack: pack.to_owned(),
@@ -157,6 +171,49 @@ async fn a_render_asks_each_usable_pack_once_per_set_it_was_offered_into_and_ans
         ],
         "every Pack asked is answered in the order asked, and the one the run cannot use keeps \
          its tools as offered"
+    );
+}
+
+#[tokio::test]
+async fn a_pack_whose_render_fails_fails_the_whole_render_with_an_error_that_names_it() {
+    let renders = Arc::new(Mutex::new(Vec::new()));
+    let mut failing = offering(&["two/a"]);
+    failing["fails"] = Value::Bool(true);
+    let host = host_with(vec![
+        (
+            PackInfo::new("runvil/one"),
+            rendering(offering(&["one/a"]), Arc::clone(&renders)),
+        ),
+        (
+            PackInfo::new("runvil/two"),
+            rendering(failing, Arc::clone(&renders)),
+        ),
+    ]);
+    let run = begin(&host, BTreeMap::new(), &prompt(""));
+    let offered = vec![sets("one", &["one/a"], &[]), sets("two", &["two/a"], &[])];
+    let error = run
+        .render("0.1".to_owned(), model(), offered)
+        .await
+        .expect_err("a failing render fails the whole render");
+    let shown = crate::display_chain(&error);
+    assert!(
+        shown.contains("the two Pack could not render its tools"),
+        "the error names the Pack: {shown}"
+    );
+    assert!(
+        shown.contains("no tools for this model"),
+        "the Pack's own error is the cause: {shown}"
+    );
+    let asked: Vec<String> = renders
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|render| render.pack.clone())
+        .collect();
+    assert_eq!(
+        asked,
+        ["one", "two"],
+        "the Packs before the failing one were asked, and the failing one was too"
     );
 }
 

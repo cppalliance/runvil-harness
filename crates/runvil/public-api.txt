@@ -549,7 +549,7 @@ pub fn runvil::packs::PackRef::id(&self) -> &runvil::packs::PackId
 pub fn runvil::packs::PackRef::vendor(&self) -> &str
 pub fn runvil::plugin::Pack::call<'a>(&'a self, cx: runvil::plugin::ToolContext<'a>, args: serde_json::value::Value) -> runvil::BoxFuture<'a, core::result::Result<runvil::ToolOutput, runvil::Error>>
 pub fn runvil::plugin::Pack::ready(&self) -> runvil::BoxFuture<'_, core::result::Result<(), runvil::Error>> { .. }
-pub fn runvil::plugin::Pack::render<'a>(&'a self, _cx: runvil::plugin::RenderContext<'a>, offered: alloc::vec::Vec<runvil::ToolInfo>) -> runvil::BoxFuture<'a, alloc::vec::Vec<runvil::ToolInfo>> { .. }
+pub fn runvil::plugin::Pack::render<'a>(&'a self, _cx: runvil::plugin::RenderContext<'a>, offered: alloc::vec::Vec<runvil::ToolInfo>) -> runvil::BoxFuture<'a, core::result::Result<alloc::vec::Vec<runvil::ToolInfo>, runvil::Error>> { .. }
 pub fn runvil::plugin::Pack::tools(&self) -> alloc::vec::Vec<runvil::ToolInfo>
 pub fn runvil::plugin::PackFactory::new_pack(&self, id: &runvil::packs::PackId) -> core::result::Result<alloc::sync::Arc<dyn runvil::plugin::Pack>, runvil::Error>
 pub fn runvil::plugin::PackRegistry::insert(&mut self, info: runvil::plugin::PackInfo, factory: impl runvil::plugin::PackFactory + 'static) -> core::result::Result<(), runvil::Error>

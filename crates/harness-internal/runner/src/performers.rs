@@ -140,14 +140,16 @@ pub trait ToolPerformer: Send + Sync {
     /// in `offered`, for `model`, the model of the entry's first round, and
     /// answers every Pack asked, in the order asked, with the tools it
     /// shows the model for each set. The default passes every tool
-    /// through.
+    /// through. An error from a render fails the whole render: the loop
+    /// logs it and answers the effect `Dropped`, as it does for a render
+    /// that panics.
     fn render(
         &self,
         _entry: String,
         _model: ModelInfo,
         offered: Vec<PackToolSets<ToolInfo>>,
-    ) -> BoxFuture<'static, Vec<PackToolSets<ToolInfo>>> {
-        Box::pin(async move { offered })
+    ) -> BoxFuture<'static, Result<Vec<PackToolSets<ToolInfo>>, Error>> {
+        Box::pin(async move { Ok(offered) })
     }
 }
 

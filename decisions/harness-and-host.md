@@ -148,7 +148,7 @@ The loop performs the operation itself because file operations are synchronous b
 
 ### The loop answers `Dropped` for a performer that panics
 
-The loop catches a panic from a broker, a Pack, or a timer, logs it with the effect id, and answers the effect `Dropped`. The Lua call that waited raises the canceled error, which a `pcall` can catch, and an uncaught one ends the run as canceled.
+The loop catches a panic from a broker, a Pack, or a timer, logs it with the effect id, and answers the effect `Dropped`. A Pack's render that returns an error gets the same answer, logged with its cause. The Lua call that waited raises the canceled error, which a `pcall` can catch, and an uncaught one ends the run as canceled.
 
 ### The Harness sends each tool call to the Pack named by the id's first segment, and at most 10 run at once by default
 

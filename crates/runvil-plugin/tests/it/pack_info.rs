@@ -227,7 +227,8 @@ fn the_default_render_returns_the_offered_tools_unchanged() {
     let offered = vec![pack.tools()[0].clone().wire_name("hello"), farewell];
     let rendered = block_on(pack.render(RenderContext::new("chat-1", &model), offered.clone()));
     assert_eq!(
-        rendered, offered,
+        rendered.expect("the default render never fails"),
+        offered,
         "a Pack without its own render shows the model what the section offered, in offer order"
     );
 }

@@ -660,13 +660,15 @@ impl ToolPerformer for RunPacks {
 
     /// Asks each usable Pack's `render` once per non-empty set, one at a
     /// time. A Pack the run cannot use has no catalog tool, so no render
-    /// asks for it; should one, its tools pass through as offered.
+    /// asks for it; should one, its tools pass through as offered. A Pack
+    /// whose render fails fails the whole render, with an error that names
+    /// the Pack and holds the Pack's own as its cause.
     fn render(
         &self,
         entry: String,
         model: ModelInfo,
         offered: Vec<PackToolSets<ToolInfo>>,
-    ) -> BoxFuture<'static, Vec<PackToolSets<ToolInfo>>> {
+    ) -> BoxFuture<'static, Result<Vec<PackToolSets<ToolInfo>>, Error>> {
         let packs: Vec<Option<Arc<dyn Pack>>> = offered
             .iter()
             .map(|sets| self.usable(&sets.pack).cloned())
@@ -678,14 +680,24 @@ impl ToolPerformer for RunPacks {
                     tracing::error!(pack = %sets.pack, "a Render names no usable Pack of the run");
                     continue;
                 };
+                let name = sets.pack.to_string();
                 for set in [&mut sets.static_set, &mut sets.dynamic_set] {
                     if !set.is_empty() {
                         let tools = std::mem::take(set);
-                        *set = pack.render(RenderContext::new(&entry, &model), tools).await;
+                        *set = pack
+                            .render(RenderContext::new(&entry, &model), tools)
+                            .await
+                            .map_err(|error| {
+                                make_tool_error(
+                                    ErrorCode::ToolOther,
+                                    format!("the {name} Pack could not render its tools"),
+                                )
+                                .with_cause(&error)
+                            })?;
                     }
                 }
             }
-            rendered
+            Ok(rendered)
         })
     }
 }

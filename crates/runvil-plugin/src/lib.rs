@@ -45,7 +45,8 @@
 //! its [`VfsOutcome`].
 //! [`Pack::render`] returns the tools the model sees, given the tools a
 //! section offered from the Pack and the [`RenderContext`] that names the
-//! section entry and its model.
+//! section entry and its model, or an error when the Pack cannot render
+//! for that model, which ends the round that asked as canceled.
 //!
 //! The Engine never depends on this crate; it sees only `ToolInfo` values,
 //! preludes, and ids. The Engine and filesystem names a Plugin author
