@@ -11,7 +11,7 @@
 //! ## Invariants
 //!
 //! - May depend on: `runvil-plugin` among workspace crates, and
-//!   `runvil-plugin-sys`, the C contract at version 0.6, from its own
+//!   `runvil-plugin-sys`, the C contract at version 0.7, from its own
 //!   repository.
 //! - Every entry point gets the same calls, whether it came from a library
 //!   or was linked in. The only difference is that a library is opened

@@ -350,7 +350,7 @@ A single function means one exported symbol, and a later version of the contract
 
 ### The contract has its own repository, and each 0.x version is a separate contract
 
-`runvil-plugin-api` contains the C header, the Rust mirror `runvil-plugin-sys`, and a safe SDK, `runvil-plugin-sdk`. While the major version is 0, a Plugin built for 0.6 loads only in a Host that reports 0.6. The Plugin reads the Host's version first in `RV_PLUGIN_LOAD` and answers any other version with `RV_ERR_UNSUPPORTED`.
+`runvil-plugin-api` contains the C header, the Rust mirror `runvil-plugin-sys`, and a safe SDK, `runvil-plugin-sdk`. While the major version is 0, a Plugin built for 0.7 loads only in a Host that reports 0.7. The Plugin reads the Host's version first in `RV_PLUGIN_LOAD` and answers any other version with `RV_ERR_UNSUPPORTED`.
 
 The contract has a repository of its own so that a Plugin depends on that repository only.
 

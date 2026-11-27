@@ -467,7 +467,7 @@ fn the_load_call_carries_the_contract_fields() {
 #[test]
 fn the_table_reports_version_0_6_in_16_bytes() {
     assert_eq!(HOST.api_major, 0);
-    assert_eq!(HOST.api_minor, 6);
+    assert_eq!(HOST.api_minor, 7);
     assert_eq!(HOST.reserved, 0);
     assert_eq!(HOST.size, 16);
     assert_eq!(usize::try_from(HOST.size), Ok(size_of::<RvHost>()));

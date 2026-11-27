@@ -27,7 +27,7 @@
 //! - The entry point never unwinds: it has no `unwrap`, `expect`,
 //!   indexing, or arithmetic that can panic.
 //! - `RV_PLUGIN_LOAD` loads only when the `RvHost` table reports exactly
-//!   version 0.6, and checks that before it reads `args`.
+//!   version 0.7, and checks that before it reads `args`.
 //! - `RV_PLUGIN_LOAD` describes the Plugin exactly once, as `test-plugin`
 //!   at `0.1.0`, inserts its one Pack, and sets the instance pointer only
 //!   when both succeed. A failing load frees what it made, and so does a
@@ -128,7 +128,7 @@ const RV_TOOL_CHANGES_FILES: RvToolFlags = 1;
 /// The contract's major version, which the `RvHost` table must report.
 const RV_API_MAJOR: u32 = 0;
 /// The contract's minor version, which the `RvHost` table must report.
-const RV_API_MINOR: u32 = 6;
+const RV_API_MINOR: u32 = 7;
 
 /// The name this Plugin gives `describe_plugin`.
 const NAME: &str = "test-plugin";
@@ -734,7 +734,7 @@ unsafe fn args<'a, T>(call: *mut RvCall) -> Result<&'a T, RvStatus> {
     Ok(unsafe { &*args })
 }
 
-/// The fixture's Plugin entry point, speaking contract 0.6.
+/// The fixture's Plugin entry point, speaking contract 0.7.
 ///
 /// # Safety
 /// `call` must point to a valid `RvCall` made as the C contract requires:

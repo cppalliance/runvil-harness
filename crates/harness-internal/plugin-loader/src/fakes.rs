@@ -436,7 +436,7 @@ pub(crate) fn size_u32<T>() -> u32 {
 }
 
 /// Whether `call` carries the fields the contract gives a call that sends
-/// `verb` in version 0.6, and its table says the contract's version. Each
+/// `verb` in version 0.7, and its table says the contract's version. Each
 /// verb carries the Plugin's pointers the contract names for it and no
 /// others, and its own arguments struct, with a `ctx`, or no arguments.
 pub(crate) fn contract_holds(call: *mut RvCall, verb: RvVerb) -> bool {
@@ -472,7 +472,7 @@ pub(crate) fn contract_holds(call: *mut RvCall, verb: RvVerb) -> bool {
         && args_hold
         && table.size == size_u32::<RvHost>()
         && table.api_major == 0
-        && table.api_minor == 6
+        && table.api_minor == 7
         && table.reserved == 0
 }
 

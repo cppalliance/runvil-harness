@@ -347,7 +347,7 @@ fn host_with(size: u32, api_major: u32, api_minor: u32) -> RvHost {
 
 /// A table the way the loader builds it.
 fn host() -> RvHost {
-    host_with(size_of_u32::<RvHost>(), 0, 6)
+    host_with(size_of_u32::<RvHost>(), 0, 7)
 }
 
 /// The `ctx` the tests hand the Plugin. The Plugin never reads through it,
@@ -726,7 +726,7 @@ fn the_verbs_and_the_version_keep_their_numbers() {
     assert_eq!(RV_TOOL_CALL, 5);
     assert_eq!(RV_TOOL_CANCEL, 6);
     assert_eq!(RV_API_MAJOR, 0);
-    assert_eq!(RV_API_MINOR, 6);
+    assert_eq!(RV_API_MINOR, 7);
 }
 
 #[test]
@@ -813,16 +813,17 @@ fn a_host_reporting_version_0_2_is_unsupported_and_leaves_no_instance() {
 }
 
 #[test]
-fn a_table_that_is_too_short_or_not_version_0_6_is_unsupported_and_leaves_no_instance() {
+fn a_table_that_is_too_short_or_not_version_0_7_is_unsupported_and_leaves_no_instance() {
     let full = size_of_u32::<RvHost>();
-    let short = [0, 4, 8, 12, full - 1].map(|size| (size, 0, 6));
+    let short = [0, 4, 8, 12, full - 1].map(|size| (size, 0, 7));
     let versions = [
-        (1, 6),
-        (2, 6),
-        (u32::MAX, 6),
+        (1, 7),
+        (2, 7),
+        (u32::MAX, 7),
         (0, 0),
         (0, 5),
-        (0, 7),
+        (0, 6),
+        (0, 8),
         (0, u32::MAX),
     ]
     .map(|(major, minor)| (full, major, minor));
@@ -843,7 +844,7 @@ fn a_table_that_is_too_short_or_not_version_0_6_is_unsupported_and_leaves_no_ins
 
 #[test]
 fn a_table_longer_than_the_one_the_fixture_knows_still_loads() {
-    let host = host_with(size_of_u32::<RvHost>() + 32, 0, 6);
+    let host = host_with(size_of_u32::<RvHost>() + 32, 0, 7);
     let mut call = loaded(&host);
     assert!(!call.plugin.is_null());
     assert_eq!(unload(&mut call), RV_OK);
@@ -875,7 +876,7 @@ fn short_load_arguments_are_unsupported_and_leave_no_instance() {
 }
 
 #[test]
-fn a_host_that_is_not_0_6_is_rejected_before_null_args_are_noticed() {
+fn a_host_that_is_not_0_7_is_rejected_before_null_args_are_noticed() {
     let (status, _call) = send_verb(
         RV_PLUGIN_LOAD,
         &host_with(size_of_u32::<RvHost>(), 0, 2),

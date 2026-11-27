@@ -1731,8 +1731,8 @@ dependencies = [
 
 [[package]]
 name = "runvil-plugin-sys"
-version = "0.6.0"
-source = "git+https://github.com/cppalliance/runvil-plugin-api?rev=74f9e08ba9cc524520fb4c90bd8ac372ba7f303f#74f9e08ba9cc524520fb4c90bd8ac372ba7f303f"
+version = "0.7.0"
+source = "git+https://github.com/cppalliance/runvil-plugin-api?rev=42c109fdc8bffd15ee6b6d7afcc04383aa27373a#42c109fdc8bffd15ee6b6d7afcc04383aa27373a"
 
 [[package]]
 name = "runvil-prompt"
